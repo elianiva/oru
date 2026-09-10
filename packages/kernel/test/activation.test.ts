@@ -117,7 +117,6 @@ describe('kernel activation', () => {
           expect(blocked.blocked.get('lonely')?.missing).toEqual(['oru/missing'])
 
           yield* host.activate(loggingPlugin)
-          yield* host.activate(greeterPlugin)
 
           const live = yield* host.graph
           expect(live.active.has('greeter')).toBe(true)

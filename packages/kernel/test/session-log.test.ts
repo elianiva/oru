@@ -103,4 +103,42 @@ describe('session log', () => {
       }),
     )
   })
+
+  it('records a consumer flipping live when its provider appears and disappears', async () => {
+    await runSession(
+      Effect.gen(function* () {
+        const host = yield* makeHost([greeterPlugin])
+        const log = yield* SessionLog
+
+        const blocked = yield* host.graph
+        expect(blocked.active.has('greeter')).toBe(false)
+        expect(yield* log.entries).toEqual([])
+
+        yield* host.activate(loggingPlugin)
+
+        const live = yield* host.graph
+        expect(live.active.has('logging')).toBe(true)
+        expect(live.active.has('greeter')).toBe(true)
+
+        const up = yield* log.entries
+        expect(up.map((event) => [event._tag, event.plugin])).toEqual([
+          ['plugin/activated', 'logging'],
+          ['plugin/activated', 'greeter'],
+        ])
+
+        yield* host.deactivate('logging')
+        yield* host.activate(loggingPlugin)
+
+        const again = yield* log.entries
+        expect(again.map((event) => [event._tag, event.plugin])).toEqual([
+          ['plugin/activated', 'logging'],
+          ['plugin/activated', 'greeter'],
+          ['plugin/deactivated', 'greeter'],
+          ['plugin/deactivated', 'logging'],
+          ['plugin/activated', 'logging'],
+          ['plugin/activated', 'greeter'],
+        ])
+      }),
+    )
+  })
 })

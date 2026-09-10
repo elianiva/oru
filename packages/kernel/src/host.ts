@@ -1,4 +1,17 @@
-import { Context, Effect, Exit, Option, PubSub, Queue, Ref, Schema, Scope, Stream } from 'effect'
+import {
+  Context,
+  Effect,
+  Exit,
+  Option,
+  PubSub,
+  Queue,
+  Ref,
+  Result,
+  Schema,
+  Scope,
+  Semaphore,
+  Stream,
+} from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { dataContributionsOf, serviceTokensOf, type ContributionKind } from './contribution.ts'
 import {
@@ -74,9 +87,15 @@ export const makeHost = (
     const emit = (event: HostEvent) =>
       PubSub.publish(pubsub, event).pipe(Effect.andThen(Queue.take(recorded)))
     const registry = yield* openRegistry(pubsub)
+    const lock = Semaphore.makeUnsafe(1)
+    const known = new Map<PluginId, AnyPlugin>()
+    for (const plugin of plugins) {
+      if (!known.has(plugin.id)) known.set(plugin.id, plugin)
+    }
     const active = yield* Ref.make<ReadonlyMap<PluginId, Activation>>(new Map())
     const blocked = yield* Ref.make<ReadonlyMap<PluginId, CoeffectsUnmet>>(new Map())
-    const byId = yield* Ref.make<ReadonlyMap<PluginId, AnyPlugin>>(new Map())
+    const byId = yield* Ref.make<ReadonlyMap<PluginId, AnyPlugin>>(known)
+    const desired = yield* Ref.make<ReadonlySet<PluginId>>(new Set(known.keys()))
     const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
     const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
 
@@ -84,7 +103,36 @@ export const makeHost = (
       serviceTokensOf(plugin.provides)
     const dataContributions = (plugin: AnyPlugin) => dataContributionsOf(plugin.provides)
 
-    function activate(plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> {
+    const remember = (plugin: AnyPlugin): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        yield* Ref.update(byId, (map) => {
+          if (map.has(plugin.id)) return map
+          return new Map(map).set(plugin.id, plugin)
+        })
+        yield* Ref.update(desired, (set) => new Set(set).add(plugin.id))
+      })
+
+    const refreshBlocked = (): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const liveProviders = yield* registry.providers
+        const current = yield* Ref.get(active)
+        const want = yield* Ref.get(desired)
+        const pluginsById = yield* Ref.get(byId)
+        const next = new Map<PluginId, CoeffectsUnmet>()
+        for (const id of want) {
+          if (current.has(id)) continue
+          const plugin = pluginsById.get(id)
+          if (plugin === undefined) continue
+          const missing = plugin.needs.flatMap((token) => {
+            const key = serviceId(token)
+            return liveProviders.has(key) ? [] : [key]
+          })
+          if (missing.length > 0) next.set(id, new CoeffectsUnmet({ plugin: id, missing }))
+        }
+        yield* Ref.set(blocked, next)
+      })
+
+    function install(plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> {
       return Effect.gen(function* () {
         const current = yield* Ref.get(active)
         const existing = current.get(plugin.id)
@@ -191,7 +239,39 @@ export const makeHost = (
       })
     }
 
-    function deactivate(id: PluginId): Effect.Effect<void> {
+    const reconcile = (): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        let progressing = true
+        while (progressing) {
+          progressing = false
+          const liveProviders = yield* registry.providers
+          const current = yield* Ref.get(active)
+          const want = yield* Ref.get(desired)
+          const pluginsById = yield* Ref.get(byId)
+          for (const id of want) {
+            if (current.has(id)) continue
+            const plugin = pluginsById.get(id)
+            if (plugin === undefined) continue
+            if (!plugin.needs.every((token) => liveProviders.has(serviceId(token)))) continue
+            const result = yield* Effect.result(install(plugin))
+            if (Result.isSuccess(result)) progressing = true
+            break
+          }
+        }
+        yield* refreshBlocked()
+      })
+
+    const activate = (plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          yield* remember(plugin)
+          const result = yield* Effect.result(install(plugin))
+          yield* reconcile()
+          return yield* Effect.fromResult(result)
+        }),
+      )
+
+    function deactivateBody(id: PluginId): Effect.Effect<void> {
       return Effect.gen(function* () {
         const current = yield* Ref.get(active)
         if (!current.has(id)) return
@@ -203,7 +283,7 @@ export const makeHost = (
           if (otherPlugin === undefined) return false
           return otherPlugin.needs.some((token) => liveProviders.get(serviceId(token)) === id)
         })
-        for (const dependent of dependents) yield* deactivate(dependent)
+        for (const dependent of dependents) yield* deactivateBody(dependent)
 
         const scopesNow = yield* Ref.get(scopes)
         const scope = scopesNow.get(id)
@@ -211,6 +291,19 @@ export const makeHost = (
         yield* Scope.close(scope, Exit.void)
       })
     }
+
+    const deactivate = (id: PluginId): Effect.Effect<void> =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          yield* Ref.update(desired, (set) => {
+            const next = new Set(set)
+            next.delete(id)
+            return next
+          })
+          yield* deactivateBody(id)
+          yield* reconcile()
+        }),
+      )
 
     const graph: Effect.Effect<Graph> = Effect.gen(function* () {
       const a = yield* Ref.get(active)
@@ -235,7 +328,7 @@ export const makeHost = (
     const plan = yield* Effect.fromResult(resolve(plugins, new Set()))
     yield* Ref.set(blocked, plan.blocked)
     for (const plugin of plan.order) {
-      yield* activate(plugin).pipe(Effect.ignore)
+      yield* install(plugin).pipe(Effect.ignore)
     }
 
     return {
