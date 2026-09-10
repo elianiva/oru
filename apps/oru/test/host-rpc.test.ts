@@ -25,6 +25,22 @@ describe('host rpc', () => {
 
           const up = yield* client.SetLive({ plugin: loggingPlugin.id, live: true })
           expect(up.active.map((panel) => panel.plugin).sort()).toEqual(['greeter', 'logging'])
+          expect(up.active.map((panel) => panel.title).sort()).toEqual(['Greet', 'Log'])
+        }).pipe(Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('reads panel titles from plugin.ui when the titles map is empty', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost(fixturePlugins)
+          const client = yield* RpcTest.makeClient(HostRpc).pipe(
+            Effect.provide(HostRpc.toLayer(hostRpcHandlers(host, fixturePlugins, new Map()))),
+          )
+          const boot = yield* client.GetGraph()
+          expect(boot.active.map((panel) => panel.title).sort()).toEqual(['Greet', 'Log'])
         }).pipe(Effect.provide(EventJournal.layerMemory)),
       ),
     )

@@ -1,7 +1,8 @@
-import { Effect, Schema, Stream } from 'effect'
+import { Effect, Option, Schema, Stream } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
 import type { AnyPlugin, Host, PluginId } from '@oru/kernel'
 import { PluginId as PluginIdSchema } from '@oru/kernel'
+import { decodePanelUi } from './fixtures.ts'
 import { ViewGraph } from './view-graph.ts'
 
 export const HostRpc = RpcGroup.make(
@@ -13,15 +14,29 @@ export const HostRpc = RpcGroup.make(
   }),
 )
 
+const titleOf = (
+  plugin: AnyPlugin | undefined,
+  pluginId: PluginId,
+  titles: ReadonlyMap<string, string>,
+) => {
+  if (plugin !== undefined) {
+    const ui = decodePanelUi(plugin.ui)
+    if (Option.isSome(ui)) return ui.value.title
+  }
+  return titles.get(pluginId) ?? pluginId
+}
+
 export const viewGraphOf = Effect.fnUntraced(function* (
   host: Host,
   titles: ReadonlyMap<string, string>,
+  plugins: readonly AnyPlugin[],
 ) {
+  const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
   const graph = yield* host.graph
   return {
     active: [...graph.active.keys()].map((plugin) => ({
       plugin,
-      title: titles.get(plugin) ?? plugin,
+      title: titleOf(byId.get(plugin), plugin, titles),
     })),
   }
 })
@@ -32,7 +47,7 @@ export const hostRpcHandlers = (
   titles: ReadonlyMap<string, string>,
 ) => {
   const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
-  const snapshot = () => viewGraphOf(host, titles)
+  const snapshot = () => viewGraphOf(host, titles, plugins)
 
   return {
     GetGraph: () => snapshot(),

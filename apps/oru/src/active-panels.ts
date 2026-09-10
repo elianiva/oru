@@ -1,12 +1,17 @@
+import { HashMap, Option } from 'effect'
+
 export const syncActivePanels = <P>(
-  current: ReadonlyMap<string, P>,
+  current: HashMap.HashMap<string, P>,
   active: ReadonlySet<string>,
   create: (id: string) => P,
-): ReadonlyMap<string, P> => {
-  const next = new Map<string, P>()
+): HashMap.HashMap<string, P> => {
+  let next = HashMap.empty<string, P>()
   for (const id of active) {
-    const existing = current.get(id)
-    next.set(id, existing ?? create(id))
+    next = HashMap.set(
+      next,
+      id,
+      Option.getOrElse(HashMap.get(current, id), () => create(id)),
+    )
   }
   return next
 }

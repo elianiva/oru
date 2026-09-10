@@ -1,4 +1,4 @@
-import { Context, Effect } from 'effect'
+import { Context, Effect, Option, Schema } from 'effect'
 import { definePlugin, defineService, provide } from '@oru/kernel'
 
 interface LoggerService {
@@ -13,9 +13,12 @@ interface GreeterService {
 
 export const Greeter = defineService<GreeterService>('oru/greeter')
 
-export interface PanelUi {
-  readonly title: string
-}
+export const PanelUi = Schema.Struct({
+  title: Schema.String,
+})
+export type PanelUi = typeof PanelUi.Type
+
+export const decodePanelUi = Schema.decodeUnknownOption(PanelUi)
 
 export const loggingPlugin = definePlugin({
   id: 'logging',
@@ -43,7 +46,11 @@ export const greeterPlugin = definePlugin({
 
 export const fixturePlugins = [greeterPlugin, loggingPlugin]
 
-export const fixtureTitles: ReadonlyMap<string, string> = new Map([
-  ['logging', 'Log'],
-  ['greeter', 'Greet'],
-])
+export const fixtureTitles: ReadonlyMap<string, string> = new Map(
+  fixturePlugins.flatMap((plugin) =>
+    Option.match(decodePanelUi(plugin.ui), {
+      onNone: () => [],
+      onSome: (ui) => [[plugin.id, ui.title] as const],
+    }),
+  ),
+)
