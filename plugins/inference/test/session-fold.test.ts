@@ -1,16 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { MessageAppended, ToolCompleted, ToolRequested, TurnStarted } from '@oru/kernel'
+import {
+  MessageAppended,
+  ThreadCreated,
+  ToolCompleted,
+  ToolRequested,
+  TurnStarted,
+} from '@oru/kernel'
 import { foldThread, workOf } from '../src/session-fold.ts'
 
 describe('session fold', () => {
   it('calls the model after a user message, runs a tool, then calls again', () => {
+    const created = ThreadCreated.make({ id: 'e0', thread: 't1' })
+    expect(workOf(foldThread([created], 't1'))).toEqual({ _tag: 'Idle' })
+
     const user = MessageAppended.make({
       id: 'e1',
       thread: 't1',
       role: 'user',
       body: 'hello',
     })
-    expect(workOf(foldThread([user], 't1'))).toEqual({ _tag: 'CallModel', turn: undefined })
+    expect(workOf(foldThread([created, user], 't1'))).toEqual({
+      _tag: 'CallModel',
+      turn: undefined,
+    })
 
     const turn = TurnStarted.make({ id: 'e2', thread: 't1', turn: 'turn-1' })
     const requested = ToolRequested.make({

@@ -29,6 +29,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
     switch (event._tag) {
       case 'plugin/activated':
       case 'plugin/deactivated':
+      case 'thread/created':
         break
       case 'message/appended':
         if (event.thread !== thread) break

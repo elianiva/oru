@@ -11,6 +11,11 @@ export const PluginDeactivated = Schema.TaggedStruct('plugin/deactivated', {
   scope: PluginScope,
 })
 
+export const ThreadCreated = Schema.TaggedStruct('thread/created', {
+  id: EventId,
+  thread: ThreadId,
+})
+
 export const MessageRole = Schema.Literals(['user', 'assistant', 'tool'])
 export type MessageRole = Schema.Schema.Type<typeof MessageRole>
 
@@ -49,6 +54,7 @@ export const ToolCompleted = Schema.TaggedStruct('tool/completed', {
 export const SessionEvent = Schema.Union([
   PluginActivated,
   PluginDeactivated,
+  ThreadCreated,
   TurnStarted,
   MessageAppended,
   ToolRequested,

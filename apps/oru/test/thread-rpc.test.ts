@@ -5,12 +5,13 @@ import { RpcTest } from 'effect/unstable/rpc'
 import {
   contribute,
   definePlugin,
+  foldNamedThreads,
   makeHost,
   provide,
   SessionLog,
   sessionLogLayer,
 } from '@oru/kernel'
-import { inferencePlugin, Model, ToolKind } from '@oru/inference'
+import { foldThread, inferencePlugin, Model, ToolKind, workOf } from '@oru/inference'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -61,6 +62,30 @@ const fakeModelPlugin = definePlugin({
 })
 
 describe('thread rpc', () => {
+  it('records CreateThread as a journal fact without SendMessage', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([echoToolPlugin, fakeModelPlugin, inferencePlugin])
+          const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
+            Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
+          )
+          const created = yield* client.CreateThread()
+          const log = yield* SessionLog
+          const entries = yield* log.entries
+          const threadFacts = entries.filter(
+            (event) => event._tag !== 'plugin/activated' && event._tag !== 'plugin/deactivated',
+          )
+          expect(threadFacts).toEqual([
+            expect.objectContaining({ _tag: 'thread/created', thread: created.threadId }),
+          ])
+          expect(foldNamedThreads(entries).has(created.threadId)).toBe(true)
+          expect(workOf(foldThread(entries, created.threadId))).toEqual({ _tag: 'Idle' })
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
   it('sends a message and watches turn and tool facts for that thread', async () => {
     await Effect.runPromise(
       Effect.scoped(

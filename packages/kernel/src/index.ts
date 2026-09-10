@@ -11,11 +11,12 @@ export {
   MessageAppended,
   MessageRole,
   SessionEvent,
+  ThreadCreated,
   ToolCompleted,
   ToolRequested,
   TurnStarted,
 } from './session-event.ts'
-export { foldActivePlugins } from './session-fold.ts'
+export { foldActivePlugins, foldNamedThreads } from './session-fold.ts'
 export {
   SessionLog,
   appendHostEvent,
