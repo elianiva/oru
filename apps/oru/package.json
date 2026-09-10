@@ -1,0 +1,23 @@
+{
+  "name": "oru",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@foldkit/ui": "0.158.2",
+    "@oru/kernel": "workspace:*",
+    "effect": "4.0.0-rc.112",
+    "foldkit": "0.158.2"
+  },
+  "devDependencies": {
+    "@foldkit/vite-plugin": "0.20.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}
