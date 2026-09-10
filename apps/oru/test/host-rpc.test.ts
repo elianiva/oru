@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Effect } from 'effect'
+import { Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { makeHost } from '@oru/kernel'
@@ -25,6 +25,28 @@ describe('host rpc', () => {
 
           const up = yield* client.SetLive({ plugin: loggingPlugin.id, live: true })
           expect(up.active.map((panel) => panel.plugin).sort()).toEqual(['greeter', 'logging'])
+        }).pipe(Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('watches the graph stream then sees SetLive remove the consumer', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost(fixturePlugins)
+          const client = yield* RpcTest.makeClient(HostRpc).pipe(
+            Effect.provide(HostRpc.toLayer(hostRpcHandlers(host, fixturePlugins, fixtureTitles))),
+          )
+          const watchFiber = yield* client.WatchGraph().pipe(
+            Stream.filter((graph) => graph.active.length === 0),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* client.SetLive({ plugin: loggingPlugin.id, live: false })
+          const streamed = yield* Fiber.join(watchFiber)
+          expect(streamed[0]?.active).toEqual([])
         }).pipe(Effect.provide(EventJournal.layerMemory)),
       ),
     )
