@@ -1,6 +1,12 @@
-import { Effect } from 'effect'
+import { Effect, Match } from 'effect'
 import type { SessionEvent } from '@oru/kernel'
-import type { ModelMessage, ModelTool } from './model.ts'
+import {
+  AssistantMessage,
+  ToolMessage,
+  UserMessage,
+  type ModelMessage,
+  type ModelTool,
+} from './model.ts'
 import type { PendingCall } from './session-fold.ts'
 import type { ToolContribution, ToolOutcome } from './tool-kind.ts'
 
@@ -10,24 +16,30 @@ export const messagesOf = (
 ): readonly ModelMessage[] => {
   const messages: ModelMessage[] = []
   for (const event of events) {
-    switch (event._tag) {
-      case 'message/appended':
-        if (event.thread !== thread) break
-        if (event.role === 'user') messages.push({ _tag: 'user', body: event.body })
-        if (event.role === 'assistant') messages.push({ _tag: 'assistant', body: event.body })
-        break
-      case 'tool/completed':
-        if (event.thread !== thread) break
-        messages.push({
-          _tag: 'tool',
-          name: event.name,
-          call: event.call,
-          result: event.result,
-        })
-        break
-      default:
-        break
-    }
+    Match.value(event).pipe(
+      Match.tagsExhaustive({
+        'message/appended': (event) => {
+          if (event.thread !== thread) return
+          if (event.role === 'user') messages.push(UserMessage.make({ body: event.body }))
+          if (event.role === 'assistant') messages.push(AssistantMessage.make({ body: event.body }))
+        },
+        'tool/completed': (event) => {
+          if (event.thread !== thread) return
+          messages.push(
+            ToolMessage.make({
+              name: event.name,
+              call: event.call,
+              result: event.result,
+            }),
+          )
+        },
+        'plugin/activated': () => {},
+        'plugin/deactivated': () => {},
+        'thread/created': () => {},
+        'turn/started': () => {},
+        'tool/requested': () => {},
+      }),
+    )
   }
   return messages
 }

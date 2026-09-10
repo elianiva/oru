@@ -13,19 +13,18 @@ export const HostRpc = RpcGroup.make(
   }),
 )
 
-export const viewGraphOf = (
+export const viewGraphOf = Effect.fnUntraced(function* (
   host: Host,
   titles: ReadonlyMap<string, string>,
-): Effect.Effect<ViewGraph> =>
-  Effect.gen(function* () {
-    const graph = yield* host.graph
-    return {
-      active: [...graph.active.keys()].map((plugin) => ({
-        plugin,
-        title: titles.get(plugin) ?? plugin,
-      })),
-    }
-  })
+) {
+  const graph = yield* host.graph
+  return {
+    active: [...graph.active.keys()].map((plugin) => ({
+      plugin,
+      title: titles.get(plugin) ?? plugin,
+    })),
+  }
+})
 
 export const hostRpcHandlers = (
   host: Host,

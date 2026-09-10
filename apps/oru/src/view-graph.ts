@@ -5,9 +5,9 @@ export const Panel = Schema.Struct({
   plugin: PluginId,
   title: Schema.String,
 })
-export type Panel = Schema.Schema.Type<typeof Panel>
+export type Panel = typeof Panel.Type
 
 export const ViewGraph = Schema.Struct({
   active: Schema.Array(Panel),
 })
-export type ViewGraph = Schema.Schema.Type<typeof ViewGraph>
+export type ViewGraph = typeof ViewGraph.Type

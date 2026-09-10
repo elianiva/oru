@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Deferred, Effect, Fiber, Queue, Schema, Stream, type Scope } from 'effect'
+import { Context, Deferred, Effect, Fiber, Match, Queue, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
   contribute,
@@ -35,20 +35,20 @@ const echoToolPlugin = definePlugin({
   ],
 })
 
-const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] => {
-  const facts: SessionEvent[] = []
-  for (const event of events) {
-    switch (event._tag) {
-      case 'plugin/activated':
-      case 'plugin/deactivated':
-        break
-      default:
-        if (event.thread === thread) facts.push(event)
-        break
-    }
-  }
-  return facts
-}
+const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
+  events.filter((event) =>
+    Match.value(event).pipe(
+      Match.tagsExhaustive({
+        'plugin/activated': () => false,
+        'plugin/deactivated': () => false,
+        'thread/created': (event) => event.thread === thread,
+        'turn/started': (event) => event.thread === thread,
+        'message/appended': (event) => event.thread === thread,
+        'tool/requested': (event) => event.thread === thread,
+        'tool/completed': (event) => event.thread === thread,
+      }),
+    ),
+  )
 
 const run = <A, E>(
   effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,

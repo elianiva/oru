@@ -7,7 +7,7 @@ import type {
 } from './contribution.ts'
 import type { PluginId, PluginScope } from './primitives.ts'
 import type { SessionLog } from './session-log.ts'
-import type { AnyServiceToken, ServiceOf } from './service.ts'
+import type { AnyServiceToken, IdentifierOf, ServiceOf } from './service.ts'
 
 export interface PluginContext<Needs extends readonly AnyServiceToken[]> {
   readonly id: PluginId
@@ -27,7 +27,7 @@ export interface ServerFacet<
   ) => Effect.Effect<
     Context.Context<ServiceProvisions<Provides>>,
     unknown,
-    ServiceOf<Needs[number]> | Scope.Scope | SessionLog
+    IdentifierOf<Needs[number]> | Scope.Scope | SessionLog
   >
 }
 

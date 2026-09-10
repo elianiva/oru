@@ -22,5 +22,6 @@ export {
   appendHostEvent,
   fromJournal,
   layer as sessionLogLayer,
+  type SessionLogContract,
   type SessionLogError,
 } from './session-log.ts'

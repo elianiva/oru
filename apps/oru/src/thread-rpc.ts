@@ -1,4 +1,4 @@
-import { Effect, Schema, Stream } from 'effect'
+import { Clock, Effect, Match, Random, Schema, Stream } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
 import { SessionEvent, SessionLog, ThreadCreated, ThreadId, type Host } from '@oru/kernel'
 import { Inference } from '@oru/inference'
@@ -16,32 +16,31 @@ export const ThreadRpc = RpcGroup.make(
   }),
 )
 
-const newId = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+const newId = Effect.fnUntraced(function* () {
+  const now = yield* Clock.currentTimeMillis
+  const n = yield* Random.next
+  return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
+})
 
-const threadOf = (event: SessionEvent): string | undefined => {
-  switch (event._tag) {
-    case 'plugin/activated':
-    case 'plugin/deactivated':
-    case 'thread/created':
-      return undefined
-    case 'turn/started':
-    case 'message/appended':
-    case 'tool/requested':
-    case 'tool/completed':
-      return event.thread
-    default: {
-      const _exhaustive: never = event
-      return _exhaustive
-    }
-  }
-}
+const threadOf = (event: SessionEvent) =>
+  Match.value(event).pipe(
+    Match.tagsExhaustive({
+      'plugin/activated': () => undefined,
+      'plugin/deactivated': () => undefined,
+      'thread/created': () => undefined,
+      'turn/started': (event) => event.thread,
+      'message/appended': (event) => event.thread,
+      'tool/requested': (event) => event.thread,
+      'tool/completed': (event) => event.thread,
+    }),
+  )
 
 export const threadRpcHandlers = (host: Host) => ({
   CreateThread: () =>
     Effect.gen(function* () {
       const log = yield* SessionLog
-      const threadId = newId()
-      yield* log.write(ThreadCreated.make({ id: newId(), thread: threadId }))
+      const threadId = yield* newId()
+      yield* log.write(ThreadCreated.make({ id: yield* newId(), thread: threadId }))
       return { threadId }
     }).pipe(Effect.orDie),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>

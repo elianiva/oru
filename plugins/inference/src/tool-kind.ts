@@ -1,10 +1,11 @@
-import type { Effect } from 'effect'
+import { type Effect, Schema } from 'effect'
 import { defineContributionKind } from '@oru/kernel'
 
-export interface ToolOutcome {
-  readonly ok: boolean
-  readonly result: string
-}
+export const ToolOutcome = Schema.Struct({
+  ok: Schema.Boolean,
+  result: Schema.String,
+})
+export type ToolOutcome = typeof ToolOutcome.Type
 
 export interface ToolContribution {
   readonly name: string

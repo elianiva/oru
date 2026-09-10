@@ -17,7 +17,7 @@ export const ThreadCreated = Schema.TaggedStruct('thread/created', {
 })
 
 export const MessageRole = Schema.Literals(['user', 'assistant', 'tool'])
-export type MessageRole = Schema.Schema.Type<typeof MessageRole>
+export type MessageRole = typeof MessageRole.Type
 
 export const TurnStarted = Schema.TaggedStruct('turn/started', {
   id: EventId,
@@ -60,4 +60,4 @@ export const SessionEvent = Schema.Union([
   ToolRequested,
   ToolCompleted,
 ])
-export type SessionEvent = Schema.Schema.Type<typeof SessionEvent>
+export type SessionEvent = typeof SessionEvent.Type

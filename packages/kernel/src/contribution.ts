@@ -1,6 +1,6 @@
 import { Data, Predicate } from 'effect'
 import type { PluginId } from './primitives.ts'
-import type { AnyServiceToken, ServiceOf } from './service.ts'
+import type { AnyServiceToken, IdentifierOf } from './service.ts'
 
 export interface ContributionEntry<C> {
   readonly plugin: PluginId
@@ -45,7 +45,7 @@ export const isDataContribution = (c: Contribution): c is DataContribution =>
 
 type TokenOf<C> = C extends ServiceContribution<infer T> ? T : never
 
-export type ServiceProvisions<P extends readonly Contribution[]> = ServiceOf<TokenOf<P[number]>>
+export type ServiceProvisions<P extends readonly Contribution[]> = IdentifierOf<TokenOf<P[number]>>
 
 export const serviceTokensOf = (
   contributions: readonly Contribution[],

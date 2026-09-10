@@ -4,7 +4,7 @@ import { PluginId, TokenId } from './primitives.ts'
 export const ServiceMissing = Schema.TaggedStruct('ServiceMissing', { token: TokenId })
 
 export const MismatchProblem = Schema.Union([ServiceMissing])
-export type MismatchProblem = Schema.Schema.Type<typeof MismatchProblem>
+export type MismatchProblem = typeof MismatchProblem.Type
 
 export class ProviderUnavailable extends Schema.TaggedError<ProviderUnavailable>()(
   'ProviderUnavailable',
@@ -44,5 +44,8 @@ export class GraphCycle extends Schema.TaggedError<GraphCycle>()('GraphCycle', {
   plugins: Schema.Array(PluginId),
 }) {}
 
-export type ActivationError = CoeffectsUnmet | DeclarationMismatch | SetupFailed
-export type BootError = DuplicateProvider | GraphCycle
+export const ActivationError = Schema.Union([CoeffectsUnmet, DeclarationMismatch, SetupFailed])
+export type ActivationError = typeof ActivationError.Type
+
+export const BootError = Schema.Union([DuplicateProvider, GraphCycle])
+export type BootError = typeof BootError.Type

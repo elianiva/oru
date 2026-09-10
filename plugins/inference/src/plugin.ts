@@ -9,15 +9,14 @@ export const inferencePlugin = definePlugin({
   needs: [Model],
   provides: [provide(Inference)],
   server: {
-    setup: (ctx) =>
-      Effect.gen(function* () {
-        const log = yield* SessionLog
-        const model = ctx.service(Model)
-        const loadTools = ctx
-          .contributions(ToolKind)
-          .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
-        const inference = yield* openInference(log, model, loadTools)
-        return Context.make(Inference, inference)
-      }),
+    setup: Effect.fnUntraced(function* (ctx) {
+      const log = yield* SessionLog
+      const model = ctx.service(Model)
+      const loadTools = ctx
+        .contributions(ToolKind)
+        .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
+      const inference = openInference(log, model, loadTools)
+      return Context.make(Inference, inference)
+    }),
   },
 })

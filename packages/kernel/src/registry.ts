@@ -38,56 +38,53 @@ export const serviceFacade = <S>(get: Effect.Effect<S>): S => {
   return facade as S
 }
 
-export const openRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Registry> =>
-  Effect.gen(function* () {
-    const cells = yield* Ref.make<ReadonlyMap<string, Cell>>(new Map())
+export const openRegistry = Effect.fnUntraced(function* (events: PubSub.PubSub<HostEvent>) {
+  const cells = yield* Ref.make<ReadonlyMap<string, Cell>>(new Map())
 
-    const get = <S>(token: ServiceToken<S>): Effect.Effect<S> =>
-      Effect.gen(function* () {
-        const map = yield* Ref.get(cells)
-        const cell = Option.fromNullishOr(map.get(serviceId(token)))
-        if (Option.isNone(cell))
-          return yield* Effect.die(new ProviderUnavailable({ token: serviceId(token) }))
-        const value = yield* Ref.get(cell.value.impl)
-        // SAFETY: provide stores the value under the same token key get reads
-        return value as ServiceOf<typeof token>
-      })
-
-    const has = (token: AnyServiceToken): Effect.Effect<boolean> =>
-      Ref.get(cells).pipe(Effect.map((map) => map.has(serviceId(token))))
-
-    const providers = Ref.get(cells).pipe(
-      Effect.map((map) => {
-        const out = new Map<string, PluginId>()
-        for (const [key, cell] of map) out.set(key, cell.owner)
-        return out
-      }),
-    )
-
-    const provide = <S>(token: ServiceToken<S>, value: S, owner: PluginId): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const impl = yield* Ref.make<unknown>(value)
-        yield* Ref.update(cells, (map) => {
-          const next = new Map(map)
-          next.set(serviceId(token), { owner, impl })
-          return next
-        })
-      })
-
-    const remove = (token: AnyServiceToken, owner: PluginId): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        yield* Ref.update(cells, (map) => {
-          const cell = map.get(serviceId(token))
-          if (cell === undefined || cell.owner !== owner) return map
-          const next = new Map(map)
-          next.delete(serviceId(token))
-          return next
-        })
-        yield* PubSub.publish(
-          events,
-          ProviderRemoved.make({ token: serviceId(token), plugin: owner }),
-        )
-      })
-
-    return { events: Stream.fromPubSub(events), get, has, providers, provide, remove }
+  const get = Effect.fnUntraced(function* <S>(token: ServiceToken<S>) {
+    const map = yield* Ref.get(cells)
+    const cell = Option.fromNullishOr(map.get(serviceId(token)))
+    if (Option.isNone(cell))
+      return yield* Effect.die(new ProviderUnavailable({ token: serviceId(token) }))
+    const value = yield* Ref.get(cell.value.impl)
+    // SAFETY: provide stores the value under the same token key get reads
+    return value as ServiceOf<typeof token>
   })
+
+  const has = (token: AnyServiceToken): Effect.Effect<boolean> =>
+    Ref.get(cells).pipe(Effect.map((map) => map.has(serviceId(token))))
+
+  const providers = Ref.get(cells).pipe(
+    Effect.map((map) => {
+      const out = new Map<string, PluginId>()
+      for (const [key, cell] of map) out.set(key, cell.owner)
+      return out
+    }),
+  )
+
+  const provide = Effect.fnUntraced(function* <S>(
+    token: ServiceToken<S>,
+    value: S,
+    owner: PluginId,
+  ) {
+    const impl = yield* Ref.make<unknown>(value)
+    yield* Ref.update(cells, (map) => {
+      const next = new Map(map)
+      next.set(serviceId(token), { owner, impl })
+      return next
+    })
+  })
+
+  const remove = Effect.fnUntraced(function* (token: AnyServiceToken, owner: PluginId) {
+    yield* Ref.update(cells, (map) => {
+      const cell = map.get(serviceId(token))
+      if (cell === undefined || cell.owner !== owner) return map
+      const next = new Map(map)
+      next.delete(serviceId(token))
+      return next
+    })
+    yield* PubSub.publish(events, ProviderRemoved.make({ token: serviceId(token), plugin: owner }))
+  })
+
+  return { events: Stream.fromPubSub(events), get, has, providers, provide, remove }
+})

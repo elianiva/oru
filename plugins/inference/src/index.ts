@@ -8,10 +8,13 @@ export {
   type ModelTool,
 } from './model.ts'
 export {
+  Idle,
+  CallModel,
+  RunTool,
+  Work,
   foldThread,
   workOf,
   type PendingCall,
   type ThreadState,
-  type Work,
 } from './session-fold.ts'
 export { ToolKind, type ToolContribution, type ToolOutcome } from './tool-kind.ts'

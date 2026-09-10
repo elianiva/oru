@@ -17,4 +17,4 @@ export const ProviderRemoved = Schema.TaggedStruct('ProviderRemoved', {
 })
 
 export const HostEvent = Schema.Union([PluginActivated, PluginDeactivated, ProviderRemoved])
-export type HostEvent = Schema.Schema.Type<typeof HostEvent>
+export type HostEvent = typeof HostEvent.Type

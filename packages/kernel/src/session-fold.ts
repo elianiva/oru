@@ -1,50 +1,41 @@
+import { Match } from 'effect'
 import type { PluginId, ThreadId } from './primitives.ts'
 import type { SessionEvent } from './session-event.ts'
 
-export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<PluginId> => {
-  const active = new Set<PluginId>()
-  for (const event of events) {
-    switch (event._tag) {
-      case 'plugin/activated':
-        active.add(event.plugin)
-        break
-      case 'plugin/deactivated':
-        active.delete(event.plugin)
-        break
-      case 'thread/created':
-      case 'turn/started':
-      case 'message/appended':
-      case 'tool/requested':
-      case 'tool/completed':
-        break
-      default: {
-        const _exhaustive: never = event
-        return _exhaustive
-      }
-    }
-  }
-  return active
-}
+export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<PluginId> =>
+  events.reduce(
+    (active, event) =>
+      Match.value(event).pipe(
+        Match.tagsExhaustive({
+          'plugin/activated': (event) => new Set(active).add(event.plugin),
+          'plugin/deactivated': (event) => {
+            const next = new Set(active)
+            next.delete(event.plugin)
+            return next
+          },
+          'thread/created': () => active,
+          'turn/started': () => active,
+          'message/appended': () => active,
+          'tool/requested': () => active,
+          'tool/completed': () => active,
+        }),
+      ),
+    new Set<PluginId>(),
+  )
 
-export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<ThreadId> => {
-  const threads = new Set<ThreadId>()
-  for (const event of events) {
-    switch (event._tag) {
-      case 'plugin/activated':
-      case 'plugin/deactivated':
-        break
-      case 'thread/created':
-      case 'turn/started':
-      case 'message/appended':
-      case 'tool/requested':
-      case 'tool/completed':
-        threads.add(event.thread)
-        break
-      default: {
-        const _exhaustive: never = event
-        return _exhaustive
-      }
-    }
-  }
-  return threads
-}
+export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<ThreadId> =>
+  events.reduce(
+    (threads, event) =>
+      Match.value(event).pipe(
+        Match.tagsExhaustive({
+          'plugin/activated': () => threads,
+          'plugin/deactivated': () => threads,
+          'thread/created': (event) => new Set(threads).add(event.thread),
+          'turn/started': (event) => new Set(threads).add(event.thread),
+          'message/appended': (event) => new Set(threads).add(event.thread),
+          'tool/requested': (event) => new Set(threads).add(event.thread),
+          'tool/completed': (event) => new Set(threads).add(event.thread),
+        }),
+      ),
+    new Set<ThreadId>(),
+  )

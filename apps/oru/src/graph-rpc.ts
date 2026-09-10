@@ -1,10 +1,10 @@
-import { Effect, Stream } from 'effect'
-import { defineService, type PluginId } from '@oru/kernel'
+import { Context, Effect, Stream } from 'effect'
+import type { PluginId } from '@oru/kernel'
 import type { ViewGraph } from './view-graph.ts'
 
-export interface GraphRpc {
+export interface GraphRpcContract {
   readonly watch: Stream.Stream<ViewGraph>
   readonly setLive: (plugin: PluginId, live: boolean) => Effect.Effect<ViewGraph>
 }
 
-export const GraphRpc = defineService<GraphRpc>('oru/GraphRpc')
+export class GraphRpc extends Context.Service<GraphRpc, GraphRpcContract>()('oru/GraphRpc') {}

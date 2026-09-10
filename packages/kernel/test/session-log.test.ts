@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, type Scope } from 'effect'
+import { Context, Effect, Match, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
   definePlugin,
@@ -46,15 +46,18 @@ const greeterPlugin = definePlugin({
   },
 })
 
-const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string => {
-  switch (event._tag) {
-    case 'plugin/activated':
-    case 'plugin/deactivated':
-      return event[field]
-    default:
-      return ''
-  }
-}
+const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
+  Match.value(event).pipe(
+    Match.tagsExhaustive({
+      'plugin/activated': (event) => event[field],
+      'plugin/deactivated': (event) => event[field],
+      'thread/created': () => '',
+      'turn/started': () => '',
+      'message/appended': () => '',
+      'tool/requested': () => '',
+      'tool/completed': () => '',
+    }),
+  )
 
 const runSession = <A, E>(
   effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,

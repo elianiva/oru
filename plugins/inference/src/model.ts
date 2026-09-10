@@ -1,25 +1,30 @@
-import { Effect, Stream } from 'effect'
-import { defineService } from '@oru/kernel'
+import { Context, Effect, Schema, Stream } from 'effect'
 
-export type ModelMessage =
-  | { readonly _tag: 'user'; readonly body: string }
-  | { readonly _tag: 'assistant'; readonly body: string }
-  | { readonly _tag: 'tool'; readonly name: string; readonly call: string; readonly result: string }
+export const UserMessage = Schema.TaggedStruct('user', { body: Schema.String })
+export const AssistantMessage = Schema.TaggedStruct('assistant', { body: Schema.String })
+export const ToolMessage = Schema.TaggedStruct('tool', {
+  name: Schema.String,
+  call: Schema.String,
+  result: Schema.String,
+})
+export const ModelMessage = Schema.Union([UserMessage, AssistantMessage, ToolMessage])
+export type ModelMessage = typeof ModelMessage.Type
 
-export type ModelTool = {
-  readonly name: string
-  readonly description: string
-  readonly parametersJson: string
-}
+export const ModelTool = Schema.Struct({
+  name: Schema.String,
+  description: Schema.String,
+  parametersJson: Schema.String,
+})
+export type ModelTool = typeof ModelTool.Type
 
-export type ModelEvent =
-  | { readonly _tag: 'text'; readonly text: string }
-  | {
-      readonly _tag: 'tool'
-      readonly name: string
-      readonly call: string
-      readonly arguments: string
-    }
+export const TextEvent = Schema.TaggedStruct('text', { text: Schema.String })
+export const ToolEvent = Schema.TaggedStruct('tool', {
+  name: Schema.String,
+  call: Schema.String,
+  arguments: Schema.String,
+})
+export const ModelEvent = Schema.Union([TextEvent, ToolEvent])
+export type ModelEvent = typeof ModelEvent.Type
 
 export interface ModelService {
   readonly streamTurn: (
@@ -28,4 +33,4 @@ export interface ModelService {
   ) => Effect.Effect<Stream.Stream<ModelEvent>>
 }
 
-export const Model = defineService<ModelService>('oru/model')
+export class Model extends Context.Service<Model, ModelService>()('oru/model') {}

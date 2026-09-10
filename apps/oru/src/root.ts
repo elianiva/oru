@@ -9,13 +9,13 @@ import { Panel, ViewGraph } from './view-graph.ts'
 export const Model = Schema.Struct({
   panels: Schema.Array(Panel),
 })
-export type Model = Schema.Schema.Type<typeof Model>
+export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GraphArrived: { graph: ViewGraph },
   ClickedToggleLogging: {},
 })
-export type Message = Schema.Schema.Type<typeof Message>
+export type Message = typeof Message.Type
 
 export const init = () => ({ model: { panels: [] } })
 
