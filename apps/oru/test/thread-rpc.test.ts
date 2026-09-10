@@ -1,65 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Schema, Stream } from 'effect'
+import { Effect } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
-import {
-  contribute,
-  definePlugin,
-  foldNamedThreads,
-  makeHost,
-  provide,
-  SessionLog,
-  sessionLogLayer,
-} from '@oru/kernel'
-import { foldThread, inferencePlugin, Model, ToolKind, workOf } from '@oru/inference'
+import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import { foldThread, inferencePlugin, workOf } from '@oru/inference'
+import { echoToolPlugin, fakeModelPlugin } from '../src/fixtures.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
-
-const EchoArgs = Schema.Struct({ text: Schema.String })
-
-const echoToolPlugin = definePlugin({
-  id: 'tools/echo',
-  provides: [
-    contribute(ToolKind, {
-      name: 'echo',
-      description: 'Return the text that was passed in.',
-      execute: (argumentsJson) =>
-        Effect.try({
-          try: () => JSON.parse(argumentsJson),
-          catch: () => new Error('invalid tool arguments'),
-        }).pipe(
-          Effect.flatMap((raw) => Schema.decodeUnknownEffect(EchoArgs)(raw)),
-          Effect.map((input) => ({ ok: true, result: JSON.stringify({ echoed: input.text }) })),
-          Effect.catch(() => Effect.succeed({ ok: false, result: 'tool failed' })),
-        ),
-    }),
-  ],
-})
-
-const fakeModelPlugin = definePlugin({
-  id: 'model/fake',
-  provides: [provide(Model)],
-  server: {
-    setup: () =>
-      Effect.succeed(
-        Context.make(Model, {
-          streamTurn: (history) => {
-            const alreadyRan = history.some((item) => item._tag === 'tool')
-            if (alreadyRan) {
-              return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
-            }
-            return Effect.succeed(
-              Stream.succeed({
-                _tag: 'tool' as const,
-                name: 'echo',
-                call: 'call_1',
-                arguments: JSON.stringify({ text: 'hi' }),
-              }),
-            )
-          },
-        }),
-      ),
-  },
-})
 
 describe('thread rpc', () => {
   it('records CreateThread as a journal fact without SendMessage', async () => {
