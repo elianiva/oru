@@ -1,4 +1,5 @@
-import { Context, Effect, Exit, Option, PubSub, Ref, Schema, Scope, Stream } from 'effect'
+import { Context, Effect, Exit, Option, PubSub, Queue, Ref, Schema, Scope, Stream } from 'effect'
+import { EventJournal } from 'effect/unstable/eventlog'
 import { dataContributionsOf, serviceTokensOf, type ContributionKind } from './contribution.ts'
 import {
   CoeffectsUnmet,
@@ -14,6 +15,7 @@ import { PluginId, PluginScope, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken } from './service.ts'
+import { appendHostEvent, fromJournal } from './session-log.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -51,10 +53,26 @@ interface StoredContribution {
 
 export const makeHost = (
   plugins: readonly AnyPlugin[],
-): Effect.Effect<Host, BootError, Scope.Scope> =>
+): Effect.Effect<Host, BootError, Scope.Scope | EventJournal.EventJournal> =>
   Effect.gen(function* () {
     const hostScope = yield* Scope.Scope
     const pubsub = yield* PubSub.unbounded<HostEvent>()
+    const log = fromJournal(yield* EventJournal.EventJournal)
+    const recorded = yield* Queue.unbounded<true>()
+    const hostEvents = yield* PubSub.subscribe(pubsub)
+    yield* Stream.fromSubscription(hostEvents).pipe(
+      Stream.runForEach((event) =>
+        appendHostEvent(log, event).pipe(
+          Effect.orDie,
+          Effect.andThen(
+            event._tag === 'ProviderRemoved' ? Effect.void : Queue.offer(recorded, true),
+          ),
+        ),
+      ),
+      Effect.forkScoped,
+    )
+    const emit = (event: HostEvent) =>
+      PubSub.publish(pubsub, event).pipe(Effect.andThen(Queue.take(recorded)))
     const registry = yield* openRegistry(pubsub)
     const active = yield* Ref.make<ReadonlyMap<PluginId, Activation>>(new Map())
     const blocked = yield* Ref.make<ReadonlyMap<PluginId, CoeffectsUnmet>>(new Map())
@@ -133,10 +151,7 @@ export const makeHost = (
             next.delete(plugin.id)
             return next
           })
-          yield* PubSub.publish(
-            pubsub,
-            PluginDeactivated.make({ plugin: plugin.id, scope: plugin.scope }),
-          )
+          yield* emit(PluginDeactivated.make({ plugin: plugin.id, scope: plugin.scope }))
         })
         yield* Scope.addFinalizer(pluginScope, reverse)
 
@@ -171,10 +186,7 @@ export const makeHost = (
           next.delete(plugin.id)
           return next
         })
-        yield* PubSub.publish(
-          pubsub,
-          PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }),
-        )
+        yield* emit(PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }))
         return activation
       })
     }

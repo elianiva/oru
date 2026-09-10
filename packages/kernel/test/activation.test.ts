@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context, Effect, Result } from 'effect'
+import { EventJournal } from 'effect/unstable/eventlog'
 import {
   DeclarationMismatch,
   ServiceMissing,
@@ -99,7 +100,7 @@ describe('kernel activation', () => {
           expect(after.providers.has('oru/greeter')).toBe(false)
           expect(events.at(-1)).toBe('logger:close')
         }),
-      ),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -123,7 +124,7 @@ describe('kernel activation', () => {
           expect(live.active.has('logging')).toBe(true)
           expect(live.active.has('lonely')).toBe(false)
         }),
-      ),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -147,7 +148,7 @@ describe('kernel activation', () => {
           const after = yield* host.contributions(ToolKind)
           expect(after).toEqual([])
         }),
-      ),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -176,7 +177,7 @@ describe('kernel activation', () => {
             ),
           )
         }),
-      ),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
     )
   })
 })
