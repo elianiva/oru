@@ -53,6 +53,7 @@ export type Graph = typeof Graph.Type
 export interface Host {
   readonly activate: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
   readonly deactivate: (plugin: PluginId) => Effect.Effect<void>
+  readonly replace: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
   readonly graph: Effect.Effect<Graph>
   readonly events: Stream.Stream<HostEvent>
   readonly contributions: <C>(
@@ -64,6 +65,10 @@ export interface Host {
 interface StoredContribution {
   readonly plugin: PluginId
   readonly value: unknown
+}
+
+interface Generation {
+  readonly stamp: symbol
 }
 
 export const makeHost = Effect.fnUntraced(function* (
@@ -103,6 +108,7 @@ export const makeHost = Effect.fnUntraced(function* (
   const desired = yield* Ref.make<ReadonlySet<PluginId>>(recovered.desired)
   const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
   const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
+  const generations = yield* Ref.make<ReadonlyMap<PluginId, Generation>>(new Map())
 
   const readContributions = <C>(
     kind: ContributionKind<C>,
@@ -148,11 +154,7 @@ export const makeHost = Effect.fnUntraced(function* (
     yield* Ref.set(blocked, next)
   })
 
-  const install = Effect.fnUntraced(function* (plugin: AnyPlugin) {
-    const current = yield* Ref.get(active)
-    const existing = current.get(plugin.id)
-    if (existing !== undefined) return existing
-
+  const requireNeeds = Effect.fnUntraced(function* (plugin: AnyPlugin) {
     const liveProviders = yield* registry.providers
     const missing = plugin.needs.flatMap((token) => {
       const key = serviceId(token)
@@ -163,7 +165,9 @@ export const makeHost = Effect.fnUntraced(function* (
       yield* Ref.update(blocked, (map) => new Map(map).set(plugin.id, unmet))
       return yield* Effect.fail(unmet)
     }
+  })
 
+  const setupGeneration = Effect.fnUntraced(function* (plugin: AnyPlugin) {
     const pluginScope = yield* Scope.fork(hostScope)
     const ctx: PluginContext<readonly AnyServiceToken[]> = {
       id: plugin.id,
@@ -193,55 +197,83 @@ export const makeHost = Effect.fnUntraced(function* (
       return yield* Effect.fail(new DeclarationMismatch({ plugin: plugin.id, problems }))
     }
 
-    const reverse = Effect.gen(function* () {
-      for (const token of serviceTokens(plugin)) yield* registry.remove(token, plugin.id)
-      yield* Ref.update(store, (map) => {
-        const next = new Map(map)
-        for (const contribution of dataContributions(plugin)) {
-          const list = next.get(contribution.kind.id) ?? []
-          next.set(
-            contribution.kind.id,
-            list.filter((entry) => entry.plugin !== plugin.id),
-          )
-        }
-        return next
-      })
-      yield* Ref.update(active, (map) => {
-        const next = new Map(map)
-        next.delete(plugin.id)
-        return next
-      })
-      yield* Ref.update(scopes, (map) => {
-        const next = new Map(map)
-        next.delete(plugin.id)
-        return next
-      })
-    })
-    yield* Scope.addFinalizer(pluginScope, reverse)
+    return { pluginScope, provided }
+  })
 
+  const bindReverse = (plugin: AnyPlugin, pluginScope: Scope.Closeable, marker: Generation) =>
+    Scope.addFinalizer(
+      pluginScope,
+      Effect.gen(function* () {
+        const live = yield* Ref.get(generations)
+        if (live.get(plugin.id) !== marker) return
+        for (const token of serviceTokens(plugin)) yield* registry.remove(token, plugin.id)
+        yield* Ref.update(store, (map) => {
+          const next = new Map(map)
+          for (const contribution of dataContributions(plugin)) {
+            const list = next.get(contribution.kind.id) ?? []
+            next.set(
+              contribution.kind.id,
+              list.filter((entry) => entry.plugin !== plugin.id),
+            )
+          }
+          return next
+        })
+        yield* Ref.update(active, (map) => {
+          const next = new Map(map)
+          next.delete(plugin.id)
+          return next
+        })
+        yield* Ref.update(scopes, (map) => {
+          const next = new Map(map)
+          next.delete(plugin.id)
+          return next
+        })
+        yield* Ref.update(generations, (map) => {
+          const next = new Map(map)
+          next.delete(plugin.id)
+          return next
+        })
+      }),
+    )
+
+  const publishServices = Effect.fnUntraced(function* (
+    plugin: AnyPlugin,
+    provided: Context.Context<unknown>,
+  ) {
     for (const token of serviceTokens(plugin)) {
       const value = Option.getOrThrow(Context.getOption(token)(provided))
       yield* registry.provide(token, value, plugin.id)
     }
-    if (dataContributions(plugin).length > 0) {
-      yield* Ref.update(store, (map) => {
-        const next = new Map(map)
-        for (const contribution of dataContributions(plugin)) {
-          const list = next.get(contribution.kind.id) ?? []
-          next.set(contribution.kind.id, [
-            ...list,
-            { plugin: plugin.id, value: contribution.value },
-          ])
-        }
-        return next
-      })
-    }
+  })
 
+  const replaceData = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+    yield* Ref.update(store, (map) => {
+      const next = new Map(map)
+      for (const [kind, list] of next) {
+        next.set(
+          kind,
+          list.filter((entry) => entry.plugin !== plugin.id),
+        )
+      }
+      for (const contribution of dataContributions(plugin)) {
+        const list = next.get(contribution.kind.id) ?? []
+        next.set(contribution.kind.id, [...list, { plugin: plugin.id, value: contribution.value }])
+      }
+      return next
+    })
+  })
+
+  const recordActivation = Effect.fnUntraced(function* (
+    plugin: AnyPlugin,
+    pluginScope: Scope.Closeable,
+    marker: Generation,
+  ) {
     const activation = Activation.make({
       plugin: plugin.id,
       scope: plugin.scope,
       provides: serviceTokens(plugin).map((token) => serviceId(token)),
     })
+    yield* Ref.update(generations, (map) => new Map(map).set(plugin.id, marker))
     yield* Ref.update(active, (map) => new Map(map).set(plugin.id, activation))
     yield* Ref.update(byId, (map) => new Map(map).set(plugin.id, plugin))
     yield* Ref.update(scopes, (map) => new Map(map).set(plugin.id, pluginScope))
@@ -250,7 +282,48 @@ export const makeHost = Effect.fnUntraced(function* (
       next.delete(plugin.id)
       return next
     })
+    return activation
+  })
+
+  const install = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+    const current = yield* Ref.get(active)
+    const existing = current.get(plugin.id)
+    if (existing !== undefined) return existing
+
+    yield* requireNeeds(plugin)
+    const { pluginScope, provided } = yield* setupGeneration(plugin)
+    const marker: Generation = { stamp: Symbol() }
+    yield* bindReverse(plugin, pluginScope, marker)
+    yield* publishServices(plugin, provided)
+    yield* replaceData(plugin)
+    const activation = yield* recordActivation(plugin, pluginScope, marker)
     yield* emit(PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }))
+    return activation
+  })
+
+  const cutover = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+    yield* requireNeeds(plugin)
+    const { pluginScope, provided } = yield* setupGeneration(plugin)
+
+    const retiring = yield* Ref.get(byId)
+    const previous = retiring.get(plugin.id)
+    const scopesNow = yield* Ref.get(scopes)
+    const oldScope = scopesNow.get(plugin.id)
+
+    const marker: Generation = { stamp: Symbol() }
+    yield* bindReverse(plugin, pluginScope, marker)
+    const activation = yield* recordActivation(plugin, pluginScope, marker)
+    yield* publishServices(plugin, provided)
+
+    const nextKeys = new Set(serviceTokens(plugin).map((token) => serviceId(token)))
+    if (previous !== undefined) {
+      for (const token of serviceTokens(previous)) {
+        if (!nextKeys.has(serviceId(token))) yield* registry.remove(token, plugin.id)
+      }
+    }
+    yield* replaceData(plugin)
+
+    if (oldScope !== undefined) yield* Scope.close(oldScope, Exit.void)
     return activation
   })
 
@@ -321,6 +394,19 @@ export const makeHost = Effect.fnUntraced(function* (
       }),
     )
 
+  const replace = (plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> =>
+    lock.withPermit(
+      Effect.gen(function* () {
+        yield* Ref.update(desired, (set) => new Set(set).add(plugin.id))
+        const current = yield* Ref.get(active)
+        const result = current.has(plugin.id)
+          ? yield* Effect.result(cutover(plugin))
+          : yield* Effect.result(install(plugin))
+        yield* reconcile()
+        return yield* Effect.fromResult(result)
+      }),
+    )
+
   const graph: Effect.Effect<Graph> = Effect.gen(function* () {
     const a = yield* Ref.get(active)
     const b = yield* Ref.get(blocked)
@@ -339,6 +425,7 @@ export const makeHost = Effect.fnUntraced(function* (
   return {
     activate,
     deactivate,
+    replace,
     graph,
     events: Stream.fromPubSub(pubsub),
     contributions: readContributions,
