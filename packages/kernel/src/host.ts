@@ -13,7 +13,12 @@ import {
   Stream,
 } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import { dataContributionsOf, serviceTokensOf, type ContributionKind } from './contribution.ts'
+import {
+  dataContributionsOf,
+  serviceTokensOf,
+  type ContributionEntry,
+  type ContributionKind,
+} from './contribution.ts'
 import {
   CoeffectsUnmet,
   DeclarationMismatch,
@@ -27,8 +32,8 @@ import type { AnyPlugin, PluginContext } from './plugin.ts'
 import { PluginId, PluginScope, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
-import { serviceId, type AnyServiceToken } from './service.ts'
-import { appendHostEvent, fromJournal } from './session-log.ts'
+import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
+import { appendHostEvent, fromJournal, SessionLog } from './session-log.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -44,11 +49,6 @@ export const Graph = Schema.Struct({
 })
 export type Graph = Schema.Schema.Type<typeof Graph>
 
-export interface ContributionEntry<C> {
-  readonly plugin: PluginId
-  readonly value: C
-}
-
 export interface Host {
   readonly activate: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
   readonly deactivate: (plugin: PluginId) => Effect.Effect<void>
@@ -57,6 +57,7 @@ export interface Host {
   readonly contributions: <C>(
     kind: ContributionKind<C>,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
+  readonly service: <S>(token: ServiceToken<S>) => Effect.Effect<S>
 }
 
 interface StoredContribution {
@@ -98,6 +99,19 @@ export const makeHost = (
     const desired = yield* Ref.make<ReadonlySet<PluginId>>(new Set(known.keys()))
     const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
     const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
+
+    const readContributions = <C>(
+      kind: ContributionKind<C>,
+    ): Effect.Effect<readonly ContributionEntry<C>[]> =>
+      Ref.get(store).pipe(
+        Effect.map((map) =>
+          (map.get(kind.id) ?? []).map((entry) => ({
+            plugin: entry.plugin,
+            // SAFETY: contribute(kind, value) stores under kind.id; readers pass the same kind
+            value: entry.value as C,
+          })),
+        ),
+      )
 
     const serviceTokens = (plugin: AnyPlugin): readonly AnyServiceToken[] =>
       serviceTokensOf(plugin.provides)
@@ -154,6 +168,7 @@ export const makeHost = (
           id: plugin.id,
           scope: plugin.scope,
           service: (token) => serviceFacade(registry.get(token)),
+          contributions: readContributions,
         }
 
         const setup = plugin.server?.setup(ctx) ?? Effect.succeed(Context.empty())
@@ -163,6 +178,7 @@ export const makeHost = (
         for (const token of plugin.needs) {
           wired = Effect.provideService(wired, token, serviceFacade(registry.get(token)))
         }
+        wired = Effect.provideService(wired, SessionLog, log)
         const provided = yield* Scope.provide(pluginScope)(wired).pipe(
           Effect.mapError((cause) => new SetupFailed({ plugin: plugin.id, cause })),
           Effect.onError(() => Scope.close(pluginScope, Exit.void)),
@@ -312,19 +328,6 @@ export const makeHost = (
       return Graph.make({ active: a, blocked: b, providers: p })
     })
 
-    const contributions = <C>(
-      kind: ContributionKind<C>,
-    ): Effect.Effect<readonly ContributionEntry<C>[]> =>
-      Ref.get(store).pipe(
-        Effect.map((map) =>
-          (map.get(kind.id) ?? []).map((entry) => ({
-            plugin: entry.plugin,
-            // SAFETY: contribute(kind, value) stores under kind.id; readers pass the same kind
-            value: entry.value as C,
-          })),
-        ),
-      )
-
     const plan = yield* Effect.fromResult(resolve(plugins, new Set()))
     yield* Ref.set(blocked, plan.blocked)
     for (const plugin of plan.order) {
@@ -336,6 +339,7 @@ export const makeHost = (
       deactivate,
       graph,
       events: Stream.fromPubSub(pubsub),
-      contributions,
+      contributions: readContributions,
+      service: (token) => registry.get(token),
     }
   })

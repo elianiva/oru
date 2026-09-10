@@ -4,6 +4,7 @@ import { EventJournal } from 'effect/unstable/eventlog'
 import {
   DeclarationMismatch,
   ServiceMissing,
+  SessionLog,
   definePlugin,
   defineService,
   makeHost,
@@ -175,6 +176,31 @@ describe('kernel activation', () => {
               }),
             ),
           )
+        }),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
+    )
+  })
+
+  it('provides SessionLog to setup and resolves a provided service from the host', async () => {
+    const probe = definePlugin({
+      id: 'probe',
+      provides: [provide(Logger)],
+      server: {
+        setup: () =>
+          Effect.gen(function* () {
+            const log = yield* SessionLog
+            yield* log.entries
+            return Context.make(Logger, { log: () => Effect.void })
+          }),
+      },
+    })
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([probe])
+          const logger = yield* host.service(Logger)
+          yield* logger.log('ok')
         }),
       ).pipe(Effect.provide(EventJournal.layerMemory)),
     )

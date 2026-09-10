@@ -7,7 +7,14 @@ export * from './primitives.ts'
 export * from './registry.ts'
 export * from './resolve.ts'
 export * from './service.ts'
-export { SessionEvent } from './session-event.ts'
+export {
+  MessageAppended,
+  MessageRole,
+  SessionEvent,
+  ToolCompleted,
+  ToolRequested,
+  TurnStarted,
+} from './session-event.ts'
 export {
   SessionLog,
   appendHostEvent,

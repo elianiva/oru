@@ -19,7 +19,15 @@ const codec = Msgpack.schema(SessionEvent)
 const encodePayload = Schema.encodeEffect(codec)
 const decodePayload = Schema.decodeUnknownEffect(codec)
 
-const primaryKey = (event: SessionEvent): string => `${event.plugin}:${event._tag}`
+const primaryKey = (event: SessionEvent): string => {
+  switch (event._tag) {
+    case 'plugin/activated':
+    case 'plugin/deactivated':
+      return `${event.plugin}:${event._tag}`
+    default:
+      return event.id
+  }
+}
 
 const decodeEntry = (entry: EventJournal.Entry): Effect.Effect<SessionEvent, Schema.SchemaError> =>
   decodePayload(entry.payload)

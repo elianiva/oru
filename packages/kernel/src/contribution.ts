@@ -1,5 +1,11 @@
 import { Data, Predicate } from 'effect'
+import type { PluginId } from './primitives.ts'
 import type { AnyServiceToken, ServiceOf } from './service.ts'
+
+export interface ContributionEntry<C> {
+  readonly plugin: PluginId
+  readonly value: C
+}
 
 export interface ContributionKind<C> {
   readonly id: string

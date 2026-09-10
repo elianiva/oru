@@ -55,6 +55,11 @@ const activePlugins = (events: readonly SessionEvent[]): ReadonlySet<string> => 
       case 'plugin/deactivated':
         active.delete(event.plugin)
         break
+      case 'turn/started':
+      case 'message/appended':
+      case 'tool/requested':
+      case 'tool/completed':
+        break
       default: {
         const _exhaustive: never = event
         return _exhaustive
@@ -62,6 +67,16 @@ const activePlugins = (events: readonly SessionEvent[]): ReadonlySet<string> => 
     }
   }
   return active
+}
+
+const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string => {
+  switch (event._tag) {
+    case 'plugin/activated':
+    case 'plugin/deactivated':
+      return event[field]
+    default:
+      return ''
+  }
 }
 
 const runSession = <A, E>(
@@ -82,8 +97,8 @@ describe('session log', () => {
 
         const booted = yield* log.entries
         expect(booted.map((event) => event._tag)).toEqual(['plugin/activated', 'plugin/activated'])
-        expect(booted.map((event) => event.plugin)).toEqual(['logging', 'greeter'])
-        expect(booted.map((event) => event.scope)).toEqual(['host', 'host'])
+        expect(booted.map((event) => pluginField(event, 'plugin'))).toEqual(['logging', 'greeter'])
+        expect(booted.map((event) => pluginField(event, 'scope'))).toEqual(['host', 'host'])
 
         const graphAtBoot = yield* host.graph
         expect([...activePlugins(booted)].sort()).toEqual([...graphAtBoot.active.keys()].sort())
@@ -91,7 +106,7 @@ describe('session log', () => {
         yield* host.deactivate('logging')
 
         const after = yield* log.entries
-        expect(after.map((event) => [event._tag, event.plugin])).toEqual([
+        expect(after.map((event) => [event._tag, pluginField(event, 'plugin')])).toEqual([
           ['plugin/activated', 'logging'],
           ['plugin/activated', 'greeter'],
           ['plugin/deactivated', 'greeter'],
@@ -121,7 +136,7 @@ describe('session log', () => {
         expect(live.active.has('greeter')).toBe(true)
 
         const up = yield* log.entries
-        expect(up.map((event) => [event._tag, event.plugin])).toEqual([
+        expect(up.map((event) => [event._tag, pluginField(event, 'plugin')])).toEqual([
           ['plugin/activated', 'logging'],
           ['plugin/activated', 'greeter'],
         ])
@@ -130,7 +145,7 @@ describe('session log', () => {
         yield* host.activate(loggingPlugin)
 
         const again = yield* log.entries
-        expect(again.map((event) => [event._tag, event.plugin])).toEqual([
+        expect(again.map((event) => [event._tag, pluginField(event, 'plugin')])).toEqual([
           ['plugin/activated', 'logging'],
           ['plugin/activated', 'greeter'],
           ['plugin/deactivated', 'greeter'],
