@@ -1,36 +1,44 @@
-import { Effect, Option, PubSub, Ref, Stream } from "effect"
-import { ProviderUnavailable } from "./errors.ts"
-import { ProviderRemoved, type HostEvent } from "./event.ts"
-import type { PluginId } from "./primitives.ts"
-import { serviceId, type AnyServiceToken, type ServiceShape, type ServiceToken } from "./service.ts"
+import { Effect, Option, Predicate, PubSub, Ref, Stream } from 'effect'
+import { ProviderUnavailable } from './errors.ts'
+import { ProviderRemoved, type HostEvent } from './event.ts'
+import type { PluginId } from './primitives.ts'
+import { serviceId, type AnyServiceToken, type ServiceOf, type ServiceToken } from './service.ts'
 
 interface Cell {
   readonly owner: PluginId
   readonly impl: Ref.Ref<unknown>
 }
 
+type ServiceMethod = (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown>
+
 export interface Registry {
   readonly events: Stream.Stream<HostEvent>
   readonly get: <S>(token: ServiceToken<S>) => Effect.Effect<S>
   readonly has: (token: AnyServiceToken) => Effect.Effect<boolean>
   readonly providers: Effect.Effect<ReadonlyMap<string, PluginId>>
-  readonly provide: (token: AnyServiceToken, value: unknown, owner: PluginId) => Effect.Effect<void>
+  readonly provide: <S>(token: ServiceToken<S>, value: S, owner: PluginId) => Effect.Effect<void>
   readonly remove: (token: AnyServiceToken, owner: PluginId) => Effect.Effect<void>
 }
 
-export const makeFacade = <S>(get: Effect.Effect<S>): S =>
-  new Proxy({} as Record<PropertyKey, unknown>, {
+export const serviceFacade = <S>(get: Effect.Effect<S>): S => {
+  const target = Object.create(null)
+  const facade = new Proxy(target, {
     get: (_target, property) => {
-      if (typeof property === "symbol") return undefined
+      if (!Predicate.isString(property)) return undefined
       return (...args: ReadonlyArray<unknown>) =>
         Effect.flatMap(get, (impl) => {
-          const method = (impl as Record<string, (...a: ReadonlyArray<unknown>) => Effect.Effect<unknown>>)[property]
+          // SAFETY: live service values are method bags keyed by the token interface
+          const methods = impl as Record<string, ServiceMethod | undefined>
+          const method = methods[property]
           return method!(...args)
         })
     },
-  }) as S
+  })
+  // SAFETY: the proxy forwards string methods to the live cell for token S
+  return facade as S
+}
 
-export const makeRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Registry> =>
+export const openRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Registry> =>
   Effect.gen(function* () {
     const cells = yield* Ref.make<ReadonlyMap<string, Cell>>(new Map())
 
@@ -38,8 +46,11 @@ export const makeRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Re
       Effect.gen(function* () {
         const map = yield* Ref.get(cells)
         const cell = Option.fromNullishOr(map.get(serviceId(token)))
-        if (Option.isNone(cell)) return yield* Effect.die(new ProviderUnavailable({ token: serviceId(token) }))
-        return (yield* Ref.get(cell.value.impl)) as ServiceShape<typeof token>
+        if (Option.isNone(cell))
+          return yield* Effect.die(new ProviderUnavailable({ token: serviceId(token) }))
+        const value = yield* Ref.get(cell.value.impl)
+        // SAFETY: provide stores the value under the same token key get reads
+        return value as ServiceOf<typeof token>
       })
 
     const has = (token: AnyServiceToken): Effect.Effect<boolean> =>
@@ -53,9 +64,9 @@ export const makeRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Re
       }),
     )
 
-    const provide = (token: AnyServiceToken, value: unknown, owner: PluginId): Effect.Effect<void> =>
+    const provide = <S>(token: ServiceToken<S>, value: S, owner: PluginId): Effect.Effect<void> =>
       Effect.gen(function* () {
-        const impl = yield* Ref.make(value)
+        const impl = yield* Ref.make<unknown>(value)
         yield* Ref.update(cells, (map) => {
           const next = new Map(map)
           next.set(serviceId(token), { owner, impl })
@@ -72,7 +83,10 @@ export const makeRegistry = (events: PubSub.PubSub<HostEvent>): Effect.Effect<Re
           next.delete(serviceId(token))
           return next
         })
-        yield* PubSub.publish(events, ProviderRemoved.make({ token: serviceId(token), plugin: owner }))
+        yield* PubSub.publish(
+          events,
+          ProviderRemoved.make({ token: serviceId(token), plugin: owner }),
+        )
       })
 
     return { events: Stream.fromPubSub(events), get, has, providers, provide, remove }

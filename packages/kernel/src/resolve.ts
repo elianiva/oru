@@ -1,9 +1,9 @@
-import { Result } from "effect"
-import { serviceTokensOf } from "./contribution.ts"
-import { CoeffectsUnmet, DuplicateProvider, GraphCycle } from "./errors.ts"
-import type { AnyPlugin } from "./plugin.ts"
-import type { PluginId } from "./primitives.ts"
-import { serviceId, type AnyServiceToken } from "./service.ts"
+import { Result } from 'effect'
+import { serviceTokensOf } from './contribution.ts'
+import { CoeffectsUnmet, DuplicateProvider, GraphCycle } from './errors.ts'
+import type { AnyPlugin } from './plugin.ts'
+import type { PluginId } from './primitives.ts'
+import { serviceId } from './service.ts'
 
 export interface Resolution {
   readonly order: readonly AnyPlugin[]
@@ -50,7 +50,10 @@ export const resolve = (
   const blocked = new Map<PluginId, CoeffectsUnmet>()
   for (const plugin of byId.values()) {
     if (done.has(plugin.id)) continue
-    const missing = plugin.needs.map((token: AnyServiceToken) => serviceId(token)).filter((key) => !satisfied.has(key))
+    const missing = plugin.needs.flatMap((token) => {
+      const key = serviceId(token)
+      return satisfied.has(key) ? [] : [key]
+    })
     blocked.set(plugin.id, new CoeffectsUnmet({ plugin: plugin.id, missing }))
   }
 

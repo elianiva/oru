@@ -1,12 +1,12 @@
-import type { Context, Effect, Scope } from "effect"
-import type { Contribution, ServiceProvisions } from "./contribution.ts"
-import type { PluginId, PluginScope } from "./primitives.ts"
-import type { AnyServiceToken, ServiceShape } from "./service.ts"
+import type { Context, Effect, Scope } from 'effect'
+import type { Contribution, ServiceProvisions } from './contribution.ts'
+import type { PluginId, PluginScope } from './primitives.ts'
+import type { AnyServiceToken, ServiceOf } from './service.ts'
 
 export interface PluginContext<Needs extends readonly AnyServiceToken[]> {
   readonly id: PluginId
   readonly scope: PluginScope
-  readonly service: <T extends Needs[number]>(token: T) => ServiceShape<T>
+  readonly service: <T extends Needs[number]>(token: T) => ServiceOf<T>
 }
 
 export interface ServerFacet<
@@ -15,7 +15,11 @@ export interface ServerFacet<
 > {
   readonly setup: (
     ctx: PluginContext<Needs>,
-  ) => Effect.Effect<Context.Context<ServiceProvisions<Provides>>, unknown, ServiceShape<Needs[number]> | Scope.Scope>
+  ) => Effect.Effect<
+    Context.Context<ServiceProvisions<Provides>>,
+    unknown,
+    ServiceOf<Needs[number]> | Scope.Scope
+  >
 }
 
 export interface Plugin<
@@ -44,11 +48,43 @@ export const definePlugin = <
   readonly provides?: Provides
   readonly server?: ServerFacet<Needs, Provides>
   readonly ui?: UI
-}): Plugin<Needs, Provides, UI> => ({
-  id: declaration.id,
-  scope: declaration.scope ?? "host",
-  needs: (declaration.needs ?? []) as unknown as Needs,
-  provides: (declaration.provides ?? []) as unknown as Provides,
-  ...(declaration.server === undefined ? {} : { server: declaration.server }),
-  ...(declaration.ui === undefined ? {} : { ui: declaration.ui }),
-})
+}): Plugin<Needs, Provides, UI> => {
+  // SAFETY: omitted needs default to the empty tuple used by the type parameter
+  const needs = (declaration.needs ?? []) as Needs
+  // SAFETY: omitted provides default to the empty tuple used by the type parameter
+  const provides = (declaration.provides ?? []) as Provides
+  if (declaration.server !== undefined && declaration.ui !== undefined) {
+    return {
+      id: declaration.id,
+      scope: declaration.scope ?? 'host',
+      needs,
+      provides,
+      server: declaration.server,
+      ui: declaration.ui,
+    }
+  }
+  if (declaration.server !== undefined) {
+    return {
+      id: declaration.id,
+      scope: declaration.scope ?? 'host',
+      needs,
+      provides,
+      server: declaration.server,
+    }
+  }
+  if (declaration.ui !== undefined) {
+    return {
+      id: declaration.id,
+      scope: declaration.scope ?? 'host',
+      needs,
+      provides,
+      ui: declaration.ui,
+    }
+  }
+  return {
+    id: declaration.id,
+    scope: declaration.scope ?? 'host',
+    needs,
+    provides,
+  }
+}

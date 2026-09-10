@@ -1,17 +1,17 @@
-import { Schema } from "effect"
-import { PluginId, PluginScope, TokenId } from "./primitives.ts"
+import { Schema } from 'effect'
+import { PluginId, PluginScope, TokenId } from './primitives.ts'
 
-export const PluginActivated = Schema.TaggedStruct("PluginActivated", {
+export const PluginActivated = Schema.TaggedStruct('PluginActivated', {
   plugin: PluginId,
   scope: PluginScope,
 })
 
-export const PluginDeactivated = Schema.TaggedStruct("PluginDeactivated", {
+export const PluginDeactivated = Schema.TaggedStruct('PluginDeactivated', {
   plugin: PluginId,
   scope: PluginScope,
 })
 
-export const ProviderRemoved = Schema.TaggedStruct("ProviderRemoved", {
+export const ProviderRemoved = Schema.TaggedStruct('ProviderRemoved', {
   token: TokenId,
   plugin: PluginId,
 })

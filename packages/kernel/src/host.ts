@@ -1,5 +1,5 @@
-import { Context, Effect, Exit, Option, PubSub, Ref, Schema, Scope, Stream } from "effect"
-import { dataContributionsOf, serviceTokensOf, type ContributionKind } from "./contribution.ts"
+import { Context, Effect, Exit, Option, PubSub, Ref, Schema, Scope, Stream } from 'effect'
+import { dataContributionsOf, serviceTokensOf, type ContributionKind } from './contribution.ts'
 import {
   CoeffectsUnmet,
   DeclarationMismatch,
@@ -7,13 +7,13 @@ import {
   SetupFailed,
   type ActivationError,
   type BootError,
-} from "./errors.ts"
-import { PluginActivated, PluginDeactivated, type HostEvent } from "./event.ts"
-import type { AnyPlugin, PluginContext } from "./plugin.ts"
-import { PluginId, PluginScope, TokenId } from "./primitives.ts"
-import { makeFacade, makeRegistry } from "./registry.ts"
-import { resolve } from "./resolve.ts"
-import { serviceId, type AnyServiceToken } from "./service.ts"
+} from './errors.ts'
+import { PluginActivated, PluginDeactivated, type HostEvent } from './event.ts'
+import type { AnyPlugin, PluginContext } from './plugin.ts'
+import { PluginId, PluginScope, TokenId } from './primitives.ts'
+import { openRegistry, serviceFacade } from './registry.ts'
+import { resolve } from './resolve.ts'
+import { serviceId, type AnyServiceToken } from './service.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -39,7 +39,9 @@ export interface Host {
   readonly deactivate: (plugin: PluginId) => Effect.Effect<void>
   readonly graph: Effect.Effect<Graph>
   readonly events: Stream.Stream<HostEvent>
-  readonly contributions: <C>(kind: ContributionKind<C>) => Effect.Effect<readonly ContributionEntry<C>[]>
+  readonly contributions: <C>(
+    kind: ContributionKind<C>,
+  ) => Effect.Effect<readonly ContributionEntry<C>[]>
 }
 
 interface StoredContribution {
@@ -47,18 +49,21 @@ interface StoredContribution {
   readonly value: unknown
 }
 
-export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, BootError, Scope.Scope> =>
+export const makeHost = (
+  plugins: readonly AnyPlugin[],
+): Effect.Effect<Host, BootError, Scope.Scope> =>
   Effect.gen(function* () {
     const hostScope = yield* Scope.Scope
     const pubsub = yield* PubSub.unbounded<HostEvent>()
-    const registry = yield* makeRegistry(pubsub)
+    const registry = yield* openRegistry(pubsub)
     const active = yield* Ref.make<ReadonlyMap<PluginId, Activation>>(new Map())
     const blocked = yield* Ref.make<ReadonlyMap<PluginId, CoeffectsUnmet>>(new Map())
     const byId = yield* Ref.make<ReadonlyMap<PluginId, AnyPlugin>>(new Map())
     const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
     const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
 
-    const serviceTokens = (plugin: AnyPlugin): readonly AnyServiceToken[] => serviceTokensOf(plugin.provides)
+    const serviceTokens = (plugin: AnyPlugin): readonly AnyServiceToken[] =>
+      serviceTokensOf(plugin.provides)
     const dataContributions = (plugin: AnyPlugin) => dataContributionsOf(plugin.provides)
 
     function activate(plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> {
@@ -68,7 +73,10 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
         if (existing !== undefined) return existing
 
         const liveProviders = yield* registry.providers
-        const missing = plugin.needs.map((token) => serviceId(token)).filter((key) => !liveProviders.has(key))
+        const missing = plugin.needs.flatMap((token) => {
+          const key = serviceId(token)
+          return liveProviders.has(key) ? [] : [key]
+        })
         if (missing.length > 0) {
           const unmet = new CoeffectsUnmet({ plugin: plugin.id, missing })
           yield* Ref.update(blocked, (map) => new Map(map).set(plugin.id, unmet))
@@ -79,17 +87,15 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
         const ctx: PluginContext<readonly AnyServiceToken[]> = {
           id: plugin.id,
           scope: plugin.scope,
-          service: (token) => makeFacade(registry.get(token)),
+          service: (token) => serviceFacade(registry.get(token)),
         }
 
-        const base = (plugin.server?.setup(ctx) ?? Effect.succeed(Context.empty())) as Effect.Effect<
-          Context.Context<unknown>,
-          unknown,
-          Scope.Scope
-        >
+        const setup = plugin.server?.setup(ctx) ?? Effect.succeed(Context.empty())
+        // SAFETY: missing server facets contribute an empty context; present facets return their provision context
+        const base = setup as Effect.Effect<Context.Context<unknown>, unknown, Scope.Scope>
         let wired = base
         for (const token of plugin.needs) {
-          wired = Effect.provideService(wired, token, makeFacade(registry.get(token)))
+          wired = Effect.provideService(wired, token, serviceFacade(registry.get(token)))
         }
         const provided = yield* Scope.provide(pluginScope)(wired).pipe(
           Effect.mapError((cause) => new SetupFailed({ plugin: plugin.id, cause })),
@@ -127,7 +133,10 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
             next.delete(plugin.id)
             return next
           })
-          yield* PubSub.publish(pubsub, PluginDeactivated.make({ plugin: plugin.id, scope: plugin.scope }))
+          yield* PubSub.publish(
+            pubsub,
+            PluginDeactivated.make({ plugin: plugin.id, scope: plugin.scope }),
+          )
         })
         yield* Scope.addFinalizer(pluginScope, reverse)
 
@@ -140,7 +149,10 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
             const next = new Map(map)
             for (const contribution of dataContributions(plugin)) {
               const list = next.get(contribution.kind.id) ?? []
-              next.set(contribution.kind.id, [...list, { plugin: plugin.id, value: contribution.value }])
+              next.set(contribution.kind.id, [
+                ...list,
+                { plugin: plugin.id, value: contribution.value },
+              ])
             }
             return next
           })
@@ -159,7 +171,10 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
           next.delete(plugin.id)
           return next
         })
-        yield* PubSub.publish(pubsub, PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }))
+        yield* PubSub.publish(
+          pubsub,
+          PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }),
+        )
         return activation
       })
     }
@@ -192,10 +207,16 @@ export const makeHost = (plugins: readonly AnyPlugin[]): Effect.Effect<Host, Boo
       return Graph.make({ active: a, blocked: b, providers: p })
     })
 
-    const contributions = <C>(kind: ContributionKind<C>): Effect.Effect<readonly ContributionEntry<C>[]> =>
+    const contributions = <C>(
+      kind: ContributionKind<C>,
+    ): Effect.Effect<readonly ContributionEntry<C>[]> =>
       Ref.get(store).pipe(
         Effect.map((map) =>
-          (map.get(kind.id) ?? []).map((entry) => ({ plugin: entry.plugin, value: entry.value as C })),
+          (map.get(kind.id) ?? []).map((entry) => ({
+            plugin: entry.plugin,
+            // SAFETY: contribute(kind, value) stores under kind.id; readers pass the same kind
+            value: entry.value as C,
+          })),
         ),
       )
 

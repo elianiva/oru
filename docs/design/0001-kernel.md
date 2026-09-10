@@ -23,16 +23,16 @@ A plugin author imports `defineService`, `definePlugin`, `provide`, `contribute`
 `defineContributionKind`. Tokens are `Context.Service` values; `needs`/`provides` are data.
 
 ```ts
-import { Context, Effect } from "effect"
-import { defineService, definePlugin, provide } from "@oru/kernel"
+import { Context, Effect } from 'effect'
+import { defineService, definePlugin, provide } from '@oru/kernel'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
 }
-const Logger = defineService<LoggerService>("oru/logger")
+const Logger = defineService<LoggerService>('oru/logger')
 
 export const loggingPlugin = definePlugin({
-  id: "logging",
+  id: 'logging',
   provides: [provide(Logger)],
   server: {
     setup: () => Effect.succeed(Context.make(Logger, { log: (m) => Effect.log(m) })),
@@ -40,7 +40,7 @@ export const loggingPlugin = definePlugin({
 })
 
 export const greeterPlugin = definePlugin({
-  id: "greeter",
+  id: 'greeter',
   needs: [Logger],
   server: {
     setup: (ctx) => {
@@ -54,11 +54,11 @@ export const greeterPlugin = definePlugin({
 Boot and drive the host — this is also the Unit 1 verification:
 
 ```ts
-const host = yield* makeHost([greeterPlugin, loggingPlugin]) // order shuffled on purpose
-const graph = yield* host.graph
-graph.active.has("logging") // provider activated before consumer
-yield* host.deactivate("logging")
-;(yield* host.graph).active.has("greeter") // false — dependents reverse first
+const host = yield * makeHost([greeterPlugin, loggingPlugin]) // order shuffled on purpose
+const graph = yield * host.graph
+graph.active.has('logging') // provider activated before consumer
+yield * host.deactivate('logging')
+;(yield * host.graph).active.has('greeter') // false — dependents reverse first
 ```
 
 ## Shape
@@ -100,7 +100,7 @@ packages/kernel/src/
 - **Reversal is the scope.** Each plugin forks a child `Scope`; every contribution registers a
   finalizer on it, so `deactivate` is `Scope.close` and reversal is LIFO and idempotent by
   construction.
-- **Facades are stable.**   `ctx.service(token)` and the ambient `yield* Token` path both return a
+- **Facades are stable.** `ctx.service(token)` and the ambient `yield* Token` path both return a
   `Proxy` that resolves the current implementation at call time through the string-keyed registry, so
   a handle captured before a cutover keeps working (ADR-0011). Non-method members are rejected at
   activation.

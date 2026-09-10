@@ -1,6 +1,7 @@
 packages:
-  - "packages/*"
-  - "plugins/*"
-  - "apps/*"
+  - 'packages/*'
+  - 'plugins/*'
+  - 'apps/*'
 allowBuilds:
+  lefthook: true
   msgpackr-extract: false
