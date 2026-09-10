@@ -33,7 +33,8 @@ import { PluginId, PluginScope, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
-import { appendHostEvent, fromJournal, SessionLog } from './session-log.ts'
+import { openHostFactRecorder, recoverLifecycle } from './host-lifecycle.ts'
+import { fromJournal, SessionLog } from './session-log.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -72,16 +73,24 @@ export const makeHost = (
     const hostScope = yield* Scope.Scope
     const pubsub = yield* PubSub.unbounded<HostEvent>()
     const log = fromJournal(yield* EventJournal.EventJournal)
+    const known = new Map<PluginId, AnyPlugin>()
+    for (const plugin of plugins) {
+      if (!known.has(plugin.id)) known.set(plugin.id, plugin)
+    }
+    const recovered = recoverLifecycle(yield* log.entries.pipe(Effect.orDie), new Set(known.keys()))
+    const recorder = yield* openHostFactRecorder(log, recovered.journalActive)
     const recorded = yield* Queue.unbounded<true>()
     const hostEvents = yield* PubSub.subscribe(pubsub)
     yield* Stream.fromSubscription(hostEvents).pipe(
       Stream.runForEach((event) =>
-        appendHostEvent(log, event).pipe(
-          Effect.orDie,
-          Effect.andThen(
-            event._tag === 'ProviderRemoved' ? Effect.void : Queue.offer(recorded, true),
+        recorder
+          .record(event)
+          .pipe(
+            Effect.orDie,
+            Effect.andThen(
+              event._tag === 'ProviderRemoved' ? Effect.void : Queue.offer(recorded, true),
+            ),
           ),
-        ),
       ),
       Effect.forkScoped,
     )
@@ -89,14 +98,10 @@ export const makeHost = (
       PubSub.publish(pubsub, event).pipe(Effect.andThen(Queue.take(recorded)))
     const registry = yield* openRegistry(pubsub)
     const lock = Semaphore.makeUnsafe(1)
-    const known = new Map<PluginId, AnyPlugin>()
-    for (const plugin of plugins) {
-      if (!known.has(plugin.id)) known.set(plugin.id, plugin)
-    }
     const active = yield* Ref.make<ReadonlyMap<PluginId, Activation>>(new Map())
     const blocked = yield* Ref.make<ReadonlyMap<PluginId, CoeffectsUnmet>>(new Map())
     const byId = yield* Ref.make<ReadonlyMap<PluginId, AnyPlugin>>(known)
-    const desired = yield* Ref.make<ReadonlySet<PluginId>>(new Set(known.keys()))
+    const desired = yield* Ref.make<ReadonlySet<PluginId>>(recovered.desired)
     const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
     const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
 
@@ -215,7 +220,6 @@ export const makeHost = (
             next.delete(plugin.id)
             return next
           })
-          yield* emit(PluginDeactivated.make({ plugin: plugin.id, scope: plugin.scope }))
         })
         yield* Scope.addFinalizer(pluginScope, reverse)
 
@@ -304,7 +308,11 @@ export const makeHost = (
         const scopesNow = yield* Ref.get(scopes)
         const scope = scopesNow.get(id)
         if (scope === undefined) return
+        const plugin = pluginsById.get(id)
         yield* Scope.close(scope, Exit.void)
+        if (plugin !== undefined) {
+          yield* emit(PluginDeactivated.make({ plugin: id, scope: plugin.scope }))
+        }
       })
     }
 
@@ -329,10 +337,12 @@ export const makeHost = (
     })
 
     const plan = yield* Effect.fromResult(resolve(plugins, new Set()))
-    yield* Ref.set(blocked, plan.blocked)
     for (const plugin of plan.order) {
+      const want = yield* Ref.get(desired)
+      if (!want.has(plugin.id)) continue
       yield* install(plugin).pipe(Effect.ignore)
     }
+    yield* refreshBlocked()
 
     return {
       activate,
