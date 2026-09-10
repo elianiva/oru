@@ -4,6 +4,7 @@ import { EventJournal } from 'effect/unstable/eventlog'
 import {
   definePlugin,
   defineService,
+  foldActivePlugins,
   makeHost,
   provide,
   SessionLog,
@@ -45,30 +46,6 @@ const greeterPlugin = definePlugin({
   },
 })
 
-const activePlugins = (events: readonly SessionEvent[]): ReadonlySet<string> => {
-  const active = new Set<string>()
-  for (const event of events) {
-    switch (event._tag) {
-      case 'plugin/activated':
-        active.add(event.plugin)
-        break
-      case 'plugin/deactivated':
-        active.delete(event.plugin)
-        break
-      case 'turn/started':
-      case 'message/appended':
-      case 'tool/requested':
-      case 'tool/completed':
-        break
-      default: {
-        const _exhaustive: never = event
-        return _exhaustive
-      }
-    }
-  }
-  return active
-}
-
 const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string => {
   switch (event._tag) {
     case 'plugin/activated':
@@ -101,7 +78,7 @@ describe('session log', () => {
         expect(booted.map((event) => pluginField(event, 'scope'))).toEqual(['host', 'host'])
 
         const graphAtBoot = yield* host.graph
-        expect([...activePlugins(booted)].sort()).toEqual([...graphAtBoot.active.keys()].sort())
+        expect([...foldActivePlugins(booted)].sort()).toEqual([...graphAtBoot.active.keys()].sort())
 
         yield* host.deactivate('logging')
 
@@ -114,7 +91,7 @@ describe('session log', () => {
         ])
 
         const graphAfter = yield* host.graph
-        expect([...activePlugins(after)]).toEqual([...graphAfter.active.keys()])
+        expect([...foldActivePlugins(after)]).toEqual([...graphAfter.active.keys()])
       }),
     )
   })

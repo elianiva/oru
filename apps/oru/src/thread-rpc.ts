@@ -40,12 +40,13 @@ export const threadRpcHandlers = (host: Host) => ({
     Stream.unwrap(
       Effect.gen(function* () {
         const log = yield* SessionLog
+        const live = yield* log.subscribe
         const snapshot = (yield* log.entries).filter(
           (event) => threadOf(event) === payload.threadId,
         )
         return Stream.concat(
           Stream.fromIterable(snapshot),
-          log.changes.pipe(
+          live.pipe(
             Stream.filter((event) => threadOf(event) === payload.threadId),
             Stream.orDie,
           ),

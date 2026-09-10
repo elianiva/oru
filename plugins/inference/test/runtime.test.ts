@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Schema, type Scope } from 'effect'
+import { Context, Effect, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
   contribute,
@@ -42,15 +42,17 @@ const fakeModelPlugin = definePlugin({
         Context.make(Model, {
           streamTurn: (history) => {
             const alreadyRan = history.some((item) => item._tag === 'tool')
-            if (alreadyRan) return Effect.succeed([{ _tag: 'text' as const, text: 'done' }])
-            return Effect.succeed([
-              {
+            if (alreadyRan) {
+              return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
+            }
+            return Effect.succeed(
+              Stream.succeed({
                 _tag: 'tool' as const,
                 name: 'echo',
                 call: 'call_1',
                 arguments: JSON.stringify({ text: 'hi' }),
-              },
-            ])
+              }),
+            )
           },
         }),
       ),

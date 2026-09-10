@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Stream } from 'effect'
 import {
   MessageAppended,
   ToolCompleted,
@@ -42,18 +42,19 @@ export const openInference = (
             const history = messagesOf(yield* log.entries, thread)
             const tools = yield* loadTools
             const produced = yield* model.streamTurn(history, descriptorsOf(tools))
-            for (const event of produced) {
-              if (event._tag === 'text') {
-                yield* log.write(
-                  MessageAppended.make({
-                    id: newId(),
-                    thread,
-                    role: 'assistant',
-                    body: event.text,
-                  }),
-                )
-              } else {
-                yield* log.write(
+            yield* produced.pipe(
+              Stream.runForEach((event) => {
+                if (event._tag === 'text') {
+                  return log.write(
+                    MessageAppended.make({
+                      id: newId(),
+                      thread,
+                      role: 'assistant',
+                      body: event.text,
+                    }),
+                  )
+                }
+                return log.write(
                   ToolRequested.make({
                     id: newId(),
                     thread,
@@ -63,8 +64,8 @@ export const openInference = (
                     arguments: event.arguments,
                   }),
                 )
-              }
-            }
+              }),
+            )
             continue
           }
           const tools = yield* loadTools

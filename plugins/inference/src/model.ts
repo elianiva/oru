@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Stream } from 'effect'
 import { defineService } from '@oru/kernel'
 
 export type ModelMessage =
@@ -25,7 +25,7 @@ export interface ModelService {
   readonly streamTurn: (
     history: readonly ModelMessage[],
     tools: readonly ModelTool[],
-  ) => Effect.Effect<readonly ModelEvent[]>
+  ) => Effect.Effect<Stream.Stream<ModelEvent>>
 }
 
 export const Model = defineService<ModelService>('oru/model')
