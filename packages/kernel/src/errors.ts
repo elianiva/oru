@@ -47,5 +47,20 @@ export class GraphCycle extends Schema.TaggedError<GraphCycle>()('GraphCycle', {
 export const ActivationError = Schema.Union([CoeffectsUnmet, DeclarationMismatch, SetupFailed])
 export type ActivationError = typeof ActivationError.Type
 
+export class FacetImportFailed extends Schema.TaggedError<FacetImportFailed>()(
+  'FacetImportFailed',
+  {
+    url: Schema.String,
+    cause: Schema.Unknown,
+  },
+) {}
+
+export class FacetInvalid extends Schema.TaggedError<FacetInvalid>()('FacetInvalid', {
+  url: Schema.String,
+}) {}
+
+export const FacetLoadError = Schema.Union([FacetImportFailed, FacetInvalid])
+export type FacetLoadError = typeof FacetLoadError.Type
+
 export const BootError = Schema.Union([DuplicateProvider, GraphCycle])
 export type BootError = typeof BootError.Type

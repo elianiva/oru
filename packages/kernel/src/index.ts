@@ -1,6 +1,7 @@
 export * from './contribution.ts'
 export * from './errors.ts'
 export * from './event.ts'
+export * from './facet-loader.ts'
 export * from './host.ts'
 export * from './plugin.ts'
 export * from './primitives.ts'
