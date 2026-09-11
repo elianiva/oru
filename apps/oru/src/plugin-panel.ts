@@ -1,6 +1,8 @@
 import { Schema } from 'effect'
 import { defineView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
+import { badge } from '@/components/ui/badge.ts'
+import { button } from '@/components/ui/button.ts'
 import type { PanelUi } from './fixtures.ts'
 
 export const Model = Schema.Struct({
@@ -30,13 +32,16 @@ export const update = (model: Model, message: Message) =>
   })
 
 export const view = defineView<Model, Message>((model, h) =>
-  h.section(
-    [],
-    [
-      h.button(
-        [h.OnClick(Message.ClickedTitle())],
-        model.acks > 0 ? [model.title, 'acked'] : [model.title],
-      ),
-    ],
+  button(
+    {
+      onClick: Message.ClickedTitle(),
+      variant: 'ghost',
+      size: 'sm',
+      className: 'w-full min-w-0 justify-start gap-2 font-normal text-sidebar-foreground/85',
+    },
+    model.acks > 0
+      ? [model.title, badge({ variant: 'secondary', className: 'ml-auto shrink-0' }, ['acked'], h)]
+      : model.title,
+    h,
   ),
 )

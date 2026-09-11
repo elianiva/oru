@@ -15,6 +15,9 @@ export default defineConfig({
     '.windsurf/**',
     'dist/**',
     'tools/oxlint/anti-slop/**',
+    'apps/oru/src/components/**',
+    'apps/oru/src/lib/icons.ts',
+    'apps/oru/src/lib/utils.ts',
   ],
   jsPlugins: [
     { name: 'anti-slop', specifier: './tools/oxlint/anti-slop/index.ts' },

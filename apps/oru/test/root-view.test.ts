@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { CreateThread, Message, update, view } from '../src/root.ts'
+import { CreateThread, Message, update, wiredView as view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import * as ThreadPanel from '../src/thread-panel.ts'
 import {
@@ -17,7 +17,7 @@ describe('root view', () => {
     ['logging', PluginPanel.init({ title: 'Log' })],
     ['greeter', PluginPanel.init({ title: 'Greet' })],
   ])
-  const idle = { panels: bothPanels, thread: undefined }
+  const idle = { ...init().model, panels: bothPanels, thread: undefined }
 
   it('drops the consumer panel when the graph no longer lists it', () => {
     Scene.scene(
@@ -113,7 +113,7 @@ describe('root view', () => {
     }
     Scene.scene(
       { update, view },
-      Scene.given({ panels: bothPanels, thread }),
+      Scene.given({ ...init().model, panels: bothPanels, thread }),
       Scene.expect(Scene.text('user: hello')).toExist(),
       Scene.expect(Scene.text('turn/started')).toExist(),
       Scene.expect(Scene.text('tool/requested echo')).toExist(),
@@ -125,7 +125,7 @@ describe('root view', () => {
   it('does not mount a title panel for plugins without ui', () => {
     Scene.scene(
       { update, view },
-      Scene.given({ panels: HashMap.empty(), thread: undefined }),
+      Scene.given({ ...init().model, panels: HashMap.empty(), thread: undefined }),
       Scene.Subscription.emit(
         Message.GraphArrived({
           graph: {

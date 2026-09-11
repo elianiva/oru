@@ -6,10 +6,14 @@ import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { inferencePlugin } from '@oru/inference'
 import { PluginId, ThreadId } from '@oru/kernel'
+import { button } from '@/components/ui/button.ts'
+import * as Sidebar from '@/components/ui/sidebar.ts'
 import { syncActivePanels } from './active-panels.ts'
+import { chatStub, initInfoSidebar, initRailSidebar } from './chat-stub.ts'
 import { decodePanelUi, fixturePlugins, type PanelUi } from './fixtures.ts'
 import { GraphRpc } from './graph-rpc.ts'
 import * as PluginPanel from './plugin-panel.ts'
+import { twoPane } from './shell.ts'
 import { ThreadClient } from './thread-client.ts'
 import * as ThreadPanel from './thread-panel.ts'
 import { lineOf } from './transcript.ts'
@@ -34,6 +38,8 @@ const inferenceLive = (graph: ViewGraph): boolean =>
 export const Model = Schema.Struct({
   panels: Schema.HashMap(PluginId, PluginPanel.Model),
   thread: Schema.UndefinedOr(ThreadPanel.Model),
+  leftSidebar: Sidebar.Model,
+  rightSidebar: Sidebar.Model,
 })
 export type Model = typeof Model.Type
 
@@ -42,6 +48,8 @@ export const Message = defineMessageUnion({
   ClickedToggleLogging: {},
   GotPluginMessage: { plugin: PluginId, message: PluginPanel.Message },
   GotThreadMessage: { message: ThreadPanel.Message },
+  GotLeftSidebar: { message: Sidebar.Message },
+  GotRightSidebar: { message: Sidebar.Message },
   SendFinished: {},
 })
 export type Message = typeof Message.Type
@@ -50,6 +58,8 @@ export const init = () => ({
   model: {
     panels: HashMap.empty<string, PluginPanel.Model>(),
     thread: undefined,
+    leftSidebar: initRailSidebar(),
+    rightSidebar: initInfoSidebar(),
   },
 })
 
@@ -127,6 +137,20 @@ const foldThread = Update.foldChild({
   foldOutMessage: foldThreadOutMessage,
 })
 
+const foldLeftSidebar = Update.foldChild({
+  update: Sidebar.update,
+  read: (model: Model) => Option.some(model.leftSidebar),
+  write: (model, nextChild) => ({ ...model, leftSidebar: nextChild }),
+  toParentMessage: (message: Sidebar.Message) => Message.GotLeftSidebar({ message }),
+})
+
+const foldRightSidebar = Update.foldChild({
+  update: Sidebar.update,
+  read: (model: Model) => Option.some(model.rightSidebar),
+  write: (model, nextChild) => ({ ...model, rightSidebar: nextChild }),
+  toParentMessage: (message: Sidebar.Message) => Message.GotRightSidebar({ message }),
+})
+
 export const update = (model: Model, message: Message) =>
   Message.match(message, {
     GraphArrived: ({ graph }) => {
@@ -134,10 +158,10 @@ export const update = (model: Model, message: Message) =>
       const panels = syncActivePanels(model.panels, titledPlugins(graph), (id) =>
         PluginPanel.init(panelUiFor(id, titles.get(id) ?? id)),
       )
-      if (!inferenceLive(graph)) return { model: { panels, thread: undefined } }
-      if (model.thread !== undefined) return { model: { panels, thread: model.thread } }
+      if (!inferenceLive(graph)) return { model: { ...model, panels, thread: undefined } }
+      if (model.thread !== undefined) return { model: { ...model, panels, thread: model.thread } }
       return {
-        model: { panels, thread: ThreadPanel.init() },
+        model: { ...model, panels, thread: ThreadPanel.init() },
         commands: [CreateThread()],
       }
     },
@@ -148,11 +172,30 @@ export const update = (model: Model, message: Message) =>
     GotPluginMessage: ({ plugin, message: childMessage }) =>
       foldPlugin(plugin)(model, childMessage),
     GotThreadMessage: ({ message: childMessage }) => foldThread(model, childMessage),
+    GotLeftSidebar: ({ message: childMessage }) => foldLeftSidebar(model, childMessage),
+    GotRightSidebar: ({ message: childMessage }) => foldRightSidebar(model, childMessage),
     SendFinished: () => ({ model }),
   })
 
-export const subscriptions = Subscription.make<Model, Message, GraphRpc | ThreadClient>()(
-  (entry) => ({
+const railSubs = Subscription.lift(Sidebar.subscriptions)({
+  toChildModel: (model: Model) => model.leftSidebar,
+  toParentMessage: (message: Sidebar.Message): Message => Message.GotLeftSidebar({ message }),
+})
+
+const infoSubs = Subscription.lift(Sidebar.subscriptions)({
+  toChildModel: (model: Model) => model.rightSidebar,
+  toParentMessage: (message: Sidebar.Message): Message => Message.GotRightSidebar({ message }),
+})
+
+export const subscriptions = Subscription.aggregate<Model, Message, GraphRpc | ThreadClient>()(
+  {
+    railCookie: railSubs.cookie,
+    railKeyboard: railSubs.keyboardShortcut,
+    railMedia: railSubs.mediaQuery,
+    infoCookie: infoSubs.cookie,
+    infoMedia: infoSubs.mediaQuery,
+  },
+  Subscription.make<Model, Message, GraphRpc | ThreadClient>()((entry) => ({
     graph: Subscription.persistent(
       Stream.unwrap(
         GraphRpc.pipe(
@@ -189,16 +232,23 @@ export const subscriptions = Subscription.make<Model, Message, GraphRpc | Thread
         },
       },
     ),
-  }),
+  })),
 )
 
-export const view = (model: Model, h: HtmlBuilder<Message>) =>
-  h.main(
-    [],
-    [
-      h.button(
-        [h.Attribute('data-logging-toggle', ''), h.OnClick(Message.ClickedToggleLogging())],
-        [HashMap.has(model.panels, 'logging') ? 'Turn logging off' : 'Turn logging on'],
+export const wiredView = (model: Model, h: HtmlBuilder<Message>) => {
+  const loggingOn = HashMap.has(model.panels, 'logging')
+  return twoPane(h, {
+    rail: [
+      button(
+        {
+          onClick: Message.ClickedToggleLogging(),
+          variant: 'ghost',
+          size: 'sm',
+          className: 'w-full justify-start font-normal text-sidebar-foreground/85',
+          attributes: [h.Attribute('data-logging-toggle', '')],
+        },
+        loggingOn ? 'Turn logging off' : 'Turn logging on',
+        h,
       ),
       ...HashMap.toEntries(model.panels).map(([plugin, child]) =>
         h.submodel({
@@ -209,16 +259,24 @@ export const view = (model: Model, h: HtmlBuilder<Message>) =>
             Message.GotPluginMessage({ plugin, message: childMessage }),
         }),
       ),
-      ...(model.thread === undefined
-        ? []
-        : [
-            h.submodel({
-              slotId: 'thread',
-              model: model.thread,
-              view: ThreadPanel.view,
-              toParentMessage: (childMessage) =>
-                Message.GotThreadMessage({ message: childMessage }),
-            }),
-          ]),
     ],
+    pane:
+      model.thread === undefined
+        ? undefined
+        : h.submodel({
+            slotId: 'thread',
+            model: model.thread,
+            view: ThreadPanel.view,
+            toParentMessage: (childMessage) => Message.GotThreadMessage({ message: childMessage }),
+          }),
+  })
+}
+
+export const view = (model: Model, h: HtmlBuilder<Message>) =>
+  chatStub(
+    model.leftSidebar,
+    model.rightSidebar,
+    (message) => Message.GotLeftSidebar({ message }),
+    (message) => Message.GotRightSidebar({ message }),
+    h,
   )

@@ -2,6 +2,11 @@ import { Schema } from 'effect'
 import { defineView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
 import { ThreadId } from '@oru/kernel'
+import { badge } from '@/components/ui/badge.ts'
+import { button } from '@/components/ui/button.ts'
+import { Empty } from '@/components/ui/empty.ts'
+import { inputClass } from '@/components/ui/input.ts'
+import { Item } from '@/components/ui/item.ts'
 import { labelOf, TranscriptLine } from './transcript.ts'
 
 export const Model = Schema.Struct({
@@ -42,17 +47,58 @@ export const update = (model: Model, message: Message) =>
 
 export const view = defineView<Model, Message>((model, h) =>
   h.section(
-    [h.Attribute('data-thread-panel', '')],
+    [h.Attribute('data-thread-panel', ''), h.Class('flex h-full min-h-0 flex-col')],
     [
-      h.input([
-        h.Attribute('data-thread-draft', ''),
-        h.Value(model.draft),
-        h.OnInput((value) => Message.ChangedDraft({ value })),
-      ]),
-      h.button([h.Attribute('data-thread-send', ''), h.OnClick(Message.ClickedSend())], ['Send']),
-      h.ul(
-        [],
-        model.lines.map((line) => h.li([], [labelOf(line)])),
+      h.div(
+        [h.Class('flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3')],
+        model.lines.length === 0
+          ? [Empty({}, [Empty.header({}, [Empty.title({}, ['No messages yet'], h)], h)], h)]
+          : [
+              Item.group(
+                { className: 'gap-2' },
+                model.lines.map((line) =>
+                  Item(
+                    { variant: 'muted', size: 'sm' },
+                    [
+                      Item.content(
+                        {},
+                        [
+                          badge({ variant: 'outline' }, [line._tag], h),
+                          Item.title(
+                            { className: 'line-clamp-none font-normal' },
+                            [labelOf(line)],
+                            h,
+                          ),
+                        ],
+                        h,
+                      ),
+                    ],
+                    h,
+                  ),
+                ),
+                h,
+              ),
+            ],
+      ),
+      h.div(
+        [h.Class('flex shrink-0 gap-2 border-t border-border-seam bg-background p-3')],
+        [
+          h.input([
+            h.Attribute('data-thread-draft', ''),
+            h.Class(inputClass),
+            h.Value(model.draft),
+            h.OnInput((value) => Message.ChangedDraft({ value })),
+          ]),
+          button(
+            {
+              onClick: Message.ClickedSend(),
+              variant: 'outline',
+              attributes: [h.Attribute('data-thread-send', '')],
+            },
+            'Send',
+            h,
+          ),
+        ],
       ),
     ],
   ),
