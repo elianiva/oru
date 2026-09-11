@@ -5,3 +5,5 @@ packages:
 allowBuilds:
   lefthook: true
   msgpackr-extract: false
+overrides:
+  vite: 8.2.2
