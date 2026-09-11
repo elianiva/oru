@@ -67,10 +67,24 @@ export const openRegistry = Effect.fnUntraced(function* (events: PubSub.PubSub<H
     value: S,
     owner: PluginId,
   ) {
+    const key = serviceId(token)
+    const map = yield* Ref.get(cells)
+    const existing = map.get(key)
+    if (existing !== undefined) {
+      yield* Ref.set(existing.impl, value)
+      if (existing.owner !== owner) {
+        yield* Ref.update(cells, (current) => {
+          const next = new Map(current)
+          next.set(key, { owner, impl: existing.impl })
+          return next
+        })
+      }
+      return
+    }
     const impl = yield* Ref.make<unknown>(value)
-    yield* Ref.update(cells, (map) => {
-      const next = new Map(map)
-      next.set(serviceId(token), { owner, impl })
+    yield* Ref.update(cells, (current) => {
+      const next = new Map(current)
+      next.set(key, { owner, impl })
       return next
     })
   })
