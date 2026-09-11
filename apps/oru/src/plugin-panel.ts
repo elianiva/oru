@@ -3,7 +3,6 @@ import { defineView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
-import { Card } from '@/components/ui/card.ts'
 import type { PanelUi } from './fixtures.ts'
 
 export const Model = Schema.Struct({
@@ -33,26 +32,16 @@ export const update = (model: Model, message: Message) =>
   })
 
 export const view = defineView<Model, Message>((model, h) =>
-  Card(
-    { size: 'sm' },
-    [
-      Card.content(
-        { className: 'flex items-center gap-2' },
-        [
-          button(
-            {
-              onClick: Message.ClickedTitle(),
-              variant: 'outline',
-              className: 'flex-1',
-            },
-            model.title,
-            h,
-          ),
-          ...(model.acks > 0 ? [badge({ variant: 'secondary' }, ['acked'], h)] : []),
-        ],
-        h,
-      ),
-    ],
+  button(
+    {
+      onClick: Message.ClickedTitle(),
+      variant: 'ghost',
+      size: 'sm',
+      className: 'w-full min-w-0 justify-start gap-2 font-normal text-sidebar-foreground/85',
+    },
+    model.acks > 0
+      ? [model.title, badge({ variant: 'secondary', className: 'ml-auto shrink-0' }, ['acked'], h)]
+      : model.title,
     h,
   ),
 )

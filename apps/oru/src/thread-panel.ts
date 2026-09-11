@@ -7,7 +7,6 @@ import { button } from '@/components/ui/button.ts'
 import { Empty } from '@/components/ui/empty.ts'
 import { inputClass } from '@/components/ui/input.ts'
 import { Item } from '@/components/ui/item.ts'
-import { separator } from '@/components/ui/separator.ts'
 import { labelOf, TranscriptLine } from './transcript.ts'
 
 export const Model = Schema.Struct({
@@ -51,36 +50,38 @@ export const view = defineView<Model, Message>((model, h) =>
     [h.Attribute('data-thread-panel', ''), h.Class('flex h-full min-h-0 flex-col')],
     [
       h.div(
-        [h.Class('flex min-h-0 flex-1 flex-col overflow-y-auto p-4')],
+        [h.Class('flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3')],
         model.lines.length === 0
           ? [Empty({}, [Empty.header({}, [Empty.title({}, ['No messages yet'], h)], h)], h)]
           : [
               Item.group(
-                {},
-                model.lines.flatMap((line, index) => [
-                  ...(index === 0 ? [] : [Item.separator({}, h)]),
+                { className: 'gap-2' },
+                model.lines.map((line) =>
                   Item(
-                    { variant: 'outline', size: 'sm' },
+                    { variant: 'muted', size: 'sm' },
                     [
                       Item.content(
                         {},
                         [
                           badge({ variant: 'outline' }, [line._tag], h),
-                          Item.title({}, [labelOf(line)], h),
+                          Item.title(
+                            { className: 'line-clamp-none font-normal' },
+                            [labelOf(line)],
+                            h,
+                          ),
                         ],
                         h,
                       ),
                     ],
                     h,
                   ),
-                ]),
+                ),
                 h,
               ),
             ],
       ),
-      separator({}, h),
       h.div(
-        [h.Class('flex gap-2 p-3')],
+        [h.Class('flex shrink-0 gap-2 border-t border-border-seam bg-background p-3')],
         [
           h.input([
             h.Attribute('data-thread-draft', ''),
@@ -91,6 +92,7 @@ export const view = defineView<Model, Message>((model, h) =>
           button(
             {
               onClick: Message.ClickedSend(),
+              variant: 'outline',
               attributes: [h.Attribute('data-thread-send', '')],
             },
             'Send',

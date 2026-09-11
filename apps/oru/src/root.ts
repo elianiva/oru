@@ -201,8 +201,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>) => {
       button(
         {
           onClick: Message.ClickedToggleLogging(),
-          variant: loggingOn ? 'secondary' : 'outline',
-          className: 'w-full',
+          variant: 'ghost',
+          size: 'sm',
+          className: 'w-full justify-start font-normal text-sidebar-foreground/85',
           attributes: [h.Attribute('data-logging-toggle', '')],
         },
         loggingOn ? 'Turn logging off' : 'Turn logging on',

@@ -13,14 +13,33 @@ export const twoPane = <M>(h: HtmlBuilder<M>, slots: TwoPaneSlots): Html =>
       h.aside(
         [
           h.Class(
-            'flex flex-col gap-3 border-r border-sidebar-border bg-sidebar p-3 text-sidebar-foreground',
+            'flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-border-seam bg-sidebar text-sidebar-foreground',
           ),
         ],
-        [h.p([h.Class('px-1 text-sm font-medium tracking-tight')], ['oru']), ...slots.rail],
+        [
+          h.div([h.Class('flex h-8 shrink-0 items-center px-4 text-sm font-semibold')], ['oru']),
+          h.div([h.Class('flex min-h-0 flex-1 flex-col gap-0.5 px-2 py-1')], slots.rail),
+        ],
       ),
       h.main(
-        [h.Class('flex min-h-0 flex-col bg-background')],
-        [slots.pane ?? Empty({}, [Empty.header({}, [Empty.title({}, ['No thread'], h)], h)], h)],
+        [h.Class('flex min-h-0 min-w-0 flex-col bg-background')],
+        [
+          h.div(
+            [
+              h.Class(
+                'flex h-10 shrink-0 items-center border-b border-border-seam px-4 text-sm font-medium',
+              ),
+            ],
+            [slots.pane === undefined ? 'No thread' : 'Thread'],
+          ),
+          h.div(
+            [h.Class('flex min-h-0 flex-1 flex-col')],
+            [
+              slots.pane ??
+                Empty({}, [Empty.header({}, [Empty.title({}, ['No thread'], h)], h)], h),
+            ],
+          ),
+        ],
       ),
     ],
   )
