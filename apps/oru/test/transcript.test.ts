@@ -6,6 +6,7 @@ import {
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  unsignedTree,
 } from '@oru/kernel'
 import {
   FailedLine,
@@ -19,10 +20,20 @@ import {
 
 describe('transcript', () => {
   it('projects thread facts into labeled lines and drops host facts', () => {
-    expect(lineOf(SessionActivated.make({ plugin: 'logging', scope: 'host' }))).toBeUndefined()
+    expect(
+      lineOf(
+        SessionActivated.make({
+          ...unsignedTree,
+          id: 'p1',
+          plugin: 'logging',
+          scope: 'host',
+        }),
+      ),
+    ).toBeUndefined()
 
     const user = lineOf(
       MessageAppended.make({
+        ...unsignedTree,
         id: 'e1',
         thread: 't1',
         role: 'user',
@@ -33,13 +44,21 @@ describe('transcript', () => {
     if (user === undefined) throw new Error('expected user line')
     expect(labelOf(user)).toBe('user: hello')
 
-    const turn = lineOf(TurnStarted.make({ id: 'e2', thread: 't1', turn: 'turn_1' }))
+    const turn = lineOf(
+      TurnStarted.make({
+        ...unsignedTree,
+        id: 'e2',
+        thread: 't1',
+        turn: 'turn_1',
+      }),
+    )
     expect(turn).toEqual(TurnLine.make({}))
     if (turn === undefined) throw new Error('expected turn line')
     expect(labelOf(turn)).toBe('turn/started')
 
     const failed = lineOf(
       TurnFailed.make({
+        ...unsignedTree,
         id: 'e2f',
         thread: 't1',
         turn: 'turn_1',
@@ -52,6 +71,7 @@ describe('transcript', () => {
 
     const requested = lineOf(
       ToolRequested.make({
+        ...unsignedTree,
         id: 'e3',
         thread: 't1',
         turn: 'turn_1',
@@ -66,6 +86,7 @@ describe('transcript', () => {
 
     const completed = lineOf(
       ToolCompleted.make({
+        ...unsignedTree,
         id: 'e4',
         thread: 't1',
         turn: 'turn_1',

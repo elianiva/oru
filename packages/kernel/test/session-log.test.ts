@@ -52,11 +52,15 @@ const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
       'plugin/activated': (event) => event[field],
       'plugin/deactivated': (event) => event[field],
       'thread/created': () => '',
+      'project/created': () => '',
       'turn/started': () => '',
       'turn/failed': () => '',
       'message/appended': () => '',
       'tool/requested': () => '',
       'tool/completed': () => '',
+      'thread/compacted': () => '',
+      'thread/branched': () => '',
+      'agent/inbox/spliced': () => '',
     }),
   )
 

@@ -1,4 +1,4 @@
-import { Context, Effect } from 'effect'
+import { Context, Effect, Scope } from 'effect'
 import { LanguageModel } from '@effect-uai/core/LanguageModel'
 import {
   definePlugin,
@@ -17,7 +17,8 @@ const setup = (ctx: PluginContext<readonly []>) =>
     const loadTools = ctx
       .contributions(ToolKind)
       .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
-    return Context.make(Inference, openInference(log, languageModel, loadTools))
+    const scope = yield* Scope.Scope
+    return Context.make(Inference, openInference(log, languageModel, loadTools, scope))
   })
 
 export const inferencePlugin = definePlugin({

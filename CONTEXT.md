@@ -69,8 +69,12 @@ State derived by folding the session log rather than stored on its own.
 _Avoid_: snapshot, cache
 
 **Thread**:
-The user-facing unit of work. A thread owns one or more sessions; a subagent is a thread with a parent.
+The user-facing unit of work. A thread belongs to a project, owns a session tree, and may spawn a subagent thread. Threads are flat and do not inherit tools from a parent.
 _Avoid_: conversation, task
+
+**Project**:
+A named workspace on the host: `name`, `cwd`, and later metadata. One host holds many projects. Every thread and its subagents use that project's cwd until a later per-thread override exists.
+_Avoid_: repo, folder, workspace (the host is not the project)
 
 **Subagent**:
 A thread spawned by another thread, its parent. It uses the same machinery as a top-level thread and is seen through the parent relationship.

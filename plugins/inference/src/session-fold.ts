@@ -1,5 +1,12 @@
 import { Match, Schema } from 'effect'
-import { ThreadId, ToolCallId, TurnId, type SessionEvent } from '@oru/kernel'
+import {
+  pathOfLane,
+  threadLane,
+  ThreadId,
+  ToolCallId,
+  TurnId,
+  type SessionEvent,
+} from '@oru/kernel'
 
 export const PendingCall = Schema.Struct({
   turn: TurnId,
@@ -32,27 +39,27 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
   const requested: PendingCall[] = []
   const completed = new Set<string>()
 
-  for (const event of events) {
+  for (const event of pathOfLane(events, threadLane(thread))) {
     Match.value(event).pipe(
       Match.tagsExhaustive({
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},
+        'project/created': () => {},
         'thread/created': () => {},
+        'thread/compacted': () => {},
+        'thread/branched': () => {},
+        'agent/inbox/spliced': () => {},
         'message/appended': (event) => {
-          if (event.thread !== thread) return
           if (event.role === 'user') awaitingModel = true
           if (event.role === 'assistant') awaitingModel = false
         },
         'turn/started': (event) => {
-          if (event.thread !== thread) return
           openTurn = event.turn
         },
-        'turn/failed': (event) => {
-          if (event.thread !== thread) return
+        'turn/failed': () => {
           awaitingModel = false
         },
         'tool/requested': (event) => {
-          if (event.thread !== thread) return
           awaitingModel = false
           requested.push(
             PendingCall.make({
@@ -64,7 +71,6 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           )
         },
         'tool/completed': (event) => {
-          if (event.thread !== thread) return
           completed.add(event.call)
           awaitingModel = true
         },

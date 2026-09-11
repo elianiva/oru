@@ -37,12 +37,14 @@ describe('assembled architecture', () => {
           const created = yield* threadClient.CreateThread()
           const watchFiber = yield* threadClient
             .WatchThread({ threadId: created.threadId })
-            .pipe(Stream.take(5), Stream.runCollect, Effect.forkScoped)
+            .pipe(Stream.take(7), Stream.runCollect, Effect.forkScoped)
           yield* threadClient.SendMessage({ threadId: created.threadId, text: 'hello' })
           const streamed = yield* Fiber.join(watchFiber)
 
           expect(streamed.map((event) => event._tag)).toEqual([
+            'thread/created',
             'message/appended',
+            'agent/inbox/spliced',
             'turn/started',
             'tool/requested',
             'tool/completed',

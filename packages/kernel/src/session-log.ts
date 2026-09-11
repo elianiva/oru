@@ -1,8 +1,24 @@
-import { Context, Effect, Layer, Match, Schema, Stream, type Scope } from 'effect'
+import {
+  Clock,
+  Context,
+  Effect,
+  Layer,
+  Match,
+  Random,
+  Schema,
+  Semaphore,
+  Stream,
+  type Scope,
+} from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { Msgpack } from 'effect/unstable/encoding'
 import type { HostEvent } from './event.ts'
-import { PluginActivated, PluginDeactivated, SessionEvent } from './session-event.ts'
+import {
+  PluginActivated as SessionPluginActivated,
+  PluginDeactivated as SessionPluginDeactivated,
+  SessionEvent,
+} from './session-event.ts'
+import { laneOf, leafOf } from './session-tree.ts'
 
 export type SessionLogError = EventJournal.EventJournalError | Schema.SchemaError
 
@@ -25,23 +41,25 @@ const codec = Msgpack.schema(SessionEvent)
 const encodePayload = Schema.encodeEffect(codec)
 const decodePayload = Schema.decodeUnknownEffect(codec)
 
-const primaryKey = (event: SessionEvent) =>
-  Match.value(event).pipe(
-    Match.tagsExhaustive({
-      'plugin/activated': (event) => `${event.plugin}:${event._tag}`,
-      'plugin/deactivated': (event) => `${event.plugin}:${event._tag}`,
-      'thread/created': (event) => event.id,
-      'turn/started': (event) => event.id,
-      'turn/failed': (event) => event.id,
-      'message/appended': (event) => event.id,
-      'tool/requested': (event) => event.id,
-      'tool/completed': (event) => event.id,
-    }),
-  )
-
 const decodeEntry = (entry: EventJournal.Entry) => decodePayload(entry.payload)
 
+const stamp = (
+  event: SessionEvent,
+  events: readonly SessionEvent[],
+  timestamp: number,
+): Effect.Effect<SessionEvent, Schema.SchemaError> => {
+  const seq = events.length
+  const parentId = leafOf(events, laneOf(event))
+  return Schema.decodeUnknownEffect(SessionEvent)({
+    ...event,
+    parentId,
+    seq,
+    timestamp,
+  })
+}
+
 export const fromJournal = (journal: EventJournal.EventJournal['Service']): SessionLogContract => {
+  const lock = Semaphore.makeUnsafe(1)
   const subscribe = journal.changes.pipe(
     Effect.map((subscription) =>
       Stream.fromSubscription(subscription).pipe(Stream.mapEffect(decodeEntry)),
@@ -49,15 +67,19 @@ export const fromJournal = (journal: EventJournal.EventJournal['Service']): Sess
   )
   return {
     write: (event) =>
-      encodePayload(event).pipe(
-        Effect.flatMap((payload) =>
-          journal.write({
-            event: event._tag,
-            primaryKey: primaryKey(event),
+      lock.withPermit(
+        Effect.gen(function* () {
+          const encoded = yield* journal.entries.pipe(Effect.flatMap(Effect.forEach(decodeEntry)))
+          const timestamp = yield* Clock.currentTimeMillis
+          const stamped = yield* stamp(event, encoded, timestamp)
+          const payload = yield* encodePayload(stamped)
+          yield* journal.write({
+            event: stamped._tag,
+            primaryKey: stamped.id,
             payload,
             effect: () => Effect.void,
-          }),
-        ),
+          })
+        }),
       ),
     entries: journal.entries.pipe(Effect.flatMap(Effect.forEach(decodeEntry))),
     subscribe,
@@ -65,13 +87,45 @@ export const fromJournal = (journal: EventJournal.EventJournal['Service']): Sess
   }
 }
 
+const newId = Effect.fnUntraced(function* () {
+  const now = yield* Clock.currentTimeMillis
+  const n = yield* Random.next
+  return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
+})
+
 export const appendHostEvent = (log: SessionLogContract, event: HostEvent) =>
   Match.value(event).pipe(
     Match.tagsExhaustive({
       PluginActivated: (event) =>
-        log.write(PluginActivated.make({ plugin: event.plugin, scope: event.scope })),
+        newId().pipe(
+          Effect.flatMap((id) =>
+            log.write(
+              SessionPluginActivated.make({
+                id,
+                plugin: event.plugin,
+                scope: event.scope,
+                parentId: null,
+                seq: 0,
+                timestamp: 0,
+              }),
+            ),
+          ),
+        ),
       PluginDeactivated: (event) =>
-        log.write(PluginDeactivated.make({ plugin: event.plugin, scope: event.scope })),
+        newId().pipe(
+          Effect.flatMap((id) =>
+            log.write(
+              SessionPluginDeactivated.make({
+                id,
+                plugin: event.plugin,
+                scope: event.scope,
+                parentId: null,
+                seq: 0,
+                timestamp: 0,
+              }),
+            ),
+          ),
+        ),
       ProviderRemoved: () => Effect.void,
     }),
   )
