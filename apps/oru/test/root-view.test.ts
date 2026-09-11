@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { CreateThread, Message, update, view } from '../src/root.ts'
+import { CreateThread, Message, update, wiredView as view } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import * as ThreadPanel from '../src/thread-panel.ts'
 import {

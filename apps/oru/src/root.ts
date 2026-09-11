@@ -11,6 +11,7 @@ import { syncActivePanels } from './active-panels.ts'
 import { decodePanelUi, fixturePlugins, type PanelUi } from './fixtures.ts'
 import { GraphRpc } from './graph-rpc.ts'
 import * as PluginPanel from './plugin-panel.ts'
+import { chatStub } from './chat-stub.ts'
 import { twoPane } from './shell.ts'
 import { ThreadClient } from './thread-client.ts'
 import * as ThreadPanel from './thread-panel.ts'
@@ -194,7 +195,7 @@ export const subscriptions = Subscription.make<Model, Message, GraphRpc | Thread
   }),
 )
 
-export const view = (model: Model, h: HtmlBuilder<Message>) => {
+export const wiredView = (model: Model, h: HtmlBuilder<Message>) => {
   const loggingOn = HashMap.has(model.panels, 'logging')
   return twoPane(h, {
     rail: [
@@ -230,3 +231,5 @@ export const view = (model: Model, h: HtmlBuilder<Message>) => {
           }),
   })
 }
+
+export const view = (_model: Model, h: HtmlBuilder<Message>) => chatStub(h)
