@@ -194,6 +194,9 @@ importers:
 
   plugins/inference:
     dependencies:
+      '@effect-uai/core':
+        specifier: 0.15.0
+        version: 0.15.0(effect@4.0.0-rc.112)
       '@oru/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
@@ -209,6 +212,11 @@ importers:
         version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
 
 packages:
+
+  '@effect-uai/core@0.15.0':
+    resolution: {integrity: sha512-+HNoKiZBw7gvShygdtYj56RDNsHb1pJr4yEUQwRHgzkd4j/vUpHMqpSyJBmuSCdDPb/kRqfblyiEs26dmfW6Ew==}
+    peerDependencies:
+      effect: '>=4.0.0-rc.111 <5.0.0'
 
   '@effect/sql-sqlite-node@4.0.0-rc.112':
     resolution: {integrity: sha512-jGRtbJsn5z7DqsMEPSbXq2Q9mYEvMy1v9DTeziTtDEnDzlxhxfrXkSeupZbYqAP5pukIM1JBa10zfAn6KnHG2Q==}
@@ -664,6 +672,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
@@ -1407,6 +1418,11 @@ packages:
 
 snapshots:
 
+  '@effect-uai/core@0.15.0(effect@4.0.0-rc.112)':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      effect: 4.0.0-rc.112
+
   '@effect/sql-sqlite-node@4.0.0-rc.112(effect@4.0.0-rc.112)':
     dependencies:
       effect: 4.0.0-rc.112
@@ -1658,6 +1674,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@standard-schema/spec@1.1.0': {}
 
   '@tailwindcss/node@4.3.3':
     dependencies:

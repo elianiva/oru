@@ -1,22 +1,33 @@
 import { Context, Effect } from 'effect'
-import { definePlugin, provide, SessionLog } from '@oru/kernel'
+import { LanguageModel } from '@effect-uai/core/LanguageModel'
+import {
+  definePlugin,
+  provide,
+  SessionLog,
+  type PluginContext,
+  type ServerFacet,
+} from '@oru/kernel'
 import { Inference, openInference } from './inference.ts'
-import { Model } from './model.ts'
 import { ToolKind } from './tool-kind.ts'
+
+const setup = (ctx: PluginContext<readonly []>) =>
+  Effect.gen(function* () {
+    const languageModel = yield* LanguageModel
+    const log = yield* SessionLog
+    const loadTools = ctx
+      .contributions(ToolKind)
+      .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
+    return Context.make(Inference, openInference(log, languageModel, loadTools))
+  })
 
 export const inferencePlugin = definePlugin({
   id: 'oru/inference',
-  needs: [Model],
   provides: [provide(Inference)],
   server: {
-    setup: Effect.fnUntraced(function* (ctx) {
-      const log = yield* SessionLog
-      const model = ctx.service(Model)
-      const loadTools = ctx
-        .contributions(ToolKind)
-        .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
-      const inference = openInference(log, model, loadTools)
-      return Context.make(Inference, inference)
-    }),
+    // SAFETY: host erases setup R; LanguageModel is provided on the fiber via demoModelLayer
+    setup: setup as ServerFacet<
+      readonly [],
+      ReturnType<typeof provide<typeof Inference>>[]
+    >['setup'],
   },
 })

@@ -4,9 +4,11 @@ import {
   SessionActivated,
   ToolCompleted,
   ToolRequested,
+  TurnFailed,
   TurnStarted,
 } from '@oru/kernel'
 import {
+  FailedLine,
   labelOf,
   lineOf,
   ToolCompletedLine,
@@ -35,6 +37,18 @@ describe('transcript', () => {
     expect(turn).toEqual(TurnLine.make({}))
     if (turn === undefined) throw new Error('expected turn line')
     expect(labelOf(turn)).toBe('turn/started')
+
+    const failed = lineOf(
+      TurnFailed.make({
+        id: 'e2f',
+        thread: 't1',
+        turn: 'turn_1',
+        reason: 'provider down',
+      }),
+    )
+    expect(failed).toEqual(FailedLine.make({ reason: 'provider down' }))
+    if (failed === undefined) throw new Error('expected failed line')
+    expect(labelOf(failed)).toBe('turn/failed provider down')
 
     const requested = lineOf(
       ToolRequested.make({

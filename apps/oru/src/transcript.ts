@@ -4,12 +4,14 @@ import type { SessionEvent } from '@oru/kernel'
 export const UserLine = Schema.TaggedStruct('user', { body: Schema.String })
 export const AssistantLine = Schema.TaggedStruct('assistant', { body: Schema.String })
 export const TurnLine = Schema.TaggedStruct('turn', {})
+export const FailedLine = Schema.TaggedStruct('turn/failed', { reason: Schema.String })
 export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', { name: Schema.String })
 export const ToolCompletedLine = Schema.TaggedStruct('tool/completed', { name: Schema.String })
 export const TranscriptLine = Schema.Union([
   UserLine,
   AssistantLine,
   TurnLine,
+  FailedLine,
   ToolRequestedLine,
   ToolCompletedLine,
 ])
@@ -27,6 +29,7 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
         return undefined
       },
       'turn/started': () => TurnLine.make({}),
+      'turn/failed': (event) => FailedLine.make({ reason: event.reason }),
       'tool/requested': (event) => ToolRequestedLine.make({ name: event.name }),
       'tool/completed': (event) => ToolCompletedLine.make({ name: event.name }),
     }),
@@ -38,6 +41,7 @@ export const labelOf = (line: TranscriptLine): string =>
       user: (line) => `user: ${line.body}`,
       assistant: (line) => `assistant: ${line.body}`,
       turn: () => 'turn/started',
+      'turn/failed': (line) => `turn/failed ${line.reason}`,
       'tool/requested': (line) => `tool/requested ${line.name}`,
       'tool/completed': (line) => `tool/completed ${line.name}`,
     }),

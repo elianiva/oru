@@ -47,6 +47,10 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           if (event.thread !== thread) return
           openTurn = event.turn
         },
+        'turn/failed': (event) => {
+          if (event.thread !== thread) return
+          awaitingModel = false
+        },
         'tool/requested': (event) => {
           if (event.thread !== thread) return
           awaitingModel = false

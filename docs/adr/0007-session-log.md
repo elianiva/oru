@@ -11,7 +11,7 @@ A session is an append-only `SessionEvent` log. Every model-visible fact and eve
 ## Consequences
 
 - Resume, fork, and crash recovery reproject the log instead of restoring a snapshot.
-- The event vocabulary covers model-visible facts (`turn/started`, `message/appended`, `tool/requested`, `tool/completed`) and host facts (`plugin/activated`, `plugin/deactivated`), so the trace shows how the plugin graph shaped a run.
+- The event vocabulary covers model-visible facts (`turn/started`, `turn/failed`, `message/appended`, `tool/requested`, `tool/completed`) and host facts (`plugin/activated`, `plugin/deactivated`), so the trace shows how the plugin graph shaped a run.
 - A server facet is a Moore machine: `output(state)` derives a view and the transitions it enables, and composed server facets reconcile their views and transitions. This model is borrowed from Tardigrade.
 - Effects execute at least once, so a transition key makes reruns idempotent.
 - Runtime events from effect-uai are projected into this vocabulary at the seam, so the log does not leak runtime types.

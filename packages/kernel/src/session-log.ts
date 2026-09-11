@@ -32,6 +32,7 @@ const primaryKey = (event: SessionEvent) =>
       'plugin/deactivated': (event) => `${event.plugin}:${event._tag}`,
       'thread/created': (event) => event.id,
       'turn/started': (event) => event.id,
+      'turn/failed': (event) => event.id,
       'message/appended': (event) => event.id,
       'tool/requested': (event) => event.id,
       'tool/completed': (event) => event.id,

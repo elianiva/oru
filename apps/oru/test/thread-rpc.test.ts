@@ -3,8 +3,8 @@ import { Effect } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer, ThreadCreated } from '@oru/kernel'
-import { foldThread, Idle, inferencePlugin, workOf } from '@oru/inference'
-import { echoToolPlugin, fakeModelPlugin } from '../src/fixtures.ts'
+import { foldThread, Idle, inferencePlugin, workOf, demoModelLayer } from '@oru/inference'
+import { echoToolPlugin } from '../src/fixtures.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
 describe('thread rpc', () => {
@@ -12,7 +12,7 @@ describe('thread rpc', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([echoToolPlugin, fakeModelPlugin, inferencePlugin])
+          const host = yield* makeHost([echoToolPlugin, inferencePlugin])
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
@@ -29,7 +29,11 @@ describe('thread rpc', () => {
           )
           expect(foldNamedThreads(entries).has(created.threadId)).toBe(true)
           expect(workOf(foldThread(entries, created.threadId))).toEqual(Idle.make({}))
-        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+        }).pipe(
+          Effect.provide(sessionLogLayer),
+          Effect.provide(EventJournal.layerMemory),
+          Effect.provide(demoModelLayer),
+        ),
       ),
     )
   })
@@ -38,7 +42,7 @@ describe('thread rpc', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([echoToolPlugin, fakeModelPlugin, inferencePlugin])
+          const host = yield* makeHost([echoToolPlugin, inferencePlugin])
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
@@ -54,7 +58,11 @@ describe('thread rpc', () => {
           expect(tags).toContain('turn/started')
           expect(tags).toContain('tool/requested')
           expect(tags).toContain('tool/completed')
-        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+        }).pipe(
+          Effect.provide(sessionLogLayer),
+          Effect.provide(EventJournal.layerMemory),
+          Effect.provide(demoModelLayer),
+        ),
       ),
     )
   })

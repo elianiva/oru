@@ -1,6 +1,6 @@
-import { Context, Effect, Option, Schema, Stream } from 'effect'
+import { Context, Effect, Option, Schema } from 'effect'
 import { contribute, definePlugin, defineService, provide } from '@oru/kernel'
-import { inferencePlugin, Model, TextEvent, ToolEvent, ToolKind } from '@oru/inference'
+import { defineTool, inferencePlugin, ToolKind } from '@oru/inference'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -52,49 +52,19 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 export const echoToolPlugin = definePlugin({
   id: 'tools/echo',
   provides: [
-    contribute(ToolKind, {
-      name: 'echo',
-      description: 'Return the text that was passed in.',
-      execute: (argumentsJson) =>
-        Effect.try({
-          try: () => JSON.parse(argumentsJson),
-          catch: () => new Error('invalid tool arguments'),
-        }).pipe(
-          Effect.flatMap((raw) => Schema.decodeUnknownEffect(EchoArgs)(raw)),
-          Effect.map((input) => ({ ok: true, result: JSON.stringify({ echoed: input.text }) })),
-          Effect.catch(() => Effect.succeed({ ok: false, result: 'tool failed' })),
-        ),
-    }),
+    contribute(
+      ToolKind,
+      defineTool({
+        name: 'echo',
+        description: 'Return the text that was passed in.',
+        parameters: EchoArgs,
+        execute: (input) => Effect.succeed({ echoed: input.text }),
+      }),
+    ),
   ],
 })
 
-export const fakeModelPlugin = definePlugin({
-  id: 'model/fake',
-  provides: [provide(Model)],
-  server: {
-    setup: () =>
-      Effect.succeed(
-        Context.make(Model, {
-          streamTurn: (history) => {
-            if (history.some((item) => item._tag === 'tool')) {
-              return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
-            }
-            return Effect.succeed(
-              Stream.succeed(
-                ToolEvent.make({
-                  name: 'echo',
-                  call: 'call_1',
-                  arguments: JSON.stringify({ text: 'hi' }),
-                }),
-              ),
-            )
-          },
-        }),
-      ),
-  },
-})
-
-export const hostPlugins = [...fixturePlugins, echoToolPlugin, fakeModelPlugin, inferencePlugin]
+export const hostPlugins = [...fixturePlugins, echoToolPlugin, inferencePlugin]
 
 export const fixtureTitles: ReadonlyMap<string, string> = new Map(
   fixturePlugins.flatMap((plugin) =>

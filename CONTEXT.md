@@ -53,7 +53,7 @@ The agent execution layer: effect-uai's model and tool primitives, used by a bui
 _Avoid_: harness, engine
 
 **Agent**:
-A running agent loop scoped to one session. It streams model turns, runs tool calls, and holds live state, built on effect-uai's `Loop` primitive.
+A running agent loop scoped to one session. It streams model turns, runs tool calls, and holds live state by folding the session log. Continuation is that fold, not effect-uai's `Loop`.
 _Avoid_: worker, actor, bot
 
 **Tool**:

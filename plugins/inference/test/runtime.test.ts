@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Schema, Stream, type Scope } from 'effect'
+import { Effect, Layer, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import {
-  contribute,
-  definePlugin,
-  makeHost,
-  provide,
-  SessionLog,
-  sessionLogLayer,
-} from '@oru/kernel'
-import { Inference, inferencePlugin, Model, TextEvent, ToolEvent } from '../src/index.ts'
+import { LanguageModel } from '@effect-uai/core/LanguageModel'
+import * as MockProvider from '@effect-uai/core/testing/MockProvider'
+import { contribute, definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import { demoModelLayer, defineTool, Inference, inferencePlugin } from '../src/index.ts'
 import { ToolKind } from '../src/tool-kind.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -17,55 +12,29 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
   provides: [
-    contribute(ToolKind, {
-      name: 'echo',
-      description: 'Return the text that was passed in.',
-      execute: (argumentsJson) =>
-        Effect.try({
-          try: () => JSON.parse(argumentsJson),
-          catch: () => new Error('invalid tool arguments'),
-        }).pipe(
-          Effect.flatMap((raw) => Schema.decodeUnknownEffect(EchoArgs)(raw)),
-          Effect.map((input) => ({ ok: true, result: JSON.stringify({ echoed: input.text }) })),
-          Effect.catch(() => Effect.succeed({ ok: false, result: 'tool failed' })),
-        ),
-    }),
+    contribute(
+      ToolKind,
+      defineTool({
+        name: 'echo',
+        description: 'Return the text that was passed in.',
+        parameters: EchoArgs,
+        execute: (input) => Effect.succeed({ echoed: input.text }),
+      }),
+    ),
   ],
 })
 
-const fakeModelPlugin = definePlugin({
-  id: 'model/fake',
-  provides: [provide(Model)],
-  server: {
-    setup: () =>
-      Effect.succeed(
-        Context.make(Model, {
-          streamTurn: (history) => {
-            const alreadyRan = history.some((item) => item._tag === 'tool')
-            if (alreadyRan) {
-              return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
-            }
-            return Effect.succeed(
-              Stream.succeed(
-                ToolEvent.make({
-                  name: 'echo',
-                  call: 'call_1',
-                  arguments: JSON.stringify({ text: 'hi' }),
-                }),
-              ),
-            )
-          },
-        }),
-      ),
-  },
-})
-
 const runRuntime = <A, E>(
-  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,
+  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | LanguageModel | Scope.Scope>,
+  model: Layer.Layer<LanguageModel> = demoModelLayer,
 ) =>
   Effect.runPromise(
     Effect.scoped(
-      effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      effect.pipe(
+        Effect.provide(sessionLogLayer),
+        Effect.provide(EventJournal.layerMemory),
+        Effect.provide(model),
+      ),
     ),
   )
 
@@ -73,7 +42,7 @@ describe('inference runtime', () => {
   it('records a user message, a turn, a tool request, and a tool result', async () => {
     await runRuntime(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, fakeModelPlugin, inferencePlugin])
+        const host = yield* makeHost([echoToolPlugin, inferencePlugin])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
@@ -83,6 +52,25 @@ describe('inference runtime', () => {
         expect(tags).toContain('tool/requested')
         expect(tags).toContain('tool/completed')
       }),
+    )
+  })
+
+  it('writes turn/failed and still succeeds send when the model dies', async () => {
+    await runRuntime(
+      Effect.gen(function* () {
+        const host = yield* makeHost([echoToolPlugin, inferencePlugin])
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        yield* inference.send('t1', 'hello')
+        const tags = (yield* log.entries).map((event) => event._tag)
+        expect(tags).toContain('turn/started')
+        expect(tags).toContain('turn/failed')
+        expect(tags).not.toContain('tool/requested')
+        const failed = (yield* log.entries).find((event) => event._tag === 'turn/failed')
+        expect(failed?._tag).toBe('turn/failed')
+        if (failed?._tag === 'turn/failed') expect(failed.reason.length).toBeGreaterThan(0)
+      }),
+      MockProvider.layer([]),
     )
   })
 })

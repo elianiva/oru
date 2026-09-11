@@ -29,6 +29,7 @@ const threadOf = (event: SessionEvent) =>
       'plugin/deactivated': () => undefined,
       'thread/created': () => undefined,
       'turn/started': (event) => event.thread,
+      'turn/failed': (event) => event.thread,
       'message/appended': (event) => event.thread,
       'tool/requested': (event) => event.thread,
       'tool/completed': (event) => event.thread,

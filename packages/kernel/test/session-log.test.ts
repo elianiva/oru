@@ -53,6 +53,7 @@ const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
       'plugin/deactivated': (event) => event[field],
       'thread/created': () => '',
       'turn/started': () => '',
+      'turn/failed': () => '',
       'message/appended': () => '',
       'tool/requested': () => '',
       'tool/completed': () => '',
