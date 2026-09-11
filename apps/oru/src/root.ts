@@ -6,10 +6,12 @@ import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { inferencePlugin } from '@oru/inference'
 import { PluginId, ThreadId } from '@oru/kernel'
+import { button } from '@/components/ui/button.ts'
 import { syncActivePanels } from './active-panels.ts'
 import { decodePanelUi, fixturePlugins, type PanelUi } from './fixtures.ts'
 import { GraphRpc } from './graph-rpc.ts'
 import * as PluginPanel from './plugin-panel.ts'
+import { twoPane } from './shell.ts'
 import { ThreadClient } from './thread-client.ts'
 import * as ThreadPanel from './thread-panel.ts'
 import { lineOf } from './transcript.ts'
@@ -192,13 +194,19 @@ export const subscriptions = Subscription.make<Model, Message, GraphRpc | Thread
   }),
 )
 
-export const view = (model: Model, h: HtmlBuilder<Message>) =>
-  h.main(
-    [],
-    [
-      h.button(
-        [h.Attribute('data-logging-toggle', ''), h.OnClick(Message.ClickedToggleLogging())],
-        [HashMap.has(model.panels, 'logging') ? 'Turn logging off' : 'Turn logging on'],
+export const view = (model: Model, h: HtmlBuilder<Message>) => {
+  const loggingOn = HashMap.has(model.panels, 'logging')
+  return twoPane(h, {
+    rail: [
+      button(
+        {
+          onClick: Message.ClickedToggleLogging(),
+          variant: loggingOn ? 'secondary' : 'outline',
+          className: 'w-full',
+          attributes: [h.Attribute('data-logging-toggle', '')],
+        },
+        loggingOn ? 'Turn logging off' : 'Turn logging on',
+        h,
       ),
       ...HashMap.toEntries(model.panels).map(([plugin, child]) =>
         h.submodel({
@@ -209,16 +217,15 @@ export const view = (model: Model, h: HtmlBuilder<Message>) =>
             Message.GotPluginMessage({ plugin, message: childMessage }),
         }),
       ),
-      ...(model.thread === undefined
-        ? []
-        : [
-            h.submodel({
-              slotId: 'thread',
-              model: model.thread,
-              view: ThreadPanel.view,
-              toParentMessage: (childMessage) =>
-                Message.GotThreadMessage({ message: childMessage }),
-            }),
-          ]),
     ],
-  )
+    pane:
+      model.thread === undefined
+        ? undefined
+        : h.submodel({
+            slotId: 'thread',
+            model: model.thread,
+            view: ThreadPanel.view,
+            toParentMessage: (childMessage) => Message.GotThreadMessage({ message: childMessage }),
+          }),
+  })
+}

@@ -1,3 +1,4 @@
+import './index.css'
 import { Effect, Layer, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
