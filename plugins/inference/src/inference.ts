@@ -1,14 +1,18 @@
-import { Clock, Context, Effect, Match, Random, Stream } from 'effect'
+import { Clock, Context, Effect, Match, Random, Result } from 'effect'
 import {
   MessageAppended,
   ToolCompleted,
   ToolRequested,
+  TurnFailed,
   TurnStarted,
   type SessionLogContract,
   type SessionLogError,
 } from '@oru/kernel'
-import type { ModelService } from './model.ts'
-import { descriptorsOf, messagesOf, runTool } from './seam.ts'
+import * as Items from '@effect-uai/core/Items'
+import { type LanguageModelService } from '@effect-uai/core/LanguageModel'
+import type * as Turn from '@effect-uai/core/Turn'
+import { demoModelId } from './demo-model.ts'
+import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
 import { foldThread, workOf } from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
 
@@ -25,9 +29,54 @@ const newId = Effect.fnUntraced(function* () {
   return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
 })
 
+const persistTurn = (
+  log: SessionLogContract,
+  thread: string,
+  turn: string,
+  assembled: Turn.Turn,
+): Effect.Effect<void, SessionLogError> =>
+  Effect.gen(function* () {
+    let text = ''
+    const flush = Effect.fnUntraced(function* () {
+      if (text === '') return
+      const body = text
+      text = ''
+      yield* log.write(
+        MessageAppended.make({
+          id: yield* newId(),
+          thread,
+          role: 'assistant',
+          body,
+        }),
+      )
+    })
+    for (const item of assembled.items) {
+      if (Items.isToolCall(item)) {
+        yield* flush()
+        yield* log.write(
+          ToolRequested.make({
+            id: yield* newId(),
+            thread,
+            turn,
+            call: item.call_id,
+            name: item.name,
+            arguments: item.arguments,
+          }),
+        )
+        continue
+      }
+      if (Items.isMessage(item) && item.role === 'assistant') {
+        for (const block of item.content) {
+          if (Items.isOutputText(block)) text += block.text
+        }
+      }
+    }
+    yield* flush()
+  })
+
 export const openInference = (
   log: SessionLogContract,
-  model: ModelService,
+  model: LanguageModelService,
   loadTools: Effect.Effect<readonly ToolContribution[]>,
 ): InferenceContract => {
   const drain = Effect.fnUntraced(function* (thread: string) {
@@ -42,45 +91,27 @@ export const openInference = (
             if (work.turn === undefined) {
               yield* log.write(TurnStarted.make({ id: yield* newId(), thread, turn }))
             }
-            const history = messagesOf(yield* log.entries, thread)
+            const entry = yield* log.entries
+            const history = historyOf(entry, thread)
             const tools = yield* loadTools
-            const produced = yield* model.streamTurn(history, descriptorsOf(tools))
-            yield* produced.pipe(
-              Stream.runForEach((event) =>
-                Match.value(event).pipe(
-                  Match.tagsExhaustive({
-                    text: (event) =>
-                      newId().pipe(
-                        Effect.flatMap((id) =>
-                          log.write(
-                            MessageAppended.make({
-                              id,
-                              thread,
-                              role: 'assistant',
-                              body: event.text,
-                            }),
-                          ),
-                        ),
-                      ),
-                    tool: (event) =>
-                      newId().pipe(
-                        Effect.flatMap((id) =>
-                          log.write(
-                            ToolRequested.make({
-                              id,
-                              thread,
-                              turn,
-                              call: event.call,
-                              name: event.name,
-                              arguments: event.arguments,
-                            }),
-                          ),
-                        ),
-                      ),
-                  }),
-                ),
-              ),
-            )
+            const toolkit = tools.length === 0 ? undefined : toolkitOf(tools)
+            const request =
+              toolkit === undefined
+                ? { history, model: demoModelId }
+                : { history, model: demoModelId, tools: toolkit }
+            const assembled = yield* Effect.result(model.turn(request))
+            if (Result.isFailure(assembled)) {
+              yield* log.write(
+                TurnFailed.make({
+                  id: yield* newId(),
+                  thread,
+                  turn,
+                  reason: failureReason(assembled.failure),
+                }),
+              )
+              return
+            }
+            yield* persistTurn(log, thread, turn, assembled.success)
           }),
         ),
         Match.tag('RunTool', (work) =>

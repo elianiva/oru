@@ -1,16 +1,30 @@
 import { type Effect, Schema } from 'effect'
-import { defineContributionKind } from '@oru/kernel'
-
-export const ToolOutcome = Schema.Struct({
-  ok: Schema.Boolean,
-  result: Schema.String,
-})
-export type ToolOutcome = typeof ToolOutcome.Type
+import * as Tool from '@effect-uai/core/Tool'
+import { contribute, defineContributionKind } from '@oru/kernel'
 
 export interface ToolContribution {
   readonly name: string
   readonly description: string
-  readonly execute: (argumentsJson: string) => Effect.Effect<ToolOutcome>
+  readonly localTool: Tool.AnyLocalTool
 }
 
+export const defineTool = <A>(spec: {
+  readonly name: string
+  readonly description: string
+  readonly parameters: Schema.Schema<A>
+  readonly execute: (input: A) => Effect.Effect<unknown>
+}): ToolContribution => ({
+  name: spec.name,
+  description: spec.description,
+  localTool: Tool.make({
+    name: spec.name,
+    description: spec.description,
+    // SAFETY: defineTool only accepts Effect Schema values; fromEffectSchema adds Standard Schema
+    inputSchema: Tool.fromEffectSchema(spec.parameters as Schema.Codec<A>),
+    run: (input) => spec.execute(input),
+  }),
+})
+
 export const ToolKind = defineContributionKind<ToolContribution>('oru/tool')
+
+export const contributeTool = (spec: ToolContribution) => contribute(ToolKind, spec)

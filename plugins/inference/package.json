@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@effect-uai/core": "0.15.0",
     "@oru/kernel": "workspace:*",
     "effect": "4.0.0-rc.112"
   },

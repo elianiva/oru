@@ -17,6 +17,7 @@ export {
   ThreadCreated,
   ToolCompleted,
   ToolRequested,
+  TurnFailed,
   TurnStarted,
 } from './session-event.ts'
 export { foldActivePlugins, foldNamedThreads } from './session-fold.ts'

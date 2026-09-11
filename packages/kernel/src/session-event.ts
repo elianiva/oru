@@ -25,6 +25,13 @@ export const TurnStarted = Schema.TaggedStruct('turn/started', {
   turn: TurnId,
 })
 
+export const TurnFailed = Schema.TaggedStruct('turn/failed', {
+  id: EventId,
+  thread: ThreadId,
+  turn: TurnId,
+  reason: Schema.String,
+})
+
 export const MessageAppended = Schema.TaggedStruct('message/appended', {
   id: EventId,
   thread: ThreadId,
@@ -56,6 +63,7 @@ export const SessionEvent = Schema.Union([
   PluginDeactivated,
   ThreadCreated,
   TurnStarted,
+  TurnFailed,
   MessageAppended,
   ToolRequested,
   ToolCompleted,

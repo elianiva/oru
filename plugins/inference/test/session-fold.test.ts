@@ -4,6 +4,7 @@ import {
   ThreadCreated,
   ToolCompleted,
   ToolRequested,
+  TurnFailed,
   TurnStarted,
 } from '@oru/kernel'
 import { CallModel, foldThread, Idle, workOf } from '../src/session-fold.ts'
@@ -56,5 +57,13 @@ describe('session fold', () => {
     expect(workOf(foldThread([user, turn, requested, completed, assistant], 't1'))).toEqual(
       Idle.make({}),
     )
+
+    const failed = TurnFailed.make({
+      id: 'e6',
+      thread: 't1',
+      turn: 'turn-1',
+      reason: 'provider down',
+    })
+    expect(workOf(foldThread([user, turn, failed], 't1'))).toEqual(Idle.make({}))
   })
 })
