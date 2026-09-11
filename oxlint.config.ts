@@ -47,6 +47,7 @@ export default defineConfig({
     'anti-slop/no-unsafe-dictionary-type': 'error',
     'anti-slop/no-widen-then-assert': 'error',
     'anti-slop/require-safety-comment-for-type-assertion': 'error',
+    'anti-slop-effect/no-manual-tagged-object': 'error',
     'anti-slop-effect/no-service-constructor-imports': 'error',
     'no-unused-vars': [
       'error',

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MessageAppended,
+  SessionActivated,
+  ToolCompleted,
+  ToolRequested,
+  TurnStarted,
+} from '@oru/kernel'
+import {
   labelOf,
   lineOf,
   ToolCompletedLine,
@@ -10,52 +17,50 @@ import {
 
 describe('transcript', () => {
   it('projects thread facts into labeled lines and drops host facts', () => {
-    expect(lineOf({ _tag: 'plugin/activated', plugin: 'logging', scope: 'host' })).toBeUndefined()
+    expect(lineOf(SessionActivated.make({ plugin: 'logging', scope: 'host' }))).toBeUndefined()
 
-    const user = lineOf({
-      _tag: 'message/appended',
-      id: 'e1',
-      thread: 't1',
-      role: 'user',
-      body: 'hello',
-    })
+    const user = lineOf(
+      MessageAppended.make({
+        id: 'e1',
+        thread: 't1',
+        role: 'user',
+        body: 'hello',
+      }),
+    )
     expect(user).toEqual(UserLine.make({ body: 'hello' }))
     if (user === undefined) throw new Error('expected user line')
     expect(labelOf(user)).toBe('user: hello')
 
-    const turn = lineOf({
-      _tag: 'turn/started',
-      id: 'e2',
-      thread: 't1',
-      turn: 'turn_1',
-    })
+    const turn = lineOf(TurnStarted.make({ id: 'e2', thread: 't1', turn: 'turn_1' }))
     expect(turn).toEqual(TurnLine.make({}))
     if (turn === undefined) throw new Error('expected turn line')
     expect(labelOf(turn)).toBe('turn/started')
 
-    const requested = lineOf({
-      _tag: 'tool/requested',
-      id: 'e3',
-      thread: 't1',
-      turn: 'turn_1',
-      call: 'call_1',
-      name: 'echo',
-      arguments: '{}',
-    })
+    const requested = lineOf(
+      ToolRequested.make({
+        id: 'e3',
+        thread: 't1',
+        turn: 'turn_1',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{}',
+      }),
+    )
     expect(requested).toEqual(ToolRequestedLine.make({ name: 'echo' }))
     if (requested === undefined) throw new Error('expected tool request line')
     expect(labelOf(requested)).toBe('tool/requested echo')
 
-    const completed = lineOf({
-      _tag: 'tool/completed',
-      id: 'e4',
-      thread: 't1',
-      turn: 'turn_1',
-      call: 'call_1',
-      name: 'echo',
-      ok: true,
-      result: '{}',
-    })
+    const completed = lineOf(
+      ToolCompleted.make({
+        id: 'e4',
+        thread: 't1',
+        turn: 'turn_1',
+        call: 'call_1',
+        name: 'echo',
+        ok: true,
+        result: '{}',
+      }),
+    )
     expect(completed).toEqual(ToolCompletedLine.make({ name: 'echo' }))
     if (completed === undefined) throw new Error('expected tool completed line')
     expect(labelOf(completed)).toBe('tool/completed echo')

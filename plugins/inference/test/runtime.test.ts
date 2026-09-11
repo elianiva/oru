@@ -9,7 +9,7 @@ import {
   SessionLog,
   sessionLogLayer,
 } from '@oru/kernel'
-import { Inference, inferencePlugin, Model } from '../src/index.ts'
+import { Inference, inferencePlugin, Model, TextEvent, ToolEvent } from '../src/index.ts'
 import { ToolKind } from '../src/tool-kind.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -43,15 +43,16 @@ const fakeModelPlugin = definePlugin({
           streamTurn: (history) => {
             const alreadyRan = history.some((item) => item._tag === 'tool')
             if (alreadyRan) {
-              return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
+              return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
             }
             return Effect.succeed(
-              Stream.succeed({
-                _tag: 'tool' as const,
-                name: 'echo',
-                call: 'call_1',
-                arguments: JSON.stringify({ text: 'hi' }),
-              }),
+              Stream.succeed(
+                ToolEvent.make({
+                  name: 'echo',
+                  call: 'call_1',
+                  arguments: JSON.stringify({ text: 'hi' }),
+                }),
+              ),
             )
           },
         }),

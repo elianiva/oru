@@ -2,6 +2,8 @@ export { inferencePlugin } from './plugin.ts'
 export { Inference } from './inference.ts'
 export {
   Model,
+  TextEvent,
+  ToolEvent,
   type ModelEvent,
   type ModelMessage,
   type ModelService,

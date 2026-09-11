@@ -6,12 +6,12 @@ import {
   ToolRequested,
   TurnStarted,
 } from '@oru/kernel'
-import { foldThread, workOf } from '../src/session-fold.ts'
+import { CallModel, foldThread, Idle, workOf } from '../src/session-fold.ts'
 
 describe('session fold', () => {
   it('calls the model after a user message, runs a tool, then calls again', () => {
     const created = ThreadCreated.make({ id: 'e0', thread: 't1' })
-    expect(workOf(foldThread([created], 't1'))).toEqual({ _tag: 'Idle' })
+    expect(workOf(foldThread([created], 't1'))).toEqual(Idle.make({}))
 
     const user = MessageAppended.make({
       id: 'e1',
@@ -19,10 +19,7 @@ describe('session fold', () => {
       role: 'user',
       body: 'hello',
     })
-    expect(workOf(foldThread([created, user], 't1'))).toEqual({
-      _tag: 'CallModel',
-      turn: undefined,
-    })
+    expect(workOf(foldThread([created, user], 't1'))).toEqual(CallModel.make({ turn: undefined }))
 
     const turn = TurnStarted.make({ id: 'e2', thread: 't1', turn: 'turn-1' })
     const requested = ToolRequested.make({
@@ -46,10 +43,9 @@ describe('session fold', () => {
       ok: true,
       result: '{"echoed":"hi"}',
     })
-    expect(workOf(foldThread([user, turn, requested, completed], 't1'))).toEqual({
-      _tag: 'CallModel',
-      turn: 'turn-1',
-    })
+    expect(workOf(foldThread([user, turn, requested, completed], 't1'))).toEqual(
+      CallModel.make({ turn: 'turn-1' }),
+    )
 
     const assistant = MessageAppended.make({
       id: 'e5',
@@ -57,8 +53,8 @@ describe('session fold', () => {
       role: 'assistant',
       body: 'done',
     })
-    expect(workOf(foldThread([user, turn, requested, completed, assistant], 't1'))).toEqual({
-      _tag: 'Idle',
-    })
+    expect(workOf(foldThread([user, turn, requested, completed, assistant], 't1'))).toEqual(
+      Idle.make({}),
+    )
   })
 })

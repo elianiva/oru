@@ -1,6 +1,6 @@
 import { Context, Effect, Option, Schema, Stream } from 'effect'
 import { contribute, definePlugin, defineService, provide } from '@oru/kernel'
-import { inferencePlugin, Model, ToolKind } from '@oru/inference'
+import { inferencePlugin, Model, TextEvent, ToolEvent, ToolKind } from '@oru/inference'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -77,15 +77,16 @@ export const fakeModelPlugin = definePlugin({
         Context.make(Model, {
           streamTurn: (history) => {
             if (history.some((item) => item._tag === 'tool')) {
-              return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
+              return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
             }
             return Effect.succeed(
-              Stream.succeed({
-                _tag: 'tool' as const,
-                name: 'echo',
-                call: 'call_1',
-                arguments: JSON.stringify({ text: 'hi' }),
-              }),
+              Stream.succeed(
+                ToolEvent.make({
+                  name: 'echo',
+                  call: 'call_1',
+                  arguments: JSON.stringify({ text: 'hi' }),
+                }),
+              ),
             )
           },
         }),

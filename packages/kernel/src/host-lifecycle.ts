@@ -1,6 +1,6 @@
-import { Effect, Match, Ref, Semaphore } from 'effect'
+import { Effect, Match, Ref, Schema, Semaphore } from 'effect'
 import type { HostEvent } from './event.ts'
-import type { PluginId } from './primitives.ts'
+import { PluginId } from './primitives.ts'
 import type { SessionEvent } from './session-event.ts'
 import { foldActivePlugins } from './session-fold.ts'
 import { appendHostEvent, type SessionLogContract, type SessionLogError } from './session-log.ts'
@@ -10,9 +10,16 @@ export interface LifecycleState {
   readonly journalActive: ReadonlySet<PluginId>
 }
 
-export type RecordDecision =
-  | { readonly _tag: 'Skip'; readonly next: ReadonlySet<PluginId> }
-  | { readonly _tag: 'Append'; readonly next: ReadonlySet<PluginId> }
+const PluginIds = Schema.declare((u): u is ReadonlySet<PluginId> => u instanceof Set)
+
+export const Skip = Schema.TaggedStruct('Skip', {
+  next: PluginIds,
+})
+export const Append = Schema.TaggedStruct('Append', {
+  next: PluginIds,
+})
+export const RecordDecision = Schema.Union([Skip, Append])
+export type RecordDecision = typeof RecordDecision.Type
 
 export const recoverLifecycle = (
   entries: readonly SessionEvent[],
@@ -26,9 +33,6 @@ export const recoverLifecycle = (
   return { desired: known, journalActive }
 }
 
-const skip = (next: ReadonlySet<PluginId>): RecordDecision => ({ _tag: 'Skip', next })
-const append = (next: ReadonlySet<PluginId>): RecordDecision => ({ _tag: 'Append', next })
-
 export const decideHostFact = (
   journalActive: ReadonlySet<PluginId>,
   event: HostEvent,
@@ -36,16 +40,16 @@ export const decideHostFact = (
   Match.value(event).pipe(
     Match.tagsExhaustive({
       PluginActivated: (event) => {
-        if (journalActive.has(event.plugin)) return skip(journalActive)
-        return append(new Set(journalActive).add(event.plugin))
+        if (journalActive.has(event.plugin)) return Skip.make({ next: journalActive })
+        return Append.make({ next: new Set(journalActive).add(event.plugin) })
       },
       PluginDeactivated: (event) => {
-        if (!journalActive.has(event.plugin)) return skip(journalActive)
+        if (!journalActive.has(event.plugin)) return Skip.make({ next: journalActive })
         const next = new Set(journalActive)
         next.delete(event.plugin)
-        return append(next)
+        return Append.make({ next })
       },
-      ProviderRemoved: () => skip(journalActive),
+      ProviderRemoved: () => Skip.make({ next: journalActive }),
     }),
   )
 

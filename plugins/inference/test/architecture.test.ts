@@ -11,7 +11,16 @@ import {
   sessionLogLayer,
   type SessionEvent,
 } from '@oru/kernel'
-import { foldThread, Inference, inferencePlugin, Model, workOf } from '../src/index.ts'
+import {
+  foldThread,
+  Idle,
+  Inference,
+  inferencePlugin,
+  Model,
+  TextEvent,
+  ToolEvent,
+  workOf,
+} from '../src/index.ts'
 import { ToolKind } from '../src/tool-kind.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -73,17 +82,14 @@ describe('inference architecture', () => {
                 Context.make(Model, {
                   streamTurn: (history) => {
                     if (history.some((item) => item._tag === 'tool')) {
-                      return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
+                      return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
                     }
                     return Effect.succeed(
                       Stream.concat(
-                        Stream.succeed({
-                          _tag: 'text' as const,
-                          text: 'hello ',
-                        }),
+                        Stream.succeed(TextEvent.make({ text: 'hello ' })),
                         Stream.fromEffect(
                           Deferred.await(releaseSecond).pipe(
-                            Effect.as({ _tag: 'text' as const, text: 'world' }),
+                            Effect.as(TextEvent.make({ text: 'world' })),
                           ),
                         ),
                       ),
@@ -145,7 +151,7 @@ describe('inference architecture', () => {
         expect(bodies).toEqual(['user:hello', 'assistant:hello ', 'assistant:world'])
 
         const reconstructed = foldThread(entries, 't1')
-        expect(workOf(reconstructed)).toEqual({ _tag: 'Idle' })
+        expect(workOf(reconstructed)).toEqual(Idle.make({}))
         expect(workOf(foldThread(entries, 't1'))).toEqual(workOf(reconstructed))
       }),
     )
@@ -163,15 +169,16 @@ describe('inference architecture', () => {
                 Context.make(Model, {
                   streamTurn: (history) => {
                     if (history.some((item) => item._tag === 'tool')) {
-                      return Effect.succeed(Stream.succeed({ _tag: 'text' as const, text: 'done' }))
+                      return Effect.succeed(Stream.succeed(TextEvent.make({ text: 'done' })))
                     }
                     return Effect.succeed(
-                      Stream.succeed({
-                        _tag: 'tool' as const,
-                        name: 'echo',
-                        call: 'call_1',
-                        arguments: JSON.stringify({ text: 'hi' }),
-                      }),
+                      Stream.succeed(
+                        ToolEvent.make({
+                          name: 'echo',
+                          call: 'call_1',
+                          arguments: JSON.stringify({ text: 'hi' }),
+                        }),
+                      ),
                     )
                   },
                 }),
@@ -193,8 +200,8 @@ describe('inference architecture', () => {
           'tool/completed',
           'message/appended',
         ])
-        expect(workOf(foldThread(entries, 't1'))).toEqual({ _tag: 'Idle' })
-        expect(workOf(foldThread([...entries], 't1'))).toEqual({ _tag: 'Idle' })
+        expect(workOf(foldThread(entries, 't1'))).toEqual(Idle.make({}))
+        expect(workOf(foldThread([...entries], 't1'))).toEqual(Idle.make({}))
       }),
     )
   })

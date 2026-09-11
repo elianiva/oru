@@ -11,6 +11,8 @@ export * from './service.ts'
 export {
   MessageAppended,
   MessageRole,
+  PluginActivated as SessionActivated,
+  PluginDeactivated as SessionDeactivated,
   SessionEvent,
   ThreadCreated,
   ToolCompleted,

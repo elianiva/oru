@@ -3,7 +3,7 @@ import { Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { foldActivePlugins, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
-import { foldThread, inferencePlugin, workOf } from '@oru/inference'
+import { foldThread, Idle, inferencePlugin, workOf } from '@oru/inference'
 import {
   echoToolPlugin,
   fakeModelPlugin,
@@ -57,8 +57,8 @@ describe('assembled architecture', () => {
           ])
 
           const entries = yield* log.entries
-          expect(workOf(foldThread(entries, created.threadId))).toEqual({ _tag: 'Idle' })
-          expect(workOf(foldThread([...streamed], created.threadId))).toEqual({ _tag: 'Idle' })
+          expect(workOf(foldThread(entries, created.threadId))).toEqual(Idle.make({}))
+          expect(workOf(foldThread([...streamed], created.threadId))).toEqual(Idle.make({}))
 
           const down = yield* hostClient.SetLive({ plugin: loggingPlugin.id, live: false })
           expect(down.active.some((panel) => panel.plugin === 'greeter')).toBe(false)

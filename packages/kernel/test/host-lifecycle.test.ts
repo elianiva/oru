@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PluginActivated, PluginDeactivated, ProviderRemoved } from '../src/event.ts'
-import { decideHostFact, recoverLifecycle } from '../src/host-lifecycle.ts'
+import { Append, decideHostFact, recoverLifecycle, Skip } from '../src/host-lifecycle.ts'
 import {
   MessageAppended,
   PluginActivated as SessionActivated,
@@ -47,7 +47,7 @@ describe('decideHostFact', () => {
       new Set(),
       PluginActivated.make({ plugin: 'logging', scope: 'host' }),
     )
-    expect(decision).toEqual({ _tag: 'Append', next: new Set(['logging']) })
+    expect(decision).toEqual(Append.make({ next: new Set(['logging']) }))
   })
 
   it('skips provider removal', () => {
@@ -56,7 +56,7 @@ describe('decideHostFact', () => {
       current,
       ProviderRemoved.make({ token: 'oru/logger', plugin: 'logging' }),
     )
-    expect(decision).toEqual({ _tag: 'Skip', next: current })
+    expect(decision).toEqual(Skip.make({ next: current }))
   })
 
   it('appends deactivation only while the fold still contains the plugin', () => {

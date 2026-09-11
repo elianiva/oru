@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Effect } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
-import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
-import { foldThread, inferencePlugin, workOf } from '@oru/inference'
+import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer, ThreadCreated } from '@oru/kernel'
+import { foldThread, Idle, inferencePlugin, workOf } from '@oru/inference'
 import { echoToolPlugin, fakeModelPlugin } from '../src/fixtures.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
@@ -22,11 +22,13 @@ describe('thread rpc', () => {
           const threadFacts = entries.filter(
             (event) => event._tag !== 'plugin/activated' && event._tag !== 'plugin/deactivated',
           )
-          expect(threadFacts).toEqual([
-            expect.objectContaining({ _tag: 'thread/created', thread: created.threadId }),
-          ])
+          const createdEvent = threadFacts[0]
+          if (createdEvent === undefined) throw new Error('expected thread/created')
+          expect(createdEvent).toEqual(
+            ThreadCreated.make({ id: createdEvent.id, thread: created.threadId }),
+          )
           expect(foldNamedThreads(entries).has(created.threadId)).toBe(true)
-          expect(workOf(foldThread(entries, created.threadId))).toEqual({ _tag: 'Idle' })
+          expect(workOf(foldThread(entries, created.threadId))).toEqual(Idle.make({}))
         }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
       ),
     )
