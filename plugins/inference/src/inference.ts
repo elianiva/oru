@@ -1,10 +1,12 @@
-import { Clock, Context, Effect, Match, Random, Result } from 'effect'
+import { Clock, Context, Deferred, Effect, Match, Random, Result, Scope, Semaphore } from 'effect'
 import {
+  InboxSpliced,
   MessageAppended,
   ToolCompleted,
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  unsignedTree,
   type SessionLogContract,
   type SessionLogError,
 } from '@oru/kernel'
@@ -18,7 +20,7 @@ import type { ToolContribution } from './tool-kind.ts'
 
 export interface InferenceContract {
   readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
-  readonly idle: Effect.Effect<void>
+  readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
 }
 
 export class Inference extends Context.Service<Inference, InferenceContract>()('oru/inference') {}
@@ -43,6 +45,7 @@ const persistTurn = (
       text = ''
       yield* log.write(
         MessageAppended.make({
+          ...unsignedTree,
           id: yield* newId(),
           thread,
           role: 'assistant',
@@ -55,6 +58,7 @@ const persistTurn = (
         yield* flush()
         yield* log.write(
           ToolRequested.make({
+            ...unsignedTree,
             id: yield* newId(),
             thread,
             turn,
@@ -78,7 +82,10 @@ export const openInference = (
   log: SessionLogContract,
   model: LanguageModelService,
   loadTools: Effect.Effect<readonly ToolContribution[]>,
+  scope: Scope.Scope,
 ): InferenceContract => {
+  const lock = Semaphore.makeUnsafe(1)
+  const idle = new Map<string, Deferred.Deferred<void>>()
   const drain = Effect.fnUntraced(function* (thread: string) {
     for (;;) {
       const events = yield* log.entries
@@ -89,7 +96,14 @@ export const openInference = (
           Effect.gen(function* () {
             const turn = work.turn ?? (yield* newId())
             if (work.turn === undefined) {
-              yield* log.write(TurnStarted.make({ id: yield* newId(), thread, turn }))
+              yield* log.write(
+                TurnStarted.make({
+                  ...unsignedTree,
+                  id: yield* newId(),
+                  thread,
+                  turn,
+                }),
+              )
             }
             const entry = yield* log.entries
             const history = historyOf(entry, thread)
@@ -103,6 +117,7 @@ export const openInference = (
             if (Result.isFailure(assembled)) {
               yield* log.write(
                 TurnFailed.make({
+                  ...unsignedTree,
                   id: yield* newId(),
                   thread,
                   turn,
@@ -120,6 +135,7 @@ export const openInference = (
             const result = yield* runTool(tools, work.pending)
             yield* log.write(
               ToolCompleted.make({
+                ...unsignedTree,
                 id: yield* newId(),
                 thread,
                 turn: work.pending.turn,
@@ -136,14 +152,51 @@ export const openInference = (
     }
   })
 
+  const kick = (thread: string) =>
+    lock.withPermit(
+      Effect.gen(function* () {
+        if (idle.has(thread)) return
+        const done = yield* Deferred.make<void>()
+        idle.set(thread, done)
+        yield* drain(thread).pipe(
+          Effect.ensuring(
+            Deferred.succeed(done, undefined).pipe(
+              Effect.andThen(Effect.sync(() => idle.delete(thread))),
+            ),
+          ),
+          Effect.forkIn(scope),
+        )
+      }),
+    )
+
   return {
     send: (thread, text) =>
-      newId().pipe(
-        Effect.flatMap((id) =>
-          log.write(MessageAppended.make({ id, thread, role: 'user', body: text })),
-        ),
-        Effect.andThen(drain(thread)),
-      ),
-    idle: Effect.void,
+      Effect.gen(function* () {
+        yield* log.write(
+          MessageAppended.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            thread,
+            role: 'user',
+            body: text,
+          }),
+        )
+        yield* log.write(
+          InboxSpliced.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            thread,
+            queue: 'next-turn',
+            body: text,
+          }),
+        )
+        yield* kick(thread)
+      }),
+    whenIdle: (thread) =>
+      Effect.gen(function* () {
+        const done = idle.get(thread)
+        if (done === undefined) return
+        yield* Deferred.await(done)
+      }),
   }
 }

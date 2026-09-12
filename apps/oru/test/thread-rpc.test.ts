@@ -2,8 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { Effect } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
-import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer, ThreadCreated } from '@oru/kernel'
-import { foldThread, Idle, inferencePlugin, workOf, demoModelLayer } from '@oru/inference'
+import { foldNamedThreads, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import {
+  foldThread,
+  Idle,
+  Inference,
+  inferencePlugin,
+  workOf,
+  demoModelLayer,
+} from '@oru/inference'
 import { echoToolPlugin } from '../src/fixtures.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
@@ -22,11 +29,12 @@ describe('thread rpc', () => {
           const threadFacts = entries.filter(
             (event) => event._tag !== 'plugin/activated' && event._tag !== 'plugin/deactivated',
           )
-          const createdEvent = threadFacts[0]
-          if (createdEvent === undefined) throw new Error('expected thread/created')
-          expect(createdEvent).toEqual(
-            ThreadCreated.make({ id: createdEvent.id, thread: created.threadId }),
-          )
+          const createdEvent = threadFacts.find((event) => event._tag === 'thread/created')
+          if (createdEvent === undefined || createdEvent._tag !== 'thread/created') {
+            throw new Error('expected thread/created')
+          }
+          expect(createdEvent.thread).toBe(created.threadId)
+          expect(createdEvent.project.length).toBeGreaterThan(0)
           expect(foldNamedThreads(entries).has(created.threadId)).toBe(true)
           expect(workOf(foldThread(entries, created.threadId))).toEqual(Idle.make({}))
         }).pipe(
@@ -48,6 +56,8 @@ describe('thread rpc', () => {
           )
           const created = yield* client.CreateThread()
           yield* client.SendMessage({ threadId: created.threadId, text: 'hello' })
+          const inference = yield* host.service(Inference)
+          yield* inference.whenIdle(created.threadId)
           const log = yield* SessionLog
           const tags: string[] = []
           for (const event of yield* log.entries) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Deferred, Effect, Fiber, Layer, Match, Queue, Schema, Stream, type Scope } from 'effect'
+import { Deferred, Effect, Layer, Match, Queue, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { LanguageModel, turnFromStream } from '@effect-uai/core/LanguageModel'
 import * as Items from '@effect-uai/core/Items'
@@ -48,11 +48,15 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'plugin/activated': () => false,
         'plugin/deactivated': () => false,
         'thread/created': (event) => event.thread === thread,
+        'project/created': () => false,
         'turn/started': (event) => event.thread === thread,
         'turn/failed': (event) => event.thread === thread,
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
+        'thread/compacted': (event) => event.thread === thread,
+        'thread/branched': (event) => event.thread === thread,
+        'agent/inbox/spliced': (event) => event.thread === thread,
       }),
     ),
   )
@@ -121,7 +125,7 @@ describe('inference architecture', () => {
         expect(graph.active.has('tools/echo')).toBe(true)
         expect(graph.active.has('model/fake')).toBe(false)
 
-        const sending = yield* inference.send('t1', 'hello').pipe(Effect.forkScoped)
+        yield* inference.send('t1', 'hello')
 
         yield* Effect.gen(function* () {
           for (;;) {
@@ -136,11 +140,12 @@ describe('inference architecture', () => {
         ).toBe(false)
 
         yield* Deferred.succeed(releaseSecond, undefined)
-        yield* Fiber.join(sending)
+        yield* inference.whenIdle('t1')
 
         const facts = threadFacts(yield* log.entries, 't1')
         expect(facts.map((event) => event._tag)).toEqual([
           'message/appended',
+          'agent/inbox/spliced',
           'turn/started',
           'message/appended',
         ])
@@ -162,11 +167,13 @@ describe('inference architecture', () => {
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
 
         const entries = yield* log.entries
         const tags = threadFacts(entries, 't1').map((event) => event._tag)
         expect(tags).toEqual([
           'message/appended',
+          'agent/inbox/spliced',
           'turn/started',
           'tool/requested',
           'tool/completed',

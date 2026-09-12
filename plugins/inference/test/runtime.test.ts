@@ -46,6 +46,7 @@ describe('inference runtime', () => {
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
         const tags = (yield* log.entries).map((event) => event._tag)
         expect(tags).toContain('message/appended')
         expect(tags).toContain('turn/started')
@@ -62,6 +63,7 @@ describe('inference runtime', () => {
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
         const tags = (yield* log.entries).map((event) => event._tag)
         expect(tags).toContain('turn/started')
         expect(tags).toContain('turn/failed')

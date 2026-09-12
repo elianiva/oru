@@ -1,46 +1,71 @@
 import { Schema } from 'effect'
-import { EventId, PluginId, PluginScope, ThreadId, ToolCallId, TurnId } from './primitives.ts'
+import {
+  EventId,
+  PluginId,
+  PluginScope,
+  ProjectId,
+  ThreadId,
+  ToolCallId,
+  TurnId,
+} from './primitives.ts'
+
+const Tree = {
+  id: EventId,
+  parentId: Schema.NullOr(EventId),
+  seq: Schema.Number,
+  timestamp: Schema.Number,
+} as const
 
 export const PluginActivated = Schema.TaggedStruct('plugin/activated', {
+  ...Tree,
   plugin: PluginId,
   scope: PluginScope,
 })
 
 export const PluginDeactivated = Schema.TaggedStruct('plugin/deactivated', {
+  ...Tree,
   plugin: PluginId,
   scope: PluginScope,
 })
 
+export const ProjectCreated = Schema.TaggedStruct('project/created', {
+  ...Tree,
+  project: ProjectId,
+  name: Schema.NonEmptyString,
+  cwd: Schema.NonEmptyString,
+})
+
 export const ThreadCreated = Schema.TaggedStruct('thread/created', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
+  project: ProjectId,
 })
 
 export const MessageRole = Schema.Literals(['user', 'assistant', 'tool'])
 export type MessageRole = typeof MessageRole.Type
 
 export const TurnStarted = Schema.TaggedStruct('turn/started', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
   turn: TurnId,
 })
 
 export const TurnFailed = Schema.TaggedStruct('turn/failed', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
   turn: TurnId,
   reason: Schema.String,
 })
 
 export const MessageAppended = Schema.TaggedStruct('message/appended', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
   role: MessageRole,
   body: Schema.String,
 })
 
 export const ToolRequested = Schema.TaggedStruct('tool/requested', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
   turn: TurnId,
   call: ToolCallId,
@@ -49,7 +74,7 @@ export const ToolRequested = Schema.TaggedStruct('tool/requested', {
 })
 
 export const ToolCompleted = Schema.TaggedStruct('tool/completed', {
-  id: EventId,
+  ...Tree,
   thread: ThreadId,
   turn: TurnId,
   call: ToolCallId,
@@ -58,14 +83,51 @@ export const ToolCompleted = Schema.TaggedStruct('tool/completed', {
   result: Schema.String,
 })
 
+export const ThreadCompacted = Schema.TaggedStruct('thread/compacted', {
+  ...Tree,
+  thread: ThreadId,
+  summary: Schema.String,
+  firstKeptEntryId: EventId,
+  tokensBefore: Schema.Number,
+  readFiles: Schema.Array(Schema.String),
+  modifiedFiles: Schema.Array(Schema.String),
+})
+
+export const ThreadBranched = Schema.TaggedStruct('thread/branched', {
+  ...Tree,
+  thread: ThreadId,
+  fromId: EventId,
+  summary: Schema.String,
+  readFiles: Schema.Array(Schema.String),
+  modifiedFiles: Schema.Array(Schema.String),
+})
+
+export const InboxQueue = Schema.Literals(['next-turn', 'next-step'])
+export type InboxQueue = typeof InboxQueue.Type
+
+export const InboxSpliced = Schema.TaggedStruct('agent/inbox/spliced', {
+  ...Tree,
+  thread: ThreadId,
+  queue: InboxQueue,
+  body: Schema.String,
+})
+
 export const SessionEvent = Schema.Union([
   PluginActivated,
   PluginDeactivated,
+  ProjectCreated,
   ThreadCreated,
   TurnStarted,
   TurnFailed,
   MessageAppended,
   ToolRequested,
   ToolCompleted,
+  ThreadCompacted,
+  ThreadBranched,
+  InboxSpliced,
 ])
 export type SessionEvent = typeof SessionEvent.Type
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+export type SessionDraft = DistributiveOmit<SessionEvent, 'parentId' | 'seq' | 'timestamp'>

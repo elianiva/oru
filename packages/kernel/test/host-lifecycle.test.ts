@@ -6,12 +6,21 @@ import {
   PluginActivated as SessionActivated,
   PluginDeactivated as SessionDeactivated,
 } from '../src/session-event.ts'
+import { relink, unsignedTree } from '../src/session-tree.ts'
 
 describe('recoverLifecycle', () => {
   it('desires the catalog when the journal has no plugin facts', () => {
     const known = new Set(['logging', 'greeter'])
     const recovered = recoverLifecycle(
-      [MessageAppended.make({ id: 'e1', thread: 't1', role: 'user', body: 'hi' })],
+      [
+        MessageAppended.make({
+          ...unsignedTree,
+          id: 'e1',
+          thread: 't1',
+          role: 'user',
+          body: 'hi',
+        }),
+      ],
       known,
     )
     expect([...recovered.desired].sort()).toEqual(['greeter', 'logging'])
@@ -21,10 +30,42 @@ describe('recoverLifecycle', () => {
   it('desires the folded set after a recorded deactivation', () => {
     const recovered = recoverLifecycle(
       [
-        SessionActivated.make({ plugin: 'logging', scope: 'host' }),
-        SessionActivated.make({ plugin: 'greeter', scope: 'host' }),
-        SessionDeactivated.make({ plugin: 'greeter', scope: 'host' }),
-        SessionDeactivated.make({ plugin: 'logging', scope: 'host' }),
+        SessionActivated.make({
+          ...unsignedTree,
+          id: 'a1',
+          plugin: 'logging',
+          scope: 'host',
+        }),
+        relink(
+          SessionActivated.make({
+            ...unsignedTree,
+            id: 'a2',
+            plugin: 'greeter',
+            scope: 'host',
+          }),
+          1,
+          'a1',
+        ),
+        relink(
+          SessionDeactivated.make({
+            ...unsignedTree,
+            id: 'a3',
+            plugin: 'greeter',
+            scope: 'host',
+          }),
+          2,
+          'a2',
+        ),
+        relink(
+          SessionDeactivated.make({
+            ...unsignedTree,
+            id: 'a4',
+            plugin: 'logging',
+            scope: 'host',
+          }),
+          3,
+          'a3',
+        ),
       ],
       new Set(['logging', 'greeter']),
     )

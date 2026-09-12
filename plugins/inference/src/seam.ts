@@ -1,5 +1,5 @@
 import { Effect, Match } from 'effect'
-import type { SessionEvent } from '@oru/kernel'
+import { modelVisiblePath, type SessionEvent } from '@oru/kernel'
 import * as Items from '@effect-uai/core/Items'
 import * as Tool from '@effect-uai/core/Tool'
 import * as Toolkit from '@effect-uai/core/Toolkit'
@@ -11,16 +11,14 @@ export const historyOf = (
   thread: string,
 ): readonly Items.HistoryItem[] => {
   const history: Items.HistoryItem[] = []
-  for (const event of events) {
+  for (const event of modelVisiblePath(events, thread)) {
     Match.value(event).pipe(
       Match.tagsExhaustive({
         'message/appended': (event) => {
-          if (event.thread !== thread) return
           if (event.role === 'user') history.push(Items.userText(event.body))
           if (event.role === 'assistant') history.push(Items.assistantText(event.body))
         },
         'tool/requested': (event) => {
-          if (event.thread !== thread) return
           history.push({
             type: 'function_call',
             call_id: event.call,
@@ -29,14 +27,21 @@ export const historyOf = (
           })
         },
         'tool/completed': (event) => {
-          if (event.thread !== thread) return
           history.push(Items.toolCallOutput(event.call, event.result))
+        },
+        'thread/compacted': (event) => {
+          history.push(Items.userText(event.summary))
+        },
+        'thread/branched': (event) => {
+          history.push(Items.userText(event.summary))
         },
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},
+        'project/created': () => {},
         'thread/created': () => {},
         'turn/started': () => {},
         'turn/failed': () => {},
+        'agent/inbox/spliced': () => {},
       }),
     )
   }

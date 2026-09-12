@@ -1,6 +1,15 @@
-import { Clock, Effect, Match, Random, Schema, Stream } from 'effect'
+import { Clock, Effect, Random, Schema, Stream } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
-import { SessionEvent, SessionLog, ThreadCreated, ThreadId, type Host } from '@oru/kernel'
+import {
+  ProjectCreated,
+  SessionEvent,
+  SessionLog,
+  ThreadCreated,
+  ThreadId,
+  threadOf,
+  unsignedTree,
+  type Host,
+} from '@oru/kernel'
 import { Inference } from '@oru/inference'
 
 export const ThreadRpc = RpcGroup.make(
@@ -22,26 +31,36 @@ const newId = Effect.fnUntraced(function* () {
   return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
 })
 
-const threadOf = (event: SessionEvent) =>
-  Match.value(event).pipe(
-    Match.tagsExhaustive({
-      'plugin/activated': () => undefined,
-      'plugin/deactivated': () => undefined,
-      'thread/created': () => undefined,
-      'turn/started': (event) => event.thread,
-      'turn/failed': (event) => event.thread,
-      'message/appended': (event) => event.thread,
-      'tool/requested': (event) => event.thread,
-      'tool/completed': (event) => event.thread,
-    }),
-  )
-
 export const threadRpcHandlers = (host: Host) => ({
   CreateThread: () =>
     Effect.gen(function* () {
       const log = yield* SessionLog
+      const entries = yield* log.entries
+      let project: string | undefined
+      for (const event of entries) {
+        if (event._tag === 'project/created') project = event.project
+      }
+      if (project === undefined) {
+        project = yield* newId()
+        yield* log.write(
+          ProjectCreated.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            project,
+            name: 'default',
+            cwd: '.',
+          }),
+        )
+      }
       const threadId = yield* newId()
-      yield* log.write(ThreadCreated.make({ id: yield* newId(), thread: threadId }))
+      yield* log.write(
+        ThreadCreated.make({
+          ...unsignedTree,
+          id: yield* newId(),
+          thread: threadId,
+          project,
+        }),
+      )
       return { threadId }
     }).pipe(Effect.orDie),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>

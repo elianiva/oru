@@ -22,7 +22,11 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
     Match.tagsExhaustive({
       'plugin/activated': () => undefined,
       'plugin/deactivated': () => undefined,
+      'project/created': () => undefined,
       'thread/created': () => undefined,
+      'thread/compacted': () => undefined,
+      'thread/branched': () => undefined,
+      'agent/inbox/spliced': () => undefined,
       'message/appended': (event) => {
         if (event.role === 'user') return UserLine.make({ body: event.body })
         if (event.role === 'assistant') return AssistantLine.make({ body: event.body })

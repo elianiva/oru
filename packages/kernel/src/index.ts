@@ -9,18 +9,39 @@ export * from './registry.ts'
 export * from './resolve.ts'
 export * from './service.ts'
 export {
+  InboxSpliced,
   MessageAppended,
   MessageRole,
   PluginActivated as SessionActivated,
   PluginDeactivated as SessionDeactivated,
+  ProjectCreated,
   SessionEvent,
+  ThreadBranched,
+  ThreadCompacted,
   ThreadCreated,
   ToolCompleted,
   ToolRequested,
   TurnFailed,
   TurnStarted,
 } from './session-event.ts'
-export { foldActivePlugins, foldNamedThreads } from './session-fold.ts'
+export {
+  foldActivePlugins,
+  foldNamedProjects,
+  foldNamedThreads,
+  foldThreadPath,
+} from './session-fold.ts'
+export {
+  chain,
+  laneOf,
+  leafOf,
+  modelVisiblePath,
+  pathFromLeaf,
+  pathOfLane,
+  relink,
+  threadLane,
+  threadOf,
+  unsignedTree,
+} from './session-tree.ts'
 export {
   SessionLog,
   appendHostEvent,

@@ -9,6 +9,9 @@ export type TokenId = typeof TokenId.Type
 export const ThreadId = Schema.NonEmptyString
 export type ThreadId = typeof ThreadId.Type
 
+export const ProjectId = Schema.NonEmptyString
+export type ProjectId = typeof ProjectId.Type
+
 export const EventId = Schema.NonEmptyString
 export type EventId = typeof EventId.Type
 
