@@ -1,3 +1,4 @@
+import { Match } from 'effect'
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from 'foldkit/html'
 import type { IconNode, SVGProps } from 'lucide'
 
@@ -23,22 +24,15 @@ import type { IconNode, SVGProps } from 'lucide'
 const svgElement =
   <M>(tag: string, h: HtmlBuilder<M>) =>
   (attributes: ReadonlyArray<Attribute<M> | ChildAttribute>): Html => {
-    switch (tag) {
-      case 'path':
-        return h.path(attributes)
-      case 'circle':
-        return h.circle(attributes)
-      case 'rect':
-        return h.rect(attributes)
-      case 'line':
-        return h.line(attributes)
-      case 'polyline':
-        return h.polyline(attributes)
-      case 'polygon':
-        return h.polygon(attributes)
-      default:
-        return h.path(attributes)
-    }
+    const element = Match.value(tag).pipe(
+      Match.when('circle', () => h.circle),
+      Match.when('rect', () => h.rect),
+      Match.when('line', () => h.line),
+      Match.when('polyline', () => h.polyline),
+      Match.when('polygon', () => h.polygon),
+      Match.orElse(() => h.path),
+    )
+    return element(attributes)
   }
 
 const svgAttributes = <M>(
