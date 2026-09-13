@@ -1,6 +1,9 @@
 import { Context, Effect, Layer, Stream } from 'effect'
-import { LanguageModel, type LanguageModelService } from '@effect-uai/core/LanguageModel'
-import * as Turn from '@effect-uai/core/Turn'
+import {
+  LanguageModel,
+  type CommonRequest,
+  type LanguageModelService,
+} from '@effect-uai/core/LanguageModel'
 import { definePlugin, type PluginContext } from '@oru/kernel'
 import {
   defineHarness,
@@ -94,7 +97,7 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
       if (request.reasoningLevel !== undefined) common['reasoningLevel'] = request.reasoningLevel
       if (request.instructions !== undefined) common['instructions'] = request.instructions
       if (request.providerOptions !== undefined) common['providerOptions'] = request.providerOptions
-      return model.streamTurn(common as never).pipe(Stream.mapError(mapAiError))
+      return model.streamTurn(common as CommonRequest).pipe(Stream.mapError(mapAiError))
     },
     turn: (request: HarnessTurnRequest) => {
       const common: Record<string, unknown> = {
@@ -106,7 +109,7 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
       if (request.temperature !== undefined) common['temperature'] = request.temperature
       if (request.maxOutputTokens !== undefined) common['maxOutputTokens'] = request.maxOutputTokens
       if (request.providerOptions !== undefined) common['providerOptions'] = request.providerOptions
-      return model.turn(common as never).pipe(Effect.mapError(mapAiError))
+      return model.turn(common as CommonRequest).pipe(Effect.mapError(mapAiError))
     },
     abort: (threadId: string) =>
       Effect.void.pipe(
@@ -120,7 +123,7 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
   })
 
 const setup = (ctx: PluginContext<readonly [typeof LanguageModel]>) =>
-  Effect.gen(function* () {
+  Effect.sync(function () {
     const languageModel = ctx.service(LanguageModel)
     const service = harnessFromLanguageModel(languageModel)
     return Context.make(Harness, service)

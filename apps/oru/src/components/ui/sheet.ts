@@ -1,7 +1,4 @@
-/** Stateful submodel — import the whole module as a namespace and wire its
- *  Model/Message/init/update into your app:
- *  `import * as Sheet from '@/components/ui/sheet'`
- */
+/** Stateful submodel. Import the whole module as a namespace. */
 import { Dialog as FoldkitDialog } from '@foldkit/ui'
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from 'foldkit/html'
 
@@ -9,8 +6,7 @@ type Child = Html | string
 
 import { cn } from '@/lib/utils.ts'
 
-// Re-export the @foldkit/ui Dialog submodel surface. A sheet is a Dialog
-// variant anchored to an edge of the viewport instead of centered.
+// A sheet is a Dialog variant anchored to an edge of the viewport.
 
 export const Model = FoldkitDialog.Model
 export type Model = typeof Model.Type
@@ -34,10 +30,7 @@ export type InitConfig = FoldkitDialog.InitConfig
 export type RenderInfo = FoldkitDialog.RenderInfo
 export type ViewInputs = FoldkitDialog.ViewInputs
 
-// foldkit delta: upstream keys enter/exit motion on
-// data-starting-style/data-ending-style, which foldkit cannot emit — the
-// equivalent declarations are inlined under data-enter/data-leave,
-// and the panel emits data-side (from the `side` view input).
+// Foldkit delta: upstream keys enter and exit motion on data-starting-style and data-ending-style, which foldkit cannot emit. The equivalent declarations are inlined under data-enter and data-leave, and the panel emits data-side from the side view input.
 
 export type SheetSide = 'top' | 'bottom' | 'left' | 'right'
 

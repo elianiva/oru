@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils.ts'
 
 /** Upstream keys label disabling on a native peer-disabled sibling variant
  *  and `group-data-[disabled=true]`, neither of which matches under foldkit
- *  (no `.peer` sibling; `data-disabled` is emitted empty). Re-keyed onto a
- *  live `group` ancestor carrying data-disabled — e.g. the fieldset compound
+ *  (no `.peer` sibling, `data-disabled` is emitted empty). Re-keyed onto a
+ *  live `group` ancestor carrying data-disabled, for example the fieldset compound
  *  or switch wrapper. */
 export const labelClass =
   'gap-2 text-sm leading-none font-medium group-data-[disabled]:opacity-50 flex items-center select-none group-data-[disabled]/field-set:pointer-events-none group-data-[disabled]/field-set:cursor-not-allowed group-data-[disabled]/field-set:opacity-50'

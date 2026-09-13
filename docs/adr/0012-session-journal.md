@@ -1,6 +1,6 @@
 # Session events persist through the Effect event journal
 
-A session's events are stored in Effect's `EventJournal` (`effect/unstable/eventlog`), reached through an oru `SessionLog` service. The journal is in-memory for early work and SQLite-backed (`@effect/sql-sqlite-node`) for durability, with the same interface across both. Projections are folded by server facets, not by the journal.
+A session's events are stored in Effect's `EventJournal` (`effect/unstable/eventlog`), reached through an oru `SessionLog` service. The journal has an in-memory layer and a SQLite-backed layer (`@effect/sql-sqlite-node`) with the same interface. Projections are folded by server facets, not by the journal.
 
 ## Considered Options
 
@@ -11,6 +11,6 @@ A session's events are stored in Effect's `EventJournal` (`effect/unstable/event
 ## Consequences
 
 - `SessionLog` exposes `write`, `entries`, and `changes`; the projection fold belongs to server facets, so the journal stays a transport for facts.
-- The memory-to-SQL swap needs no interface change, so early work runs without a database.
+- The memory-to-SQL swap needs no interface change.
 - `effect/unstable/eventlog` is unstable; pin the version and expect breakage.
 - The journal's remote synchronization is available to the presentation seam later.

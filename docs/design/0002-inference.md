@@ -1,4 +1,4 @@
-# Inference plugin — Unit 6 (`@oru/inference`)
+# Inference plugin, unit 6 (`@oru/inference`)
 
 Synthesized from architect Phase B. Base: candidate A (log-driven facet). Grafted from B: `ThreadRpc` as a separate group (`CreateThread`, `SendMessage`, `WatchThread`). `Loop`, kernel `Thread` / `Session` / `ThreadRuns` / `ToolRegistry` were rejected. `LanguageModel` is a coeffect of the inference plugin, provided by a model plugin. It is not a kernel token.
 

@@ -4,7 +4,7 @@ type Child = Html | string
 
 import { cn } from '@/lib/utils.ts'
 
-/** Badge variant keys — keep in sync with `badgeVariants`. */
+/** Badge variant keys, keep in sync with `badgeVariants`. */
 export const badgeVariantKeys = [
   'default',
   'secondary',
@@ -31,9 +31,7 @@ export const badgeClass =
 
 type StyleConfig = Readonly<{ className?: string; variant?: BadgeVariant }>
 
-/** Styled badge built as a themed `<span>` (mirrors the shadcn v4 `badge.tsx`
- *  default element). For a link badge, render an `<a>` child and apply
- *  `badgeClass` via `cn` — foldcn has no Radix `Slot`. */
+/** Styled badge built as a themed `<span>`. For a link badge, render an `<a>` child and apply `badgeClass` via `cn`. */
 export const badge = <M>(
   config: StyleConfig,
   children: ReadonlyArray<Child>,

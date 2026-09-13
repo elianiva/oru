@@ -2,7 +2,7 @@
  * Compile-time contract for `provides`/`setup`, in the spirit of Effect's `typetest/` files.
  *
  * Nothing here runs: vitest does not match this path, but `tsc` does, so an `@ts-expect-error`
- * that stops being an error fails `pnpm typecheck`. That is the point — the checks below are
+ * that stops being an error fails `pnpm typecheck`. That is the point. The checks below are
  * type-level facts about the kernel, not behavior.
  */
 import { Context, Effect } from 'effect'

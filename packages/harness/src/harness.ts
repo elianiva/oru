@@ -4,16 +4,12 @@ import type * as Tool from '@effect-uai/core/Tool'
 import type * as Toolkit from '@effect-uai/core/Toolkit'
 import type * as Turn from '@effect-uai/core/Turn'
 
-// ── Errors ────────────────────────────────────────────────────────────────
-
 export class HarnessError extends Data.TaggedError('HarnessError')<{
   readonly message: string
   readonly code?: string
   readonly retryable?: boolean
   readonly cause?: unknown
 }> {}
-
-// ── Meta & Capabilities ─────────────────────────────────────────────────
 
 export interface HarnessMeta {
   readonly id: string
@@ -22,11 +18,7 @@ export interface HarnessMeta {
   readonly icon?: string
 }
 
-/**
- * What a harness can do. Additive, capability-gated.
- * Mirrors bb's BridgeCapabilities (sessionRestore, steerMode, etc.)
- * but harness-native and effect-typed.
- */
+/** What a harness can do. Additive and capability-gated. */
 export interface HarnessCapabilities {
   /** Can list available models before streaming. */
   readonly modelListing: boolean
@@ -40,7 +32,7 @@ export interface HarnessCapabilities {
   readonly reasoning: boolean
   /** Session restore / resume across process restarts (bb: sessionRestore). */
   readonly sessionRestore: boolean
-  /** Steering mode — mirrors bb's steerMode but local to the harness. */
+  /** Steering mode, mirrors bb steerMode but local to the harness. */
   readonly steering: 'queue' | 'inject' | false
   /** Whether an in-flight turn can be interrupted (thread/stop { interrupt }). */
   readonly interruption: boolean
@@ -57,8 +49,6 @@ export const defaultCapabilities: HarnessCapabilities = {
   interruption: true,
 }
 
-// ── Models ──────────────────────────────────────────────────────────────
-
 export interface ModelInfo {
   readonly id: string
   readonly label?: string
@@ -67,8 +57,6 @@ export interface ModelInfo {
   readonly reasoning?: boolean
   readonly costTier?: 'low' | 'medium' | 'high'
 }
-
-// ── Request ─────────────────────────────────────────────────────────────
 
 export interface HarnessTurnRequest {
   readonly threadId: string
@@ -86,26 +74,10 @@ export interface HarnessTurnRequest {
   readonly providerOptions?: Record<string, unknown>
 }
 
-// Re-export TurnEvent / Turn for consumers so they don't import @effect-uai directly
 export type { Turn } from '@effect-uai/core/Turn'
 export type HarnessEvent = Turn.TurnEvent
 
-// ── Service ─────────────────────────────────────────────────────────────
-
-/**
- * The unified harness surface. Kernel code depends only on this token.
- *
- * Every harness — oru (effect-uai), pi, claude-code, codex, acp — implements
- * the same interface. Swapping harnesses is swapping the Layer that provides
- * this service; the inference plugin and the rest of the kernel stay unchanged.
- *
- * Design notes:
- * - Effect-native: every method returns Effect or Stream, errors are HarnessError.
- * - Plugin-first: a harness is a normal oru plugin that `provides: [Harness]`.
- * - Minimal core + additive capabilities: unknown capabilities are ignored, new
- *   methods are optional and gated by `capabilities`.
- * - Streaming is the primitive; `turn` is derived via TurnComplete.
- */
+/** The unified harness interface. Kernel code depends only on this token. Every harness implements the same interface. Swapping harnesses is swapping the Layer that provides this service. */
 export interface HarnessService {
   readonly meta: HarnessMeta
   readonly capabilities: HarnessCapabilities
@@ -120,11 +92,7 @@ export interface HarnessService {
 
 export class Harness extends Context.Service<Harness, HarnessService>()('oru/harness') {}
 
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Collect a `streamTurn` into a single `Turn`. Mirrors `turnFromStream` in effect-uai.
- */
+/** Collect a `streamTurn` into a single `Turn`. */
 export const turnFromStream = (
   stream: Stream.Stream<HarnessEvent, HarnessError>,
 ): Effect.Effect<Turn.Turn, HarnessError> =>
@@ -145,29 +113,7 @@ export const turnFromStream = (
     ),
   )
 
-// ── Bridge factory ──────────────────────────────────────────────────────
-
-/**
- * Define a harness bridge — the authoring surface for a Harness.
- *
- * Mirrors bb's `experimental_defineProviderBridge({ handleLine, start })` but
- * effect-native and Harness-typed: a single `defineHarness` call declares the
- * harness's identity, capabilities, and the Effect/Stream handlers the kernel
- * will drive. Import this from `@oru/harness` in any harness implementation
- * (oru, pi, claude-code, codex).
- *
- * ```ts
- * import { defineHarness, defaultCapabilities } from '@oru/harness'
- * import { Stream, Effect } from 'effect'
- *
- * export const myHarness = defineHarness({
- *   meta: { id: 'my', label: 'My harness' },
- *   capabilities: { ...defaultCapabilities, steering: 'inject' },
- *   listModels: () => Effect.succeed([{ id: 'model-a' }]),
- *   streamTurn: (req) => Stream.make(TurnEvent.TextDelta({ text: 'hi' }), ...),
- * })
- * ```
- */
+/** Define a harness bridge. */
 export const defineHarness = (spec: {
   readonly meta: HarnessMeta
   readonly capabilities?: Partial<HarnessCapabilities>

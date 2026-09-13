@@ -124,13 +124,11 @@ export const inputGroupInput = <M>(config: InputGroupInputConfig<M>, h: HtmlBuil
 
 export type InputGroupButtonConfig<M> = Omit<ButtonConfig<M>, 'size'> &
   Readonly<{
-    /** Group-local size — keys `cn-input-group-button-size-*` tokens. */
+    /** Group-local size, keys `cn-input-group-button-size-*` tokens. */
     size?: InputGroupButtonSize
   }>
 
-/** A `button` styled to sit inside an `inputGroup` — ghost by default,
- *  sized by the group tokens (upstream keeps the underlying Button on its own
- *  default size and layers the group size token over it). */
+/** A `button` styled to sit inside an `inputGroup`. Ghost by default, sized by the group tokens. */
 export const inputGroupButton = <M>(
   config: InputGroupButtonConfig<M>,
   label: Html | string,
@@ -178,7 +176,7 @@ export const inputGroupAddon = <M>(
   )
 }
 
-/** Alias kept for backward compatibility — an inline-start text addon.
+/** Alias kept for backward compatibility, an inline-start text addon.
  *  Upstream renders a `span` with NO data-slot (foldcn previously added
  *  an extra slot; removed to match upstream). */
 export const inputGroupText = <M>(
@@ -187,7 +185,7 @@ export const inputGroupText = <M>(
   h: HtmlBuilder<M>,
 ): Html => h.span([h.Class(cn(inputGroupTextClass, config.className))], children)
 
-/** Segmented container — pass addons / controls as children. */
+/** Segmented container. Pass addons and controls as children. */
 export const inputGroup = <M>(
   config: StyleConfig,
   children: ReadonlyArray<Child>,

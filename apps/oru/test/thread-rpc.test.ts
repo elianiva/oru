@@ -11,7 +11,6 @@ import {
   sessionLogLayer,
   unsignedTree,
 } from '@oru/kernel'
-import { Harness } from '@oru/harness'
 import { harnessOruPlugin } from '@oru/harness-oru'
 import {
   demoModelPlugin,

@@ -1,7 +1,4 @@
-/** Stateful submodel — import the whole module as a namespace and wire its
- *  Model/Message/init/update into your app:
- *  `import * as Tooltip from '@/components/ui/tooltip'`
- */
+/** Stateful submodel. Import the whole module as a namespace. */
 import { Tooltip as FoldkitTooltip } from '@foldkit/ui'
 import type { AnchorConfig } from '@foldkit/ui/tooltip'
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from 'foldkit/html'
@@ -9,8 +6,6 @@ import type { Attribute, ChildAttribute, Html, HtmlBuilder } from 'foldkit/html'
 type Child = Html | string
 
 import { cn } from '@/lib/utils.ts'
-
-// Re-export the @foldkit/ui Tooltip submodel surface.
 
 export const Model = FoldkitTooltip.Model
 export type Model = typeof Model.Type
@@ -61,14 +56,6 @@ export const tooltipTriggerClass =
 export const tooltipContentClass =
   'data-enter:animate-in data-enter:fade-in-0 data-enter:zoom-in-95 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-leave:animate-out data-leave:fade-out-0 data-leave:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs has-data-[slot=kbd]:pr-1.5 **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-sm not-data-[side=bottom]:data-[placement=bottom]:slide-in-from-top-2 not-data-[side=left]:data-[placement=left]:slide-in-from-right-2 not-data-[side=right]:data-[placement=right]:slide-in-from-left-2 not-data-[side=top]:data-[placement=top]:slide-in-from-bottom-2 max-h-none! overflow-visible! data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2 z-50 w-fit max-w-xs origin-(--transform-origin) bg-foreground text-background'
 
-// Mirrors the shadcn v4 base tooltip arrow (`cn-tooltip-arrow` +
-// `cn-tooltip-arrow-logical` + Arrow props), inlined and mapped to
-// `data-placement`. The logical (`inline-start`/`inline-end`) variants are
-// omitted: foldkit placements are always physical (LTR), so the physical
-// left/right rules already cover them. `absolute` is added because foldcn
-// renders its own arrow element where base-ui's Arrow is positioned by the
-// library; the panel's inline `position: absolute` (from the anchor mount)
-// is its containing block.
 /** Upstream arrow string plus `absolute` (foldcn renders its own arrow
  *  element where Base UI positions the Arrow itself). Side variants key on
  *  the emitted data-side attribute. */

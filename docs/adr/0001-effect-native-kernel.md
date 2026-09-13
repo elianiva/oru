@@ -1,6 +1,6 @@
 # Effect-native kernel; no chord or cordis dependency
 
-The kernel is built on Effect primitives (`Context`, `Scope`, `Stream`) rather than `@earendil-works/chord` or `cordis`. Foldkit is Effect-native, so a second composition runtime would create a permanent translation seam. Neither candidate supplies reactive coeffects, so the reactive layer has to be built regardless. We take their vocabulary and architecture — facets, stable service facades, reverse-order disposal, generation-based reload — without their runtime.
+The kernel is built on Effect primitives (`Context`, `Scope`, `Stream`) rather than `@earendil-works/chord` or `cordis`. Foldkit is Effect-native, so a second composition runtime would create a permanent translation seam. Neither candidate supplies reactive coeffects, so the reactive layer has to be built regardless. We take their vocabulary and architecture, facets, stable service facades, reverse-order disposal, and generation-based reload, without their runtime.
 
 ## Considered Options
 
@@ -10,4 +10,4 @@ The kernel is built on Effect primitives (`Context`, `Scope`, `Stream`) rather t
 
 ## Consequences
 
-The facet loader, remote boundary, and replicated state are oru's to build. Where an Effect-agnostic primitive already solves part of that — for example `@earendil-works/chord/delta` for delta encoding — prefer vendoring the primitive over adopting the whole runtime.
+The facet loader, remote boundary, and replicated state are oru's to build. Where an Effect-agnostic primitive already solves part of that, for example `@earendil-works/chord/delta` for delta encoding, prefer vendoring the primitive over adopting the whole runtime.

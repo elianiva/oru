@@ -8,8 +8,7 @@ export const skeletonClass = 'bg-muted rounded-md animate-pulse'
 
 type StyleConfig = Readonly<{ className?: string }>
 
-/** Styled skeleton placeholder — a pulsing block. Mirrors the shadcn v4
- *  `skeleton.tsx`. */
+/** Styled skeleton placeholder, a pulsing block. */
 export const skeleton = <M>(
   config: StyleConfig,
   children: ReadonlyArray<Child>,

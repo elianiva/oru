@@ -4,10 +4,7 @@ type Child = Html | string
 
 import { cn } from '@/lib/utils.ts'
 
-// Card is a pure layout primitive (no @foldkit/ui backing — there is no
-// headless Card). `Card` itself is the container; sub-builders are attached
-// as properties: Card.header, Card.title, Card.description, Card.action,
-// Card.content, Card.footer.
+// Card is a pure layout primitive with no @foldkit/ui backing. `Card` is the container. Sub-builders are attached as properties: Card.header, Card.title, Card.description, Card.action, Card.content, Card.footer.
 
 export const cardSizeKeys = ['default', 'sm'] as const
 export type CardSize = (typeof cardSizeKeys)[number]
@@ -34,7 +31,7 @@ type StyleConfig = Readonly<{ className?: string }>
 
 type CardConfig = Readonly<{ className?: string; size?: CardSize }>
 
-/** Outermost card surface. */
+/** Outermost card container. */
 const cardContainer = <M>(
   config: CardConfig,
   children: ReadonlyArray<Child>,
@@ -49,7 +46,7 @@ const cardContainer = <M>(
     children,
   )
 
-/** Header wrapper — positions title, description and action via CSS grid. */
+/** Header wrapper. Positions title, description and action via CSS grid. */
 const cardHeader = <M>(
   config: StyleConfig,
   children: ReadonlyArray<Child>,
@@ -118,7 +115,7 @@ const cardFooter = <M>(
     children,
   )
 
-/** Composable card — `Card` is the container, with sub-builders as
+/** Composable card. `Card` is the container, with sub-builders as
  *  properties: `Card.header`, `Card.title`, `Card.description`,
  *  `Card.action`, `Card.content`, `Card.footer`. */
 export const Card = Object.assign(cardContainer, {

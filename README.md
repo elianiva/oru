@@ -2,13 +2,13 @@
 
 oru is an agent control plane: a kernel of composable plugins that runs on effect-uai for the model-facing agent loop, and owns its own tools, sessions, and UI. Everything is a plugin. For the view, everything is a submodel.
 
-Status: design. No implementation yet.
+Status: active development.
 
 ## Docs
 
 - [CONTEXT.md](./CONTEXT.md) — the domain glossary.
 - [docs/adr](./docs/adr) — architecture decision records.
-- [PLAN.md](./PLAN.md) — ephemeral build plan; deleted once the initial slice ships.
+- [PLAN.md](./PLAN.md) — build plan.
 
 ## Decisions
 
@@ -29,4 +29,4 @@ Status: design. No implementation yet.
 
 ## Stack
 
-TypeScript on Effect v4 (`4.0.0-rc.112`), Foldkit for the view, effect-uai for the model and tool layer, Tardigrade's log-driven component model as prior art.
+TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool layer, Tardigrade's log-driven component model as prior art.

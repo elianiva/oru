@@ -16,10 +16,7 @@ export interface ContributionKind<C> {
   readonly of: (value: C) => DataContribution
 }
 
-/**
- * A payload a plugin adds under a kind id. The payload stays opaque here — the kind
- * that reads it owns its type, and the kernel never interprets it.
- */
+/** A payload a plugin adds under a kind id. The payload stays opaque. The kind that reads it owns its type, and the kernel never interprets it. */
 export const DataContribution = Schema.TaggedStruct('Data', {
   kind: Schema.String,
   value: Schema.Unknown,

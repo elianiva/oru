@@ -1,6 +1,6 @@
 # oru build plan
 
-> Ephemeral. A working plan, not a source of truth. Decisions live in `docs/adr/` and vocabulary in `CONTEXT.md`. Delete this file once the units below ship.
+> A working plan, not a source of truth. Decisions live in `docs/adr/` and vocabulary in `CONTEXT.md`.
 
 ## Goal
 
@@ -9,7 +9,7 @@ Reach the initial slice: a running host where two plugins activate and deactivat
 ## Stack
 
 - pnpm workspace, TypeScript.
-- `effect` `4.0.0-rc.112`, pinned. Foldkit and effect-uai both track it, so add a version-canary check.
+- `effect` pinned. Foldkit and effect-uai both track it, so add a version-canary check.
 - `foldkit` + `@foldkit/ui` for the presentation facet.
 - `@effect-uai/core` for the runtime (unit 6).
 - `effect/unstable/rpc` for the presentation seam.

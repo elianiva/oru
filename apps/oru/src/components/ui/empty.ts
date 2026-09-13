@@ -98,7 +98,7 @@ const emptyContent = <M>(
     children,
   )
 
-/** Styled empty state — `Empty.header`, `Empty.media`, `Empty.title`,
+/** Styled empty state, `Empty.header`, `Empty.media`, `Empty.title`,
  *  `Empty.description`, `Empty.content` sub-builders. Mirrors the shadcn v4
  *  `empty.tsx`. */
 export const Empty = Object.assign(emptyContainer, {

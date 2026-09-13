@@ -1,7 +1,4 @@
-/** Stateful submodel — import the whole module as a namespace and wire its
- *  Model/Message/init/update into your app:
- *  `import * as Sidebar from '@/components/ui/sidebar'`
- */
+/** Stateful submodel. Import the whole module as a namespace. */
 import { Effect, Match, Option, Queue, Schema as S, Stream } from 'effect'
 import {
   childAttributes,
@@ -34,21 +31,7 @@ type Child = Html | string
  *  element built with their own `h`. */
 type Attributes<M> = ReadonlyArray<Attribute<M> | ChildAttribute>
 
-// Sidebar is an interactive layout surface: a collapsible application shell
-// with desktop collapse modes (offcanvas / icon / none), side and variant
-// choreography (left|right × sidebar|floating|inset), a mobile off-canvas
-// Sheet path, a ⌘/Ctrl+B keyboard shortcut, and a click-to-toggle rail.
-//
-// Unlike React's context-based `useSidebar`, state flows through the model:
-// `SidebarProvider.view` is a branded submodel view embedded via `h.submodel`.
-// Its slot callbacks receive pre-built attributes (`trigger`, `rail`) plus the
-// derived collapse state; spread them onto any element to wire toggling
-// without lifting messages into your own universe.
-//
-// Collapsed-mode menu-button tooltips compose through the optional `tooltip`
-// config on `menuButton`; callers still own the Tooltip submodel state.
-// Controlled/uncontrolled `open` collapses into one mode: the model you pass
-// IS the state.
+// Sidebar is a collapsible application shell with desktop and mobile modes.
 
 export const SIDEBAR_WIDTH = '16rem'
 export const SIDEBAR_WIDTH_MOBILE = '18rem'
@@ -99,7 +82,7 @@ export const init = ({
   sheet: Sheet.init({ id: `${id}-mobile-sheet` }),
 })
 
-/** `'expanded' | 'collapsed'` — emitted as `data-state` on the shell. */
+/** `'expanded' | 'collapsed'`, emitted as `data-state` on the shell. */
 export const state = (model: Model): 'expanded' | 'collapsed' =>
   model.isOpen ? 'expanded' : 'collapsed'
 
@@ -443,7 +426,7 @@ export type ProviderViewInputs = Readonly<{
   className?: string
   /** Inside the rail (header / content / footer / rail). */
   content: (slots: SidebarSlots) => ReadonlyArray<Child>
-  /** Wrapper-level children rendered after the rail — the inset page column
+  /** Wrapper-level children rendered after the rail, the inset page column
    *  lives here so `peer-data-[variant=inset]` margins can reach it. */
   children: (slots: SidebarSlots) => ReadonlyArray<Child>
 }>
@@ -1047,7 +1030,7 @@ export const Sidebar = {
   input,
 }
 
-/** Namespace alias grouping the provider surface (engine + shell view). */
+/** Namespace alias for the provider (engine and shell view). */
 export const SidebarProvider = {
   Model,
   Message,

@@ -191,9 +191,7 @@ export const makeHost = Effect.fnUntraced(function* (
       Effect.onError(() => Scope.close(pluginScope, Exit.void)),
     )
 
-    // The registry publishes by declaration, so both directions of drift matter: a declared
-    // service the setup omitted breaks consumers, and a returned service nobody declared is
-    // unreachable — it is never published, resolved, or shown in the graph.
+    // The registry publishes by declaration. A declared service that setup omitted breaks consumers, and a returned service nobody declared is unreachable. It is never published, resolved, or shown in the graph.
     const declared = new Set(serviceTokens(plugin).map(serviceId))
     const problems = [
       ...serviceTokens(plugin).flatMap((token) =>

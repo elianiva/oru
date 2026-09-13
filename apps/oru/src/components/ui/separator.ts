@@ -12,7 +12,7 @@ type SeparatorConfig = Readonly<{
   className?: string
 }>
 
-/** Styled separator — a `role="separator"` divider. */
+/** Styled separator, a `role="separator"` divider. */
 export const separator = <M>(config: SeparatorConfig, h: HtmlBuilder<M>): Html => {
   const orientation = config.orientation ?? 'horizontal'
   return h.div(

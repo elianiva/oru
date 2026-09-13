@@ -12,7 +12,7 @@ The model and tool layer uses `@effect-uai/core` (`LanguageModel`, `Tool`, `Tool
 ## Consequences
 
 - Tool parameters use Standard Schema (Effect Schema canonical); no TypeBox.
-- effect-uai requires `effect >=4.0.0-rc.111` while Foldkit pins an exact `effect` version, so the stack moves in lockstep. A version-canary check guards this.
+- effect-uai and Foldkit pin Effect versions, so the stack moves in lockstep. A version-canary check guards this.
 - effect-uai is early (0.x, few dependents). Only its provider primitives are used, so it stays vendor-able.
 - effect-uai's `Loop` primitive is unused; continuation is the facet's own reconciliation over the log.
 - Coding-agent affordances such as steering and follow-up queue modes are oru's to own as plugins.
