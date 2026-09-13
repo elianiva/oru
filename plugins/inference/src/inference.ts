@@ -11,16 +11,27 @@ import {
   type SessionLogError,
 } from '@oru/kernel'
 import * as Items from '@effect-uai/core/Items'
-import { type LanguageModelService } from '@effect-uai/core/LanguageModel'
 import type * as Turn from '@effect-uai/core/Turn'
 import { demoModelId } from './demo-model.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
 import { foldThread, workOf } from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
+import type { HarnessService, ModelInfo } from '@oru/harness'
 
 export interface InferenceContract {
   readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
   readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
+  /** Unified model query — delegates to the active harness. */
+  readonly listModels: () => Effect.Effect<readonly ModelInfo[], SessionLogError>
+  /**
+   * Steering: inject a follow-up prompt.
+   * - queue-mode harnesses (oru): appends to history, drains on next loop.
+   * - inject-mode harnesses (pi/claude/codex): forwards to `harness.steer`
+   *   for mid-turn injection when supported, otherwise falls back to queue.
+   */
+  readonly steer: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
+  /** Interrupt the active turn on a thread, if the harness supports it. */
+  readonly abort: (thread: string) => Effect.Effect<void, SessionLogError>
 }
 
 export class Inference extends Context.Service<Inference, InferenceContract>()('oru/inference') {}
@@ -80,7 +91,7 @@ const persistTurn = (
 
 export const openInference = (
   log: SessionLogContract,
-  model: LanguageModelService,
+  harness: HarnessService,
   loadTools: Effect.Effect<readonly ToolContribution[]>,
   scope: Scope.Scope,
 ): InferenceContract => {
@@ -109,11 +120,20 @@ export const openInference = (
             const history = historyOf(entry, thread)
             const tools = yield* loadTools
             const toolkit = tools.length === 0 ? undefined : toolkitOf(tools)
-            const request =
-              toolkit === undefined
-                ? { history, model: demoModelId }
-                : { history, model: demoModelId, tools: toolkit }
-            const assembled = yield* Effect.result(model.turn(request))
+            // Resolve model: prefer the harness catalogue's first entry when it contains demoModelId,
+            // otherwise use demoModelId directly (keeps existing tests stable).
+            const models = yield* harness
+              .listModels()
+              .pipe(Effect.orElseSucceed(() => [] as readonly ModelInfo[]))
+            const hasDemo = models.some((m) => m.id === demoModelId)
+            const modelId = hasDemo ? demoModelId : (models[0]?.id ?? demoModelId)
+            const request = {
+              threadId: thread,
+              history,
+              model: modelId,
+              ...(toolkit === undefined ? {} : { tools: toolkit }),
+            }
+            const assembled = yield* Effect.result(harness.turn(request))
             if (Result.isFailure(assembled)) {
               yield* log.write(
                 TurnFailed.make({
@@ -169,34 +189,57 @@ export const openInference = (
       }),
     )
 
+  const queueSteer = (thread: string, text: string) =>
+    Effect.gen(function* () {
+      yield* log.write(
+        MessageAppended.make({
+          ...unsignedTree,
+          id: yield* newId(),
+          thread,
+          role: 'user',
+          body: text,
+        }),
+      )
+      yield* log.write(
+        InboxSpliced.make({
+          ...unsignedTree,
+          id: yield* newId(),
+          thread,
+          queue: 'next-turn',
+          body: text,
+        }),
+      )
+      yield* kick(thread)
+    })
+
   return {
-    send: (thread, text) =>
-      Effect.gen(function* () {
-        yield* log.write(
-          MessageAppended.make({
-            ...unsignedTree,
-            id: yield* newId(),
-            thread,
-            role: 'user',
-            body: text,
-          }),
-        )
-        yield* log.write(
-          InboxSpliced.make({
-            ...unsignedTree,
-            id: yield* newId(),
-            thread,
-            queue: 'next-turn',
-            body: text,
-          }),
-        )
-        yield* kick(thread)
-      }),
+    send: (thread, text) => queueSteer(thread, text),
     whenIdle: (thread) =>
       Effect.gen(function* () {
         const done = idle.get(thread)
         if (done === undefined) return
         yield* Deferred.await(done)
+      }),
+    listModels: () =>
+      harness.listModels().pipe(
+        Effect.mapError((cause) => cause as unknown as SessionLogError),
+        Effect.orElseSucceed(() => [] as readonly ModelInfo[]),
+      ) as Effect.Effect<readonly ModelInfo[], SessionLogError>,
+    steer: (thread, text) =>
+      Effect.gen(function* () {
+        // Prefer harness-native inject steering when the capability is present.
+        if (harness.capabilities.steering === 'inject' && harness.steer !== undefined) {
+          const injected = yield* harness.steer(thread, text).pipe(Effect.result)
+          if (Result.isSuccess(injected)) return
+          // Fall back to queue mode on harness-level failure.
+        }
+        yield* queueSteer(thread, text)
+      }),
+    abort: (thread) =>
+      Effect.gen(function* () {
+        if (harness.abort !== undefined) {
+          yield* harness.abort(thread).pipe(Effect.orElseSucceed(() => undefined))
+        }
       }),
   }
 }

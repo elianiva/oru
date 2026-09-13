@@ -3,6 +3,7 @@ import { Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { foldActivePlugins, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import { harnessOruPlugin } from '@oru/harness-oru'
 import {
   demoModelPlugin,
   foldThread,
@@ -20,7 +21,13 @@ describe('assembled architecture', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const plugins = [...fixturePlugins, echoToolPlugin, demoModelPlugin, inferencePlugin]
+          const plugins = [
+            ...fixturePlugins,
+            echoToolPlugin,
+            demoModelPlugin,
+            harnessOruPlugin,
+            inferencePlugin,
+          ]
           const host = yield* makeHost(plugins)
           const log = yield* SessionLog
           const hostClient = yield* RpcTest.makeClient(HostRpc).pipe(
@@ -35,6 +42,7 @@ describe('assembled architecture', () => {
           expect(graph.active.map((panel) => panel.plugin).sort()).toEqual([
             'greeter',
             'logging',
+            'oru/harness-oru',
             'oru/inference',
             'oru/model-demo',
             'tools/echo',

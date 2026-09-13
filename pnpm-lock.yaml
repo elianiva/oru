@@ -139,6 +139,12 @@ importers:
       '@foldkit/ui':
         specifier: 0.158.2
         version: 0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/harness-oru':
+        specifier: workspace:*
+        version: link:../../plugins/harness-oru
       '@oru/inference':
         specifier: workspace:*
         version: link:../../plugins/inference
@@ -183,6 +189,15 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
 
+  packages/harness:
+    dependencies:
+      '@effect-uai/core':
+        specifier: 0.15.0
+        version: 0.15.0(effect@4.0.0-rc.112)
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+
   packages/kernel:
     dependencies:
       '@effect/sql-sqlite-node':
@@ -192,11 +207,14 @@ importers:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
 
-  plugins/inference:
+  plugins/harness-oru:
     dependencies:
       '@effect-uai/core':
         specifier: 0.15.0
         version: 0.15.0(effect@4.0.0-rc.112)
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
       '@oru/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
@@ -204,6 +222,53 @@ importers:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
     devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
+
+  plugins/harness-pi:
+    dependencies:
+      '@effect-uai/core':
+        specifier: 0.15.0
+        version: 0.15.0(effect@4.0.0-rc.112)
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0))
+
+  plugins/inference:
+    dependencies:
+      '@effect-uai/core':
+        specifier: 0.15.0
+        version: 0.15.0(effect@4.0.0-rc.112)
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+    devDependencies:
+      '@oru/harness-oru':
+        specifier: workspace:*
+        version: link:../harness-oru
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

@@ -12,6 +12,8 @@ import {
   sessionLogLayer,
   type SessionEvent,
 } from '@oru/kernel'
+import { Harness } from '@oru/harness'
+import { harnessOruPlugin } from '@oru/harness-oru'
 import {
   demoModelPlugin,
   defineTool,
@@ -40,6 +42,7 @@ const echoToolPlugin = definePlugin({
   ],
 })
 
+const harnessKey = Harness.key
 const languageModelKey = LanguageModel.key
 
 const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
@@ -99,13 +102,26 @@ const delayedModelPlugin = (releaseSecond: Deferred.Deferred<void>) => {
 }
 
 describe('inference architecture', () => {
-  it('stays blocked until a model plugin provides LanguageModel', async () => {
+  it('stays blocked until a harness provides Harness', async () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([echoToolPlugin, inferencePlugin])
         const graph = yield* host.graph
         expect(graph.active.has('oru/inference')).toBe(false)
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([languageModelKey])
+        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
+      }),
+    )
+  })
+
+  it('stays blocked until LanguageModel provides the oru harness', async () => {
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([echoToolPlugin, harnessOruPlugin, inferencePlugin])
+        const graph = yield* host.graph
+        expect(graph.active.has('oru/harness-oru')).toBe(false)
+        expect(graph.active.has('oru/inference')).toBe(false)
+        expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
+        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
       }),
     )
   })
@@ -113,13 +129,21 @@ describe('inference architecture', () => {
   it('deactivates inference when the model plugin is removed', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
+        const host = yield* makeHost([
+          echoToolPlugin,
+          demoModelPlugin,
+          harnessOruPlugin,
+          inferencePlugin,
+        ])
         expect((yield* host.graph).active.has('oru/inference')).toBe(true)
+        expect((yield* host.graph).active.has('oru/harness-oru')).toBe(true)
         yield* host.deactivate(demoModelPlugin.id)
         const graph = yield* host.graph
         expect(graph.active.has('oru/inference')).toBe(false)
+        expect(graph.active.has('oru/harness-oru')).toBe(false)
         expect(graph.active.has('oru/model-demo')).toBe(false)
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([languageModelKey])
+        expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
+        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
       }),
     )
   })
@@ -131,6 +155,7 @@ describe('inference architecture', () => {
         const host = yield* makeHost([
           echoToolPlugin,
           delayedModelPlugin(releaseSecond),
+          harnessOruPlugin,
           inferencePlugin,
         ])
         const inference = yield* host.service(Inference)
@@ -187,7 +212,12 @@ describe('inference architecture', () => {
   it('runs a tool from streamed model output and reconstructs the same idle fold after replay', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
+        const host = yield* makeHost([
+          echoToolPlugin,
+          demoModelPlugin,
+          harnessOruPlugin,
+          inferencePlugin,
+        ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')

@@ -1,5 +1,6 @@
 import { Context, Effect, Option, Schema } from 'effect'
 import { definePlugin, defineService } from '@oru/kernel'
+import { harnessOruPlugin } from '@oru/harness-oru'
 import { defineTool, demoModelPlugin, inferencePlugin, ToolKind } from '@oru/inference'
 
 interface LoggerService {
@@ -63,7 +64,13 @@ export const echoToolPlugin = definePlugin({
   ],
 })
 
-export const hostPlugins = [...fixturePlugins, echoToolPlugin, demoModelPlugin, inferencePlugin]
+export const hostPlugins = [
+  ...fixturePlugins,
+  echoToolPlugin,
+  demoModelPlugin,
+  harnessOruPlugin,
+  inferencePlugin,
+]
 
 export const fixtureTitles: ReadonlyMap<string, string> = new Map(
   fixturePlugins.flatMap((plugin) =>

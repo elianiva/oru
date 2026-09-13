@@ -1,5 +1,5 @@
 {
-  "name": "@oru/inference",
+  "name": "@oru/harness",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,17 +8,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@effect-uai/core": "0.15.0",
-    "@oru/harness": "workspace:*",
-    "@oru/kernel": "workspace:*",
     "effect": "4.0.0-rc.112"
-  },
-  "devDependencies": {
-    "@oru/harness-oru": "workspace:*",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
   }
 }

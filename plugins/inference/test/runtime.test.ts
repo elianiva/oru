@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Effect, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import { harnessOruPlugin } from '@oru/harness-oru'
 import {
   defineTool,
   demoModelPlugin,
@@ -40,7 +41,12 @@ describe('inference runtime', () => {
   it('records a user message, a turn, a tool request, and a tool result', async () => {
     await runRuntime(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
+        const host = yield* makeHost([
+          echoToolPlugin,
+          demoModelPlugin,
+          harnessOruPlugin,
+          inferencePlugin,
+        ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
@@ -60,6 +66,7 @@ describe('inference runtime', () => {
         const host = yield* makeHost([
           echoToolPlugin,
           mockModelPlugin('oru/model-empty', []),
+          harnessOruPlugin,
           inferencePlugin,
         ])
         const inference = yield* host.service(Inference)

@@ -11,6 +11,8 @@ import {
   sessionLogLayer,
   unsignedTree,
 } from '@oru/kernel'
+import { Harness } from '@oru/harness'
+import { harnessOruPlugin } from '@oru/harness-oru'
 import {
   demoModelPlugin,
   foldThread,
@@ -41,6 +43,18 @@ const stubEnginePlugin = definePlugin({
               }),
             ),
           whenIdle: () => Effect.void,
+          listModels: () => Effect.succeed([]),
+          steer: (thread, text) =>
+            log.write(
+              MessageAppended.make({
+                ...unsignedTree,
+                id: `stub-steer-${thread}`,
+                thread,
+                role: 'user',
+                body: text,
+              }),
+            ),
+          abort: () => Effect.void,
         })
       }),
   },
@@ -78,7 +92,12 @@ describe('thread rpc', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
+          const host = yield* makeHost([
+            echoToolPlugin,
+            demoModelPlugin,
+            harnessOruPlugin,
+            inferencePlugin,
+          ])
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
@@ -105,7 +124,12 @@ describe('thread rpc', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
+          const host = yield* makeHost([
+            echoToolPlugin,
+            demoModelPlugin,
+            harnessOruPlugin,
+            inferencePlugin,
+          ])
           yield* host.deactivate(inferencePlugin.id)
           yield* host.activate(stubEnginePlugin)
           const graph = yield* host.graph
