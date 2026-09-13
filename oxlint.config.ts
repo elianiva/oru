@@ -14,6 +14,7 @@ export default defineConfig({
     '.roo/**',
     '.windsurf/**',
     'dist/**',
+    '.turbo/**',
     'tools/oxlint/anti-slop/**',
     'apps/oru/src/components/**',
     'apps/oru/src/lib/icons.ts',

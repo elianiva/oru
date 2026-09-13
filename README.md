@@ -29,8 +29,10 @@ TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool
 
 ## Verifying
 
+`typecheck` / `test` / `build` run through Turborepo (`turbo.json`):
+
 ```
-pnpm lint && pnpm fmt:check && pnpm -r typecheck && pnpm test
+pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm test && pnpm build
 ```
 
 `pnpm test` is hermetic: the pi bridge runs against a scripted pi, models are scripted, no account is touched.

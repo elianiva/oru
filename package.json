@@ -3,13 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "turbo build",
     "check": "pnpm fmt:check && pnpm lint && pnpm typecheck && pnpm test",
+    "dev": "turbo dev",
+    "e2e": "turbo e2e",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "NODE_OPTIONS='--experimental-strip-types' oxlint",
     "prepare": "lefthook install",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "typecheck": "turbo typecheck",
+    "test": "turbo test"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.82.0",
@@ -17,8 +20,12 @@
     "oxfmt": "0.67.0",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",
+    "turbo": "^2.10.12",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=26"
   },
   "packageManager": "pnpm@12.2.1"
 }
