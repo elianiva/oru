@@ -4,7 +4,7 @@
  * It runs inside pi's process, so it cannot import oru: everything it needs
  * arrives through the tools file and the fd 3/4 channel. The JSON Schema to
  * TypeBox conversion lives here because pi's tool contract is TypeBox, while
- * oru's tool contract is JSON Schema (draft 2020-12) — this is the one place
+ * oru's tool contract is JSON Schema (draft 2020-12), and this is the one place
  * the two meet.
  */
 export const ORU_PI_TOOLS_FILE = 'ORU_PI_TOOLS_FILE'

@@ -7,7 +7,7 @@ import { serializeValue } from '@effect-uai/core/ToolResult'
 /**
  * What the extension registers: a name, a description, and the draft-2020-12
  * JSON Schema pi's side converts to TypeBox. This is effect-uai's own
- * descriptor, unchanged — the bridge adds no vocabulary of its own.
+ * descriptor, unchanged; the bridge adds no vocabulary of its own.
  */
 export type PiDynamicTool = Tool.ToolDescriptor
 

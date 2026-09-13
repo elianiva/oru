@@ -18,14 +18,13 @@ import { toolBridgeOf, type PiToolBridge } from './pi/tools.ts'
 import { PiCatalog } from './pi/catalog.ts'
 
 /**
- * `harness-pi` — pi as an oru harness.
+ * `harness-pi`, pi as an oru harness.
  *
  * pi owns the agent loop (its own session, compaction, tools, steering) and oru
  * owns the record, the tools it contributes, and the turn boundary. The bridge
  * is a `pi --mode rpc` subprocess per thread plus an injected extension, wired
- * over fds 3/4 (ADR-0021); oru's tools reach pi through that extension
- * (ADR-0022). Nothing here installs, signs in, or repairs pi — it reports what
- * it finds (ADR-0023).
+ * over fds 3/4, and oru's tools reach pi through that extension. Nothing here
+ * installs, signs in, or repairs pi; it reports what it finds (ADR-0007).
  */
 
 export interface PiHarnessOptions {
@@ -207,7 +206,7 @@ export const harnessPiPlugin = (harness: PiHarness = piHarness) =>
       setup: () =>
         Effect.gen(function* () {
           // The contributed value is declared, so setup only registers the
-          // teardown that stops every pi child this instance spawned (ADR-0021).
+          // teardown that stops every pi child this instance spawned (ADR-0007).
           yield* Effect.addFinalizer(() => Effect.sync(() => harness.shutdown()))
           return Context.empty()
         }),

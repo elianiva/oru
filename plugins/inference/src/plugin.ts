@@ -17,12 +17,12 @@ const setup = (ctx: PluginContext) =>
   })
 
 /**
- * `oru/inference` — the kernel's agent loop.
+ * `oru/inference`, the kernel's agent loop.
  *
  * Depends on the harness *registry*, not on any one harness: whichever plugins
  * contribute a `HarnessKind` are candidates, and each thread picks one through
- * its own configuration (ADR-0017, ADR-0019). Swapping a harness — or adding a
- * second one beside the first — is a plugin-set change, not a code change.
+ * its own configuration (ADR-0006). Swapping a harness, or adding a second one
+ * beside the first, is a plugin-set change, not a code change.
  */
 export const inferencePlugin = definePlugin({
   id: 'oru/inference',

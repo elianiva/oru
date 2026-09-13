@@ -3,10 +3,10 @@ import { definePlugin, type PluginContext } from '@oru/kernel'
 import { HarnessKind, Harnesses, type HarnessEntry, type HarnessesContract } from '@oru/harness'
 
 /**
- * `oru/harness-registry` — the live list of harnesses this host has.
+ * `oru/harness-registry`, the live list of harnesses this host has.
  *
  * A harness plugin contributes its service under `HarnessKind`, so several
- * bridges are active at once without colliding on a service token (ADR-0017).
+ * bridges are active at once without colliding on a service token (ADR-0006).
  * Nothing is cached: the contributions are read per call, so activating or
  * deactivating a bridge changes the answer immediately.
  */

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { HarnessHealth } from '@oru/harness'
 
 /**
- * pi's version gate (ADR-0023).
+ * pi's version gate (ADR-0007).
  *
  * oru reports what is wrong and what to run; it does not install anything. The
  * version oru requires is the oldest one whose RPC surface this bridge uses:
@@ -61,7 +61,7 @@ export interface PiLaunch {
 }
 
 /**
- * Ask this pi for its version, through the same launch a turn would use — a pi
+ * Ask this pi for its version, through the same launch a turn would use. A pi
  * behind a wrapper or a runner reports its version through its arguments, not
  * through its name. Absent or unreadable means not installed.
  */

@@ -1,8 +1,8 @@
 export { inferencePlugin } from './plugin.ts'
 export { Inference } from './inference.ts'
 export { demoModelId, demoModelPlugin, mockModelPlugin, modelPlugin } from './demo-model.ts'
-// Harness core is now @oru/harness — re-export for convenience so consumers
-// don't need to know the package split.
+// Harness core lives in @oru/harness. Re-exported for convenience, so consumers
+// do not need to import the package itself.
 export {
   HarnessError,
   Harnesses,

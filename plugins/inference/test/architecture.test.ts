@@ -144,7 +144,7 @@ describe('inference architecture', () => {
         yield* host.deactivate(demoModelPlugin.id)
         const graph = yield* host.graph
         // The registry is what inference depends on, and it is still there: the
-        // bridge set changed, not the loop (ADR-0017).
+        // bridge set changed, not the loop (ADR-0006).
         expect(graph.active.has('oru/inference')).toBe(true)
         expect(graph.active.has('oru/harness-oru')).toBe(false)
         expect(graph.active.has('oru/model-demo')).toBe(false)
@@ -229,7 +229,7 @@ describe('inference architecture', () => {
         expect(calls).toEqual(['stop', 'compact', 'discard', 'fork:copy'])
 
         // The compaction the bridge reported is a fact, with oru's own leaf as
-        // the entry the compacted view keeps from (ADR-0020).
+        // the entry the compacted view keeps from (ADR-0006).
         const compaction = (yield* log.entries).find((event) => event._tag === 'thread/compacted')
         expect(compaction?._tag === 'thread/compacted' ? compaction.summary : '').toBe('kept')
       }),

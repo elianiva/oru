@@ -227,7 +227,7 @@ describe('pi turns', () => {
     )
     expect(collected.map(tagOf)).toContain('ToolCallStart')
     // pi ran the call itself and said how it went: the runtime records the
-    // outcome as a fact instead of guessing (ADR-0022).
+    // outcome as a fact instead of guessing (ADR-0007).
     expect(toolResultOf(collected)).toEqual({
       call_id: 'call-1',
       name: 'echo',
@@ -235,7 +235,7 @@ describe('pi turns', () => {
       result: '{"echoed":"hi"}',
     })
     // The call and its output are both in the turn, paired: that is what tells
-    // the runtime the harness ran the tool itself (ADR-0022), and what lands in
+    // the runtime the harness ran the tool itself (ADR-0007), and what lands in
     // oru's log as a requested/completed pair.
     expect(turnOf(collected).items).toEqual([
       {
@@ -388,7 +388,7 @@ describe('pi turns', () => {
     expect(moved.map(tagOf)).toContain('SessionReplaced')
   })
 
-  it('turns pi’s built-in tools off when the opt-out asks for it, and not otherwise', async () => {
+  it("turns pi's built-in tools off when the opt-out asks for it, and not otherwise", async () => {
     const launched = (entry: Bridge): readonly string[] =>
       readFileSync(join(entry.dir, 'argv.jsonl'), 'utf8')
         .trim()

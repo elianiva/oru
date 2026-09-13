@@ -70,7 +70,7 @@ export const echoToolPlugin = definePlugin({
  *
  * The registry is what makes harnesses plural: any plugin that contributes
  * under `HarnessKind` shows up in the picker without the host knowing it
- * (ADR-0017). A bridge that spawns a process — `oru/harness-pi` — belongs to a
+ * (ADR-0006). A bridge that spawns a process, `oru/harness-pi`, belongs to a
  * node host, so the browser app carries the registry and the in-process bridge,
  * and a node host is where the others are added.
  */

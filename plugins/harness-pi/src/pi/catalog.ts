@@ -12,12 +12,12 @@ import {
 
 /**
  * pi's catalogue and its health, from one short-lived `pi --mode rpc` probe
- * (ADR-0021, ADR-0023).
+ * (ADR-0007).
  *
  * The probe runs with no session and no extension discovery: it answers what
  * models pi can offer and which one it would pick, and nothing it does can
  * touch a thread. The answer is memoized briefly, because the picker asks often
- * and pi's catalogue changes when the user signs in — not between two frames.
+ * and pi's catalogue changes when the user signs in, not between two frames.
  */
 
 const PROBE_TIMEOUT_MS = 15_000

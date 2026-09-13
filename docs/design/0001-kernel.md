@@ -7,11 +7,11 @@ B (Qwen) was stopped before producing a package. Shapes are implemented in
 ## Problem
 
 `@oru/kernel` is the composition runtime every later unit stacks on. It must let a plugin author
-declare coeffects (`needs`) and contributions (`provides`) as **data** (ADR-0006) while wiring
+declare coeffects (`needs`) and contributions (`provides`) as **data** (ADR-0001) while wiring
 behavior as ordinary Effect code; resolve a provider-before-consumer graph at boot and reactively at
-runtime through **one** mechanism (ADR-0004); reverse every contribution on deactivation by closing
+runtime through **one** mechanism (ADR-0001); reverse every contribution on deactivation by closing
 an Effect `Scope`; and leave three seams in the right place, an observable registry (Unit 3), a
-provider indirection whose captured handles survive a facet cutover (Unit 5, ADR-0011), and open
+provider indirection whose captured handles survive a facet cutover (Unit 5, ADR-0001), and open
 contribution kinds for tools and submodels (Unit 6). The shape is non-obvious because Unit 1 is
 static yet its types must already carry those later loads, and because the domain word **Context**
 collides with Effect's `Context` while Effect v4 renamed the old `Context.Tag`/`GenericTag` to
@@ -98,12 +98,12 @@ packages/kernel/src/
   `Schema`, with the TypeScript type derived via `Schema.Schema.Type<typeof X>`. Tagged values are
   built with `Schema.make` (`.make({...})`) or `new` for `Schema.TaggedError` classes, so a value can
   never drift from its schema. This is what lets `HostEvent = Schema.Union([...])` compose and feed
-  the journal (ADR-0007) and RPC seam (ADR-0008) without a parallel hand-written type.
+  the journal (ADR-0003) and RPC seam (ADR-0004) without a parallel hand-written type.
 - **Tokens are `Context.Service<S, S>` plus a stable string `.key`.** No `Tag`/`GenericTag` in
   Effect v4. `defineService` keeps both parameters precise. `Service<any, S>` would erase the
   identifier and silently accept any requirement, which is the type the coeffect check below depends
   on. The registry is keyed by the **string**, never object identity, which is what lets a
-  reloaded bundle (fresh token objects, same ids) keep provider continuity (ADR-0011).
+  reloaded bundle (fresh token objects, same ids) keep provider continuity (ADR-0001).
 - **Contributions are a token or tagged schema data.** `provides` mixes two things: a service token,
   whose value is the `Context` the setup returns, and a `DataContribution`, tagged schema data the
   kernel stores and reverses by kind id without interpreting. Only the kind owns the payload type,
@@ -116,16 +116,16 @@ packages/kernel/src/
   contravariant, so a setup that omits a declared service or substitutes another one does not
   type-check either. Types cannot see a _returned_ service the declaration never claimed. A
   superset still satisfies the declaration, so that direction, plus every facet whose types were
-  erased, is caught at activation by the `Context.getOption` / key-diff check (ADR-0006).
+  erased, is caught at activation by the `Context.getOption` / key-diff check (ADR-0001).
 - **One pure `resolve`**, shared by boot and the future watcher: Kahn's fixpoint over
   `needs`/`provides`, returning an activation order plus a `blocked` map. Unmet coeffects are graph
-  state, not a hard error (ADR-0004, ADR-0010).
+  state, not a hard error (ADR-0001, ADR-0004).
 - **Reversal is the scope.** Each plugin forks a child `Scope`; every contribution registers a
   finalizer on it, so `deactivate` is `Scope.close` and reversal is LIFO and idempotent by
   construction.
 - **Facades are stable.** `yield* Token` returns a `Proxy` that resolves the current
   implementation at call time through the string-keyed registry, so a handle captured before a
-  cutover keeps working (ADR-0011). Non-method members are rejected at activation.
+  cutover keeps working (ADR-0001). Non-method members are rejected at activation.
 - **Contribution kinds are open.** The kernel stores, exposes, and reverses typed payloads by kind id
   without interpreting them; tools and submodels land as new kinds owned by their own packages.
 
@@ -165,11 +165,11 @@ dependents-before-providers teardown makes it unreachable in kernel-managed flow
 
 ## Alternatives considered
 
-- **Setup-call declarations (cordis-style `ctx.use`/`ctx.provide`).** Rejected by ADR-0006: the graph
+- **Setup-call declarations (cordis-style `ctx.use`/`ctx.provide`).** Rejected by ADR-0001: the graph
   would exist only after running effectful code, so the watcher must execute plugins to diff them and
   the view cannot render a not-yet-active graph.
 - **Direct `Tag` binding with no registry indirection.** Smaller types, but a handle captured before a
-  cutover dies with its generation, violating ADR-0011; retrofitting the indirection breaks every
+  cutover dies with its generation, violating ADR-0001; retrofitting the indirection breaks every
   consumer.
 - **Plugins as Effect `Layer`s.** A Layer graph is fixed at construction; unmet-coeffect-as-state and
   runtime activation/deactivation have no Layer representation. Layers remain the host-assembly

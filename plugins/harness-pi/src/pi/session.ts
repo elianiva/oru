@@ -49,12 +49,12 @@ import {
 } from './wire.ts'
 
 /**
- * One pi thread: a `pi --mode rpc` child (ADR-0021) plus the translation
+ * One pi thread: a `pi --mode rpc` child (ADR-0007) plus the translation
  * between its session file and oru's turn vocabulary.
  *
  * The child is spawned lazily, stays alive between turns, and keeps the
- * conversation in its own session file — the file, not this object, is the
- * authority (ADR-0018). Everything here is promise-based node plumbing; the
+ * conversation in its own session file, and the file, not this object, is the
+ * authority (ADR-0006). Everything here is promise-based node plumbing; the
  * Effect boundary is `index.ts`, where a turn becomes a `Stream`.
  */
 
@@ -109,7 +109,7 @@ const hexId = (): string => {
   return out
 }
 
-/** `ORU_PI_SKILLS` is a JSON array of skill paths, applied at spawn (ADR-0021). */
+/** `ORU_PI_SKILLS` is a JSON array of skill paths, applied at spawn (ADR-0007). */
 const skillsOf = (env: NodeJS.ProcessEnv, log: (message: string) => void): readonly string[] => {
   const raw = env[SKILLS_ENV]
   if (raw === undefined || raw.trim() === '') return []
@@ -255,8 +255,8 @@ export class PiSession {
    *
    * Live events come from pi's event stream and are for a human watching; the
    * assembled turn comes from pi's session file and is what the runtime records
-   * as facts. Emitting both is deliberate — they answer different questions
-   * (ADR-0020, ADR-0022).
+   * as facts. Emitting both is deliberate. They answer different questions
+   * (ADR-0006, ADR-0007).
    */
   async run(input: PiRunInput, emit: (event: HarnessEvent) => void): Promise<void> {
     if (this.running) {
@@ -700,7 +700,7 @@ export class PiSession {
       case 'tool_execution_end': {
         // pi ran this call itself, built-in or forwarded: the runtime records
         // the outcome as a fact, and whether it failed is only known here
-        // (ADR-0022).
+        // (ADR-0007).
         emit(
           HarnessLifecycle.ToolResult({
             call_id: event.toolCallId,

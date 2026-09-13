@@ -35,8 +35,8 @@ export interface HarnessCapabilities {
   /**
    * The harness owns the conversation. `request.history` seeds its session when
    * it has none for the thread, and the harness's own state is authoritative
-   * afterwards — the session log becomes its trace rather than its memory
-   * (ADR-0018).
+   * afterwards, so the session log becomes its trace rather than its memory
+   * (ADR-0006).
    */
   readonly ownsHistory: boolean
   /** Steering mode, mirrors bb steerMode but local to the harness. */
@@ -80,10 +80,10 @@ export type ModelInfo = typeof ModelInfo.Type
 /**
  * One turn, in the vocabulary every harness can carry.
  *
- * The members are the ones a harness actually forwards to its provider; thread
- * identity and the thread's working directory ride alongside them. A field no
- * harness can honor does not belong here — a bridge that cannot forward it
- * would have to drop it silently.
+ * The members are the ones a harness actually forwards to its provider. Thread
+ * identity and the thread's working directory are carried in the same request
+ * but are not provider-facing. A field no harness can honor does not belong
+ * here: a bridge that cannot forward it would have to drop it silently.
  */
 export interface HarnessTurnRequest {
   readonly threadId: string
@@ -102,7 +102,7 @@ export interface HarnessTurnRequest {
 }
 
 /**
- * Session-level facts a turn-scoped event union cannot express (ADR-0020).
+ * Session-level facts a turn-scoped event union cannot express (ADR-0006).
  * The harness reports; the runtime records what has a home in the log.
  */
 export type HarnessLifecycle = Data.TaggedEnum<{
@@ -147,7 +147,7 @@ export const HarnessStatus = Schema.Literals([
 ])
 export type HarnessStatus = typeof HarnessStatus.Type
 
-/** What a harness needs before it can run. Reported, never acted on (ADR-0023). */
+/** What a harness needs before it can run. Reported, never acted on (ADR-0007). */
 export const HarnessHealth = Schema.Struct({
   status: HarnessStatus,
   message: Schema.optionalKey(Schema.String),
@@ -189,7 +189,7 @@ export interface HarnessEntry {
 /**
  * The token for this contribution kind. Several harness plugins contribute
  * under it at once, so a host can register many bridges without colliding on a
- * service token (ADR-0017).
+ * service token (ADR-0006).
  */
 export const HarnessKind: ContributionKind<HarnessService> =
   defineContributionKind<HarnessService>('oru/harness')

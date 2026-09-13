@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream'
  *
  * Records are LF-delimited and nothing else is. A payload may legally contain
  * `U+2028` / `U+2029` inside a JSON string, so `node:readline` is not usable
- * here — it splits on those too. (`packages/coding-agent/docs/rpc.md`,
+ * here because it splits on those too. (`packages/coding-agent/docs/rpc.md`,
  * "Framing".)
  */
 export const serializeJsonLine = <Value>(value: Value): string => `${JSON.stringify(value)}\n`

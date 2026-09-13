@@ -144,7 +144,7 @@ const hostsOf = (harness: PiHarness) => [
 ]
 
 describe('harness-pi in a host', () => {
-  it('runs a turn the thread selected and records oru’s facts', async () => {
+  it("runs a turn the thread selected and records oru's facts", async () => {
     const harness = bridge()
 
     await run(
@@ -211,7 +211,7 @@ describe('harness-pi in a host', () => {
         expect(completed?._tag === 'tool/completed' ? completed.ok : null).toBe(false)
         expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe('no tool missing')
         // A reported outcome is a fact, so nothing is left pending for the
-        // runtime to run (ADR-0022).
+        // runtime to run (ADR-0007).
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
       }),
     )

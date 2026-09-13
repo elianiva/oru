@@ -19,4 +19,4 @@ RPC later: `ThreadRpc.SendMessage` / `WatchThread`, not `HostRpc`.
 
 ## Shape
 
-`SessionEvent` gains ADR-0007 tags with JSON strings and `EventId`s. `makeHost` provides `SessionLog` into `setup` and `ctx.contributions`. Tools stay `ToolKind.of(spec)`. Each tool `execute`s a JSON argument string. A model plugin `provide`s effect-uai `LanguageModel`. Inference lists that token in `needs`. `send` appends `message/appended` and drains `foldThread` / `workOf` until `Idle`.
+`SessionEvent` gains ADR-0003 tags with JSON strings and `EventId`s. `makeHost` provides `SessionLog` into `setup` and `ctx.contributions`. Tools stay `ToolKind.of(spec)`. Each tool `execute`s a JSON argument string. A model plugin `provide`s effect-uai `LanguageModel`. Inference lists that token in `needs`. `send` appends `message/appended` and drains `foldThread` / `workOf` until `Idle`.

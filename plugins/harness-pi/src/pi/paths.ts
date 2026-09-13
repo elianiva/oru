@@ -7,7 +7,7 @@ import { join } from 'node:path'
  *
  * Sessions are keyed by thread id so resume, checkpoint fork, and discard are
  * ordinary file operations; scratch files are per process because they exist
- * only as long as the pi children that read them (ADR-0021).
+ * only as long as the pi children that read them (ADR-0007).
  */
 export interface PiPaths {
   readonly sessionDir: string

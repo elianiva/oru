@@ -37,7 +37,7 @@ const capabilities = {
   interruption: true,
 }
 
-// Demo catalogue — a real harness-oru would query the provider.
+// Demo catalogue; a real harness-oru would query the provider.
 // Keep `mock` first so the inference loop's fallback stays stable.
 const catalogue: readonly ModelInfo[] = [
   { id: demoModelId, label: 'Demo (mock)', provider: 'mock', contextWindow: 8192 },
@@ -53,7 +53,7 @@ const catalogue: readonly ModelInfo[] = [
 
 /**
  * Provider failures reach this bridge as the typed `AiError` union, so the tag is
- * already the code and the retry policy is a branch on the domain value — no
+ * already the code and the retry policy is a branch on the domain value, with no
  * structural probing of an `unknown` cause.
  */
 const isRetryable = (cause: AiError.AiError): boolean =>
@@ -106,13 +106,13 @@ const setup = (ctx: PluginContext) =>
   Effect.gen(function* () {
     const languageModel = yield* LanguageModel
     // Contributed from setup because the service is assembled from a coeffect
-    // (ADR-0017), unlike a tool plugin's static payload.
+    // (ADR-0006), unlike a tool plugin's static payload.
     yield* ctx.contribute(HarnessKind.of(harnessFromLanguageModel(languageModel)))
     return Context.empty()
   })
 
 /**
- * `harness-oru` — the effect-uai harness.
+ * `harness-oru`, the effect-uai harness.
  *
  * Bridges any `LanguageModel` provider (Responses, Anthropic, Gemini, Mistral,
  * Mock) into oru's harness vocabulary. This is the reference implementation
@@ -121,11 +121,11 @@ const setup = (ctx: PluginContext) =>
  * runtime's log is its memory, and every turn replays history through it.
  *
  * ```
- * Model plugin —provides LanguageModel→  harness-oru —contributes→  Harnesses
+ * Model plugin --provides LanguageModel--> harness-oru --contributes--> Harnesses
  * ```
  *
  * Swap to another harness by contributing a different one under `HarnessKind`
- * (`oru/harness-pi`, …) and picking it per thread (ADR-0017, ADR-0019).
+ * (`oru/harness-pi`, …) and picking it per thread (ADR-0006).
  */
 export const harnessOruPlugin = definePlugin({
   id: 'oru/harness-oru',

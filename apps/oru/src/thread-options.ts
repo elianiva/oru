@@ -15,7 +15,7 @@ export const ThreadConfig = Schema.Struct({
 })
 export type ThreadConfig = typeof ThreadConfig.Type
 
-/** A harness a thread can pick, with the state it is in (ADR-0023). */
+/** A harness a thread can pick, with the state it is in (ADR-0007). */
 export const HarnessChoice = Schema.Struct({
   id: Schema.NonEmptyString,
   label: Schema.String,

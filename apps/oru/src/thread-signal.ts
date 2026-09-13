@@ -2,7 +2,7 @@ import { Match, Schema } from 'effect'
 import type { HarnessEvent } from '@oru/harness'
 
 /**
- * What a thread's pane sees while a harness turn is happening (ADR-0020).
+ * What a thread's pane sees while a harness turn is happening (ADR-0006).
  *
  * The harness reports live events; the session log records the facts that
  * outlive the turn. This is the projection of the former: enough to watch a
@@ -49,7 +49,7 @@ export type ThreadSignal = typeof ThreadSignal.Type
 
 /**
  * An event with no view in this vocabulary returns nothing, which is how a
- * streaming detail the pane does not draw — a partial image, a citation —
+ * streaming detail the pane does not draw, a partial image or a citation,
  * disappears instead of turning into a line nobody can read.
  */
 export const signalOf = (event: HarnessEvent): ThreadSignal | undefined =>

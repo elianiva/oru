@@ -83,8 +83,8 @@ export const foldThreadPath = (
 
 /**
  * What a thread is configured to run, as of its latest `thread/configured`
- * fact. Absent members mean "the harness's own default", so the reader — not
- * the log — decides what that default is.
+ * fact. Absent members mean "the harness's own default", so the reader, not
+ * the log, decides what that default is.
  */
 export interface ThreadConfig {
   readonly harness: string | undefined

@@ -18,7 +18,7 @@ import { makePiHarness, type PiHarness } from '../src/index.ts'
  * The bridge against the pi the user actually installed.
  *
  * These make no model call and need no credentials: they prove the parts that
- * only a real pi can answer — the version gate, pi's own RPC surface, its model
+ * only a real pi can answer, the version gate, pi's own RPC surface, its model
  * catalogue, and whether pi's extension loader accepts the injected extension
  * and activates the tools oru registers. They skip when pi is not installed.
  */

@@ -66,7 +66,7 @@ export interface InferenceContract {
   readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
   readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
   /**
-   * Unified model query — delegates to the active harness, so a failure is the
+   * Unified model query. Delegates to the active harness, so a failure is the
    * harness's, not the session log's.
    */
   readonly listModels: () => Effect.Effect<readonly ModelInfo[], HarnessError>
@@ -79,7 +79,7 @@ export interface InferenceContract {
   readonly steer: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
   /** Interrupt the active turn on a thread, if the harness supports it. */
   readonly abort: (thread: string) => Effect.Effect<void, SessionLogError>
-  /** Record which harness, model and reasoning level a thread runs (ADR-0019). */
+  /** Record which harness, model and reasoning level a thread runs (ADR-0006). */
   readonly configure: (
     thread: string,
     configuration: ThreadConfigurationInput,
@@ -158,7 +158,7 @@ const collectTurn = (
           ),
           // Every other lifecycle fact has no home in the log, and the streaming
           // deltas were already watched live: keep only what gets recorded
-          // (ADR-0020).
+          // (ADR-0006).
           Match.orElse(() => Effect.void),
         ),
       ),
@@ -245,7 +245,7 @@ const persistTurn = (
         const output = outputs.get(item.call_id)
         if (output === undefined) continue
         // Paired in the same turn: the harness ran this tool itself, so the
-        // result is a fact rather than work left for the runtime (ADR-0022).
+        // result is a fact rather than work left for the runtime (ADR-0007).
         const reported = harnessToolResults.get(item.call_id)
         yield* log.write(
           ToolCompleted.make({

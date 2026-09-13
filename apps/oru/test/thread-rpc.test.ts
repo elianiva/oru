@@ -28,7 +28,7 @@ import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
 /**
  * A second bridge, so the picker has something to pick. It never runs a turn
- * here — what it proves is that the host offers whatever the registry holds and
+ * here; what it proves is that the host offers whatever the registry holds and
  * that a choice reaches the runtime as a fact.
  */
 const scriptedHarness = defineHarness({

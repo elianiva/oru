@@ -1,8 +1,8 @@
-# pnpm monorepo: `@oru/kernel` + `oru`
+# pnpm monorepo: `@oru/kernel` + `oru`, unpublished
 
 The kernel lives in its own package with a strict boundary from the app, and is not published. The boundary keeps the plugin contract honest rather than turning the kernel into a product.
 
-## Considered Options
+## Considered options
 
 - **Single app, kernel as internal modules**: less ceremony, but the plugin contract has no enforced edge and drifts into the app.
 - **Published kernel package**: freezes the contract before it is stable.

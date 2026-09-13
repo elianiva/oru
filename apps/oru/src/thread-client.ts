@@ -5,7 +5,7 @@ import type { ThreadSignal } from './thread-signal.ts'
 
 /** What a thread's pane needs from the host: facts, configuration, live signals. */
 export interface ThreadClientContract {
-  /** A real directory, because a cwd-bound harness resumes by it (ADR-0019). */
+  /** A real directory, because a cwd-bound harness resumes by it (ADR-0006). */
   readonly create: (cwd?: string) => Effect.Effect<{ readonly threadId: ThreadId }>
   readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void>
   readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent>

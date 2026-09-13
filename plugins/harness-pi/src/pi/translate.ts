@@ -193,7 +193,7 @@ export const compactionOfEntry = (entry: PiEntry): PiCompactionData | undefined 
  * The user message a turn is prompted with.
  *
  * Only the tail counts. pi owns the loop, so a history that ends with anything
- * else — an assistant answer, or a tool result oru ran itself — is a request to
+ * else, an assistant answer or a tool result oru ran itself, is a request to
  * respond to something pi has already answered. Re-prompting the older text
  * would duplicate a turn in pi's session, which is why this returns nothing and
  * the bridge fails the turn instead.
@@ -268,8 +268,8 @@ const seedAssistant = (content: PiContentBlock[]): PiAssistantSeed => ({
 
 /**
  * pi stores a tool call's arguments as a JSON value. Decoding through
- * `Schema.Json` means a malformed or exotic payload becomes `{}` — a call with
- * no arguments — instead of a value the seed writer would emit and pi's reader
+ * `Schema.Json` means a malformed or exotic payload becomes `{}`, a call with
+ * no arguments, instead of a value the seed writer would emit and pi's reader
  * would reject.
  */
 const PiToolArguments = Schema.fromJsonString(Schema.Json)
