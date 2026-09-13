@@ -11,7 +11,7 @@ A facet is built into a content-addressed bundle per generation. Reload loads th
 
 ## Consequences
 
-- Stable service facades survive provider replacement, so handles captured before a cutover keep working.
+- Stable service facades survive provider replacement, so handles captured before a cutover keep working. A facade re-resolves its provider on every call and hands back the kind of answer the method produced — an `Effect` stays an `Effect`, a `Stream` stays a `Stream` — so a reload never quietly changes what a caller is holding. A provider that changes a method's kind underneath a live caller is reported as `ProviderReturnKindChanged` rather than papered over.
 - Peer dependencies must resolve to the host's copy, or a plugin gets a second runtime instance and Effect services stop matching.
 - The browser facet gets the same behavior from Vite's build and HMR; the server facet uses the `FacetLoader`.
 - This is the mechanism that ADR-0004's reactive activation runs on when plugins are added or removed at runtime.

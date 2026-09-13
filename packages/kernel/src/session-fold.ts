@@ -16,6 +16,7 @@ export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<
           },
           'project/created': () => active,
           'thread/created': () => active,
+          'thread/configured': () => active,
           'turn/started': () => active,
           'turn/failed': () => active,
           'message/appended': () => active,
@@ -38,6 +39,7 @@ export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<T
           'plugin/deactivated': () => threads,
           'project/created': () => threads,
           'thread/created': (event) => new Set(threads).add(event.thread),
+          'thread/configured': (event) => new Set(threads).add(event.thread),
           'turn/started': (event) => new Set(threads).add(event.thread),
           'turn/failed': (event) => new Set(threads).add(event.thread),
           'message/appended': (event) => new Set(threads).add(event.thread),
@@ -60,6 +62,7 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
           'plugin/activated': () => projects,
           'plugin/deactivated': () => projects,
           'thread/created': (event) => new Set(projects).add(event.project),
+          'thread/configured': () => projects,
           'turn/started': () => projects,
           'turn/failed': () => projects,
           'message/appended': () => projects,
@@ -77,3 +80,49 @@ export const foldThreadPath = (
   events: readonly SessionEvent[],
   thread: ThreadId,
 ): readonly SessionEvent[] => pathOfLane(events, threadLane(thread))
+
+/**
+ * What a thread is configured to run, as of its latest `thread/configured`
+ * fact. Absent members mean "the harness's own default", so the reader — not
+ * the log — decides what that default is.
+ */
+export interface ThreadConfig {
+  readonly harness: string | undefined
+  readonly model: string | undefined
+  readonly reasoning: string | undefined
+}
+
+export const foldThreadConfig = (
+  events: readonly SessionEvent[],
+  thread: ThreadId,
+): ThreadConfig => {
+  const path = foldThreadPath(events, thread)
+  for (let index = path.length - 1; index >= 0; index--) {
+    const event = path[index]
+    if (event?._tag === 'thread/configured') {
+      return { harness: event.harness, model: event.model, reasoning: event.reasoning }
+    }
+  }
+  return { harness: undefined, model: undefined, reasoning: undefined }
+}
+
+/**
+ * The working directory a thread runs in, read back from its project fact.
+ *
+ * A harness that owns a real process (pi) is cwd-bound, so the directory is part
+ * of what a turn needs, not a detail the bridge may invent.
+ */
+export const foldThreadCwd = (
+  events: readonly SessionEvent[],
+  thread: ThreadId,
+): string | undefined => {
+  let project: ProjectId | undefined
+  for (const event of events) {
+    if (event._tag === 'thread/created' && event.thread === thread) project = event.project
+  }
+  if (project === undefined) return undefined
+  for (const event of events) {
+    if (event._tag === 'project/created' && event.project === project) return event.cwd
+  }
+  return undefined
+}

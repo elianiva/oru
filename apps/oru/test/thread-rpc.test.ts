@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect } from 'effect'
+import { Context, Effect, Fiber, Result, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import {
   definePlugin,
   foldNamedThreads,
+  foldThreadConfig as foldConfig,
   makeHost,
   MessageAppended,
   SessionLog,
@@ -12,6 +13,7 @@ import {
   unsignedTree,
 } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
 import {
   demoModelPlugin,
   foldThread,
@@ -20,8 +22,26 @@ import {
   inferencePlugin,
   workOf,
 } from '@oru/inference'
+import { HarnessKind, defaultCapabilities, defineHarness } from '@oru/harness'
 import { echoToolPlugin } from '../src/fixtures.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
+
+/**
+ * A second bridge, so the picker has something to pick. It never runs a turn
+ * here — what it proves is that the host offers whatever the registry holds and
+ * that a choice reaches the runtime as a fact.
+ */
+const scriptedHarness = defineHarness({
+  meta: { id: 'scripted', label: 'Scripted' },
+  capabilities: { ...defaultCapabilities, tools: false, ownsHistory: true },
+  listModels: () => Effect.succeed([{ id: 'scripted/one', label: 'Scripted One' }]),
+  streamTurn: () => Stream.empty,
+})
+
+const scriptedHarnessPlugin = definePlugin({
+  id: 'oru/harness-scripted',
+  provides: [HarnessKind.of(scriptedHarness)],
+})
 
 const stubEnginePlugin = definePlugin({
   id: 'engines/stub',
@@ -54,6 +74,12 @@ const stubEnginePlugin = definePlugin({
               }),
             ),
           abort: () => Effect.void,
+          configure: () => Effect.void,
+          stop: () => Effect.void,
+          discard: () => Effect.void,
+          fork: () => Effect.void,
+          compact: () => Effect.void,
+          signals: Stream.empty,
         })
       }),
   },
@@ -64,11 +90,11 @@ describe('thread rpc', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([echoToolPlugin, inferencePlugin])
+          const host = yield* makeHost([harnessRegistryPlugin, echoToolPlugin, inferencePlugin])
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
-          const created = yield* client.CreateThread()
+          const created = yield* client.CreateThread({ cwd: undefined })
           const log = yield* SessionLog
           const entries = yield* log.entries
           const threadFacts = entries.filter(
@@ -92,6 +118,7 @@ describe('thread rpc', () => {
       Effect.scoped(
         Effect.gen(function* () {
           const host = yield* makeHost([
+            harnessRegistryPlugin,
             echoToolPlugin,
             demoModelPlugin,
             harnessOruPlugin,
@@ -100,7 +127,7 @@ describe('thread rpc', () => {
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
-          const created = yield* client.CreateThread()
+          const created = yield* client.CreateThread({ cwd: undefined })
           yield* client.SendMessage({ threadId: created.threadId, text: 'hello' })
           const inference = yield* host.service(Inference)
           yield* inference.whenIdle(created.threadId)
@@ -124,6 +151,7 @@ describe('thread rpc', () => {
       Effect.scoped(
         Effect.gen(function* () {
           const host = yield* makeHost([
+            harnessRegistryPlugin,
             echoToolPlugin,
             demoModelPlugin,
             harnessOruPlugin,
@@ -138,7 +166,7 @@ describe('thread rpc', () => {
           const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
             Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
           )
-          const created = yield* client.CreateThread()
+          const created = yield* client.CreateThread({ cwd: undefined })
           yield* client.SendMessage({ threadId: created.threadId, text: 'hello' })
           const log = yield* SessionLog
           const tags: string[] = []
@@ -151,6 +179,129 @@ describe('thread rpc', () => {
           expect(tags).toContain('message/appended')
           expect(tags).not.toContain('turn/started')
           expect(bodies).toEqual(['user:hello'])
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+})
+
+describe('thread configuration', () => {
+  const setup = () =>
+    Effect.gen(function* () {
+      const host = yield* makeHost([
+        harnessRegistryPlugin,
+        echoToolPlugin,
+        demoModelPlugin,
+        harnessOruPlugin,
+        scriptedHarnessPlugin,
+        inferencePlugin,
+      ])
+      const client = yield* RpcTest.makeClient(ThreadRpc).pipe(
+        Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
+      )
+      return { host, client }
+    })
+
+  it('offers every registered harness and the catalogue of the default one', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { client } = yield* setup()
+          const created = yield* client.CreateThread({ cwd: undefined })
+          const options = yield* client.ThreadOptions({ threadId: created.threadId })
+          expect(options.harnesses.map((choice) => choice.id).sort()).toEqual(['oru', 'scripted'])
+          expect(options.config).toEqual({
+            harness: undefined,
+            model: undefined,
+            reasoning: undefined,
+          })
+          // The default harness is `oru` (first by plugin id), so its catalogue
+          // is what a thread that never chose would run.
+          expect(options.models.map((model) => model.id)).toContain('mock')
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('records the choice as a fact and answers with the chosen catalogue', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { client } = yield* setup()
+          const log = yield* SessionLog
+          const created = yield* client.CreateThread({ cwd: undefined })
+
+          const configured = yield* client.ConfigureThread({
+            threadId: created.threadId,
+            harness: 'scripted',
+            model: 'scripted/one',
+            reasoning: undefined,
+          })
+          expect(configured.config).toEqual({
+            harness: 'scripted',
+            model: 'scripted/one',
+            reasoning: undefined,
+          })
+          expect(configured.models.map((model) => model.id)).toEqual(['scripted/one'])
+
+          const facts = (yield* log.entries).filter(
+            (event) => event._tag === 'thread/configured' && event.thread === created.threadId,
+          )
+          expect(facts).toHaveLength(1)
+          expect(foldConfig(yield* log.entries, created.threadId)).toEqual({
+            harness: 'scripted',
+            model: 'scripted/one',
+            reasoning: undefined,
+          })
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('streams live signals while a turn runs', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { client } = yield* setup()
+          const created = yield* client.CreateThread({ cwd: undefined })
+          const watched = yield* client.WatchSignals({ threadId: created.threadId }).pipe(
+            Stream.takeUntil((signal) => signal._tag === 'settled'),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* client.SendMessage({ threadId: created.threadId, text: 'hello' })
+          const seen = yield* Fiber.join(watched)
+          // The pane watched the turn happen: the model called a tool before it
+          // answered, and the turn closed with a settled signal.
+          expect(seen.map((signal) => signal._tag)).toContain('tool-start')
+          expect(seen.at(-1)?._tag).toBe('settled')
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('treats lifecycle operations a bridge does not support as nothing to do', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { host, client } = yield* setup()
+          const created = yield* client.CreateThread({ cwd: undefined })
+          // harness-oru keeps no session of its own, so releasing one is a no-op
+          // rather than a failure; forking is a capability it does not have.
+          yield* client.StopThread({ threadId: created.threadId })
+          yield* client.DiscardThread({ threadId: created.threadId })
+          const inference = yield* host.service(Inference)
+          const forked = yield* Effect.result(
+            inference.fork({ sourceThreadId: created.threadId, targetThreadId: 'other' }),
+          )
+          expect(Result.isFailure(forked)).toBe(true)
+          if (Result.isFailure(forked)) {
+            const failure = forked.failure
+            expect(failure._tag).toBe('HarnessError')
+            if (failure._tag === 'HarnessError') {
+              expect(failure.code).toBe('unsupported_operation')
+            }
+          }
         }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
       ),
     )

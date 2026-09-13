@@ -18,6 +18,7 @@ import {
   serviceTokensOf,
   type ContributionEntry,
   type ContributionKind,
+  type DataContribution,
 } from './contribution.ts'
 import {
   CoeffectsUnmet,
@@ -61,6 +62,12 @@ export interface Host {
     kind: ContributionKind<C>,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
   readonly service: <S>(token: ServiceToken<S>) => Effect.Effect<S>
+  /**
+   * A live stand-in for a service token, resolved per call. Setup captures the
+   * facade rather than the value, so replacing a provider is seen by everyone
+   * that depends on it without re-running their setup.
+   */
+  readonly facade: <S>(token: ServiceToken<S>) => S
 }
 
 interface StoredContribution {
@@ -125,6 +132,9 @@ export const makeHost = Effect.fnUntraced(function* (
       ),
     )
 
+  const facade = <S>(token: ServiceToken<S>): S =>
+    serviceFacade(() => registry.peek(token), serviceId(token))
+
   const serviceTokens = (plugin: AnyPlugin): readonly AnyServiceToken[] =>
     serviceTokensOf(plugin.provides)
   const dataContributions = (plugin: AnyPlugin) => dataContributionsOf(plugin.provides)
@@ -171,10 +181,15 @@ export const makeHost = Effect.fnUntraced(function* (
 
   const setupGeneration = Effect.fnUntraced(function* (plugin: AnyPlugin) {
     const pluginScope = yield* Scope.fork(hostScope)
+    const contributed: DataContribution[] = []
     const ctx: PluginContext = {
       id: plugin.id,
       scope: plugin.scope,
       contributions: readContributions,
+      contribute: (contribution) =>
+        Effect.sync(() => {
+          contributed.push(contribution)
+        }),
     }
 
     const rawSetup = plugin.server?.setup
@@ -183,7 +198,7 @@ export const makeHost = Effect.fnUntraced(function* (
     const base = setup as Effect.Effect<Context.Context<unknown>, unknown, Scope.Scope>
     let wired = base
     for (const token of plugin.needs) {
-      wired = Effect.provideService(wired, token, serviceFacade(registry.get(token)))
+      wired = Effect.provideService(wired, token, facade(token))
     }
     wired = Effect.provideService(wired, SessionLog, log)
     const provided = yield* Scope.provide(pluginScope)(wired).pipe(
@@ -208,7 +223,7 @@ export const makeHost = Effect.fnUntraced(function* (
       return yield* Effect.fail(new DeclarationMismatch({ plugin: plugin.id, problems }))
     }
 
-    return { pluginScope, provided }
+    return { pluginScope, provided, contributed }
   })
 
   const bindReverse = (plugin: AnyPlugin, pluginScope: Scope.Closeable, marker: Generation) =>
@@ -220,10 +235,9 @@ export const makeHost = Effect.fnUntraced(function* (
         for (const token of serviceTokens(plugin)) yield* registry.remove(token, plugin.id)
         yield* Ref.update(store, (map) => {
           const next = new Map(map)
-          for (const contribution of dataContributions(plugin)) {
-            const list = next.get(contribution.kind) ?? []
+          for (const [kind, list] of next) {
             next.set(
-              contribution.kind,
+              kind,
               list.filter((entry) => entry.plugin !== plugin.id),
             )
           }
@@ -257,7 +271,10 @@ export const makeHost = Effect.fnUntraced(function* (
     }
   })
 
-  const replaceData = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+  const replaceData = Effect.fnUntraced(function* (
+    plugin: AnyPlugin,
+    contributed: readonly DataContribution[] = [],
+  ) {
     yield* Ref.update(store, (map) => {
       const next = new Map(map)
       for (const [kind, list] of next) {
@@ -266,7 +283,7 @@ export const makeHost = Effect.fnUntraced(function* (
           list.filter((entry) => entry.plugin !== plugin.id),
         )
       }
-      for (const contribution of dataContributions(plugin)) {
+      for (const contribution of [...dataContributions(plugin), ...contributed]) {
         const list = next.get(contribution.kind) ?? []
         next.set(contribution.kind, [...list, { plugin: plugin.id, value: contribution.value }])
       }
@@ -302,11 +319,11 @@ export const makeHost = Effect.fnUntraced(function* (
     if (existing !== undefined) return existing
 
     yield* requireNeeds(plugin)
-    const { pluginScope, provided } = yield* setupGeneration(plugin)
+    const { pluginScope, provided, contributed } = yield* setupGeneration(plugin)
     const marker: Generation = { stamp: Symbol() }
     yield* bindReverse(plugin, pluginScope, marker)
     yield* publishServices(plugin, provided)
-    yield* replaceData(plugin)
+    yield* replaceData(plugin, contributed)
     const activation = yield* recordActivation(plugin, pluginScope, marker)
     yield* emit(PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }))
     return activation
@@ -314,7 +331,7 @@ export const makeHost = Effect.fnUntraced(function* (
 
   const cutover = Effect.fnUntraced(function* (plugin: AnyPlugin) {
     yield* requireNeeds(plugin)
-    const { pluginScope, provided } = yield* setupGeneration(plugin)
+    const { pluginScope, provided, contributed } = yield* setupGeneration(plugin)
 
     const retiring = yield* Ref.get(byId)
     const previous = retiring.get(plugin.id)
@@ -332,7 +349,7 @@ export const makeHost = Effect.fnUntraced(function* (
         if (!nextKeys.has(serviceId(token))) yield* registry.remove(token, plugin.id)
       }
     }
-    yield* replaceData(plugin)
+    yield* replaceData(plugin, contributed)
 
     if (oldScope !== undefined) yield* Scope.close(oldScope, Exit.void)
     return activation
@@ -441,5 +458,6 @@ export const makeHost = Effect.fnUntraced(function* (
     events: Stream.fromPubSub(pubsub),
     contributions: readContributions,
     service: (token) => registry.get(token),
+    facade: (token) => serviceFacade(() => registry.peek(token), serviceId(token)),
   }
 })

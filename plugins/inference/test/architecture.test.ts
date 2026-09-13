@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Deferred, Effect, Match, Queue, Schema, Stream, type Scope } from 'effect'
+import { Deferred, Effect, Match, Option, Queue, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { LanguageModel, turnFromStream } from '@effect-uai/core/LanguageModel'
 import * as Items from '@effect-uai/core/Items'
@@ -12,8 +12,10 @@ import {
   sessionLogLayer,
   type SessionEvent,
 } from '@oru/kernel'
-import { Harness } from '@oru/harness'
+import { HarnessKind, defaultCapabilities, defineHarness } from '@oru/harness'
+import { Harnesses } from '@oru/harness'
 import { harnessOruPlugin } from '@oru/harness-oru'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
 import {
   demoModelPlugin,
   defineTool,
@@ -42,7 +44,7 @@ const echoToolPlugin = definePlugin({
   ],
 })
 
-const harnessKey = Harness.key
+const harnessesKey = Harnesses.key
 const languageModelKey = LanguageModel.key
 
 const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
@@ -60,6 +62,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'tool/completed': (event) => event.thread === thread,
         'thread/compacted': (event) => event.thread === thread,
         'thread/branched': (event) => event.thread === thread,
+        'thread/configured': (event) => event.thread === thread,
         'agent/inbox/spliced': (event) => event.thread === thread,
       }),
     ),
@@ -102,13 +105,13 @@ const delayedModelPlugin = (releaseSecond: Deferred.Deferred<void>) => {
 }
 
 describe('inference architecture', () => {
-  it('stays blocked until a harness provides Harness', async () => {
+  it('stays blocked until a harness registry names a harness', async () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([echoToolPlugin, inferencePlugin])
         const graph = yield* host.graph
         expect(graph.active.has('oru/inference')).toBe(false)
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
+        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessesKey])
       }),
     )
   })
@@ -121,15 +124,16 @@ describe('inference architecture', () => {
         expect(graph.active.has('oru/harness-oru')).toBe(false)
         expect(graph.active.has('oru/inference')).toBe(false)
         expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
+        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessesKey])
       }),
     )
   })
 
-  it('deactivates inference when the model plugin is removed', async () => {
+  it('empties the harness registry and blocks the harness plugin when its model is removed', async () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
+          harnessRegistryPlugin,
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -139,11 +143,95 @@ describe('inference architecture', () => {
         expect((yield* host.graph).active.has('oru/harness-oru')).toBe(true)
         yield* host.deactivate(demoModelPlugin.id)
         const graph = yield* host.graph
-        expect(graph.active.has('oru/inference')).toBe(false)
+        // The registry is what inference depends on, and it is still there: the
+        // bridge set changed, not the loop (ADR-0017).
+        expect(graph.active.has('oru/inference')).toBe(true)
         expect(graph.active.has('oru/harness-oru')).toBe(false)
         expect(graph.active.has('oru/model-demo')).toBe(false)
         expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessKey])
+        const registry = yield* host.service(Harnesses)
+        expect(yield* registry.list()).toEqual([])
+        expect(yield* registry.preferred()).toEqual(Option.none())
+      }),
+    )
+  })
+
+  it('runs the harness a thread chose, and routes its lifecycle operations there', async () => {
+    const calls: string[] = []
+    const scripted = defineHarness({
+      meta: { id: 'scripted', label: 'Scripted' },
+      capabilities: { ...defaultCapabilities, tools: false, ownsHistory: true },
+      listModels: () => Effect.succeed([{ id: 'scripted/one', label: 'Scripted One' }]),
+      streamTurn: (request) =>
+        Stream.succeed(
+          Turn.TurnEvent.TurnComplete({
+            turn: {
+              items: [
+                Items.assistantText(
+                  `answered by ${request.model} with ${request.reasoning ?? 'no'} thinking`,
+                ),
+              ],
+              usage: {},
+              stop_reason: 'stop',
+            },
+          }),
+        ),
+      stop: () => Effect.sync(() => calls.push('stop')),
+      discard: () => Effect.sync(() => calls.push('discard')),
+      compact: () =>
+        Effect.sync(() => {
+          calls.push('compact')
+          return { summary: 'kept', tokensBefore: 7, readFiles: [], modifiedFiles: [] }
+        }),
+      fork: (request) => Effect.sync(() => calls.push(`fork:${request.targetThreadId}`)),
+    })
+    const scriptedPlugin = definePlugin({
+      id: 'oru/harness-scripted',
+      provides: [HarnessKind.of(scripted)],
+    })
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([
+          harnessRegistryPlugin,
+          echoToolPlugin,
+          demoModelPlugin,
+          harnessOruPlugin,
+          scriptedPlugin,
+          inferencePlugin,
+        ])
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+
+        // A thread that never chose runs the registry's default, `oru`.
+        yield* inference.send('default', 'hello')
+        yield* inference.whenIdle('default')
+
+        yield* inference.configure('chosen', {
+          harness: 'scripted',
+          model: 'scripted/one',
+          reasoning: 'high',
+        })
+        yield* inference.send('chosen', 'hello')
+        yield* inference.whenIdle('chosen')
+        const bodies = (yield* log.entries)
+          .filter((event) => event._tag === 'message/appended' && event.thread === 'chosen')
+          .map((event) => (event._tag === 'message/appended' ? `${event.role}:${event.body}` : ''))
+        expect(bodies).toEqual([
+          'user:hello',
+          'assistant:answered by scripted/one with high thinking',
+        ])
+
+        yield* inference.stop('chosen')
+        yield* inference.compact('chosen')
+        yield* inference.discard('chosen')
+        yield* inference.fork({ sourceThreadId: 'chosen', targetThreadId: 'copy' })
+        expect(calls).toEqual(['stop', 'compact', 'discard', 'fork:copy'])
+
+        // The compaction the bridge reported is a fact, with oru's own leaf as
+        // the entry the compacted view keeps from (ADR-0020).
+        const compaction = (yield* log.entries).find((event) => event._tag === 'thread/compacted')
+        expect(compaction?._tag === 'thread/compacted' ? compaction.summary : '').toBe('kept')
       }),
     )
   })
@@ -153,6 +241,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
+          harnessRegistryPlugin,
           echoToolPlugin,
           delayedModelPlugin(releaseSecond),
           harnessOruPlugin,
@@ -213,6 +302,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
+          harnessRegistryPlugin,
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,

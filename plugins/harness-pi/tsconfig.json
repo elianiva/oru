@@ -3,7 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "lib": ["ES2024"],
+    "types": ["node"]
   },
   "include": ["src"]
 }

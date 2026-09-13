@@ -12,6 +12,7 @@
     "@foldkit/ui": "0.158.2",
     "@oru/harness": "workspace:*",
     "@oru/harness-oru": "workspace:*",
+    "@oru/harness-registry": "workspace:*",
     "@oru/inference": "workspace:*",
     "@oru/kernel": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",

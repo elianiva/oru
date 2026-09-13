@@ -16,6 +16,18 @@ export class ProviderUnavailable extends Schema.TaggedError<ProviderUnavailable>
   },
 ) {}
 
+/**
+ * A provider was swapped for one whose method builds a different kind of
+ * description than the caller already committed to. A facade cannot hand a
+ * `Stream` back to a call that expected an `Effect`, so it says so instead.
+ */
+export class ProviderReturnKindChanged extends Schema.TaggedError<ProviderReturnKindChanged>()(
+  'ProviderReturnKindChanged',
+  {
+    token: TokenId,
+  },
+) {}
+
 export class CoeffectsUnmet extends Schema.TaggedError<CoeffectsUnmet>()('CoeffectsUnmet', {
   plugin: PluginId,
   missing: Schema.Array(TokenId),

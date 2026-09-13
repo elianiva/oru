@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
+import { Harnesses } from '@oru/harness'
 import { foldActivePlugins, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
 import {
   demoModelPlugin,
   foldThread,
@@ -23,6 +25,7 @@ describe('assembled architecture', () => {
         Effect.gen(function* () {
           const plugins = [
             ...fixturePlugins,
+            harnessRegistryPlugin,
             echoToolPlugin,
             demoModelPlugin,
             harnessOruPlugin,
@@ -39,10 +42,12 @@ describe('assembled architecture', () => {
 
           const graph = yield* hostClient.GetGraph()
           expect(graph.tokens).toContain(Inference.key)
+          expect(graph.tokens).toContain(Harnesses.key)
           expect(graph.active.map((panel) => panel.plugin).sort()).toEqual([
             'greeter',
             'logging',
             'oru/harness-oru',
+            'oru/harness-registry',
             'oru/inference',
             'oru/model-demo',
             'tools/echo',
@@ -51,7 +56,7 @@ describe('assembled architecture', () => {
             [...(yield* host.graph).active.keys()].sort(),
           )
 
-          const created = yield* threadClient.CreateThread()
+          const created = yield* threadClient.CreateThread({ cwd: undefined })
           const watchFiber = yield* threadClient
             .WatchThread({ threadId: created.threadId })
             .pipe(Stream.take(7), Stream.runCollect, Effect.forkScoped)

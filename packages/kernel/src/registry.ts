@@ -1,7 +1,7 @@
 import { Effect, Option, Predicate, PubSub, Ref, Stream } from 'effect'
-import { ProviderUnavailable } from './errors.ts'
+import { ProviderReturnKindChanged, ProviderUnavailable } from './errors.ts'
 import { ProviderRemoved, type HostEvent } from './event.ts'
-import type { PluginId } from './primitives.ts'
+import type { PluginId, TokenId } from './primitives.ts'
 import { serviceId, type AnyServiceToken, type ServiceOf, type ServiceToken } from './service.ts'
 
 interface Cell {
@@ -9,29 +9,79 @@ interface Cell {
   readonly impl: Ref.Ref<unknown>
 }
 
-type ServiceMethod = (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown>
+/**
+ * What a service method answers: one of the two descriptions a contract may
+ * return. The facade reads the kind off a call, so it has to name the kinds it
+ * can hand back.
+ */
+type ServiceAnswer =
+  | Effect.Effect<unknown, unknown, unknown>
+  | Stream.Stream<unknown, unknown, unknown>
+
+type ServiceMethod = (...args: ReadonlyArray<unknown>) => ServiceAnswer
 
 export interface Registry {
   readonly events: Stream.Stream<HostEvent>
   readonly get: <S>(token: ServiceToken<S>) => Effect.Effect<S>
+  /**
+   * The provider in the cell right now, for callers that cannot wait for an
+   * `Effect`: a facade has to hand back the kind of value the contract promises.
+   */
+  readonly peek: <S>(token: ServiceToken<S>) => S | undefined
   readonly has: (token: AnyServiceToken) => Effect.Effect<boolean>
   readonly providers: Effect.Effect<ReadonlyMap<string, PluginId>>
   readonly provide: <S>(token: ServiceToken<S>, value: S, owner: PluginId) => Effect.Effect<void>
   readonly remove: (token: AnyServiceToken, owner: PluginId) => Effect.Effect<void>
 }
 
-export const serviceFacade = <S>(get: Effect.Effect<S>): S => {
+/**
+ * A live stand-in for a service, bound to whatever is in the cell right now.
+ *
+ * Setup captures the facade rather than the value, so a provider replaced later
+ * is seen by its dependents without re-running their setup. A call resolves the
+ * implementation twice by design: once to see which kind of description the
+ * method builds, and once when that description runs. Calling a method is
+ * building a description, not doing the work, so the probe is free.
+ *
+ * The kind is preserved because `Effect.flatMap` would otherwise swallow a
+ * `Stream` (and a `LanguageModel` or harness that streams through a facade is
+ * the normal case, not an exotic one).
+ */
+export const serviceFacade = <S>(peek: () => S | undefined, token: TokenId): S => {
+  const live = (): Effect.Effect<S> =>
+    Effect.suspend(() => {
+      const impl = peek()
+      if (impl === undefined) return Effect.die(new ProviderUnavailable({ token }))
+      return Effect.succeed(impl)
+    })
+  const call = (impl: S, property: string, args: ReadonlyArray<unknown>): ServiceAnswer => {
+    // SAFETY: live service values are method bags keyed by the token interface
+    const methods = impl as Readonly<Record<string, ServiceMethod | undefined>>
+    return methods[property]!(...args)
+  }
+  const again = (property: string, args: ReadonlyArray<unknown>): Effect.Effect<ServiceAnswer> =>
+    Effect.map(live(), (current) => call(current, property, args))
+
   const target = Object.create(null)
   const facade = new Proxy(target, {
     get: (_target, property) => {
       if (!Predicate.isString(property)) return undefined
-      return (...args: ReadonlyArray<unknown>) =>
-        Effect.flatMap(get, (impl) => {
-          // SAFETY: live service values are method bags keyed by the token interface
-          const methods = impl as Record<string, ServiceMethod | undefined>
-          const method = methods[property]
-          return method!(...args)
-        })
+      return (...args: ReadonlyArray<unknown>) => {
+        const impl = peek()
+        if (impl === undefined) throw new ProviderUnavailable({ token })
+        const sample = call(impl, property, args)
+        const next = again(property, args)
+        if (Effect.isEffect(sample)) {
+          return Effect.flatMap(next, (value) =>
+            Effect.isEffect(value) ? value : Effect.die(new ProviderReturnKindChanged({ token })),
+          )
+        }
+        return Stream.unwrap(
+          Effect.map(next, (value) =>
+            Stream.isStream(value) ? value : Stream.die(new ProviderReturnKindChanged({ token })),
+          ),
+        )
+      }
     },
   })
   // SAFETY: the proxy forwards string methods to the live cell for token S
@@ -53,6 +103,13 @@ export const openRegistry = Effect.fnUntraced(function* (events: PubSub.PubSub<H
 
   const has = (token: AnyServiceToken): Effect.Effect<boolean> =>
     Ref.get(cells).pipe(Effect.map((map) => map.has(serviceId(token))))
+
+  const peek = <S>(token: ServiceToken<S>): S | undefined => {
+    const cell = Ref.getUnsafe(cells).get(serviceId(token))
+    if (cell === undefined) return undefined
+    // SAFETY: provide stores the value under the same token key peek reads
+    return Ref.getUnsafe(cell.impl) as S
+  }
 
   const providers = Ref.get(cells).pipe(
     Effect.map((map) => {
@@ -100,5 +157,5 @@ export const openRegistry = Effect.fnUntraced(function* (events: PubSub.PubSub<H
     yield* PubSub.publish(events, ProviderRemoved.make({ token: serviceId(token), plugin: owner }))
   })
 
-  return { events: Stream.fromPubSub(events), get, has, providers, provide, remove }
+  return { events: Stream.fromPubSub(events), get, has, peek, providers, provide, remove }
 })

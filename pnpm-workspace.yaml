@@ -3,7 +3,9 @@ packages:
   - 'plugins/*'
   - 'apps/*'
 allowBuilds:
+  '@google/genai': false
   lefthook: true
   msgpackr-extract: false
+  protobufjs: false
 overrides:
   vite: 8.2.2

@@ -26,7 +26,34 @@ Status: active development.
 | [0010](./docs/adr/0010-view-mirrors-active-graph.md) | The view tree mirrors the active plugin graph                          |
 | [0011](./docs/adr/0011-facet-reload.md)              | Facets reload as content-addressed bundle generations                  |
 | [0012](./docs/adr/0012-session-journal.md)           | Session events persist through the Effect event journal                |
+| [0013](./docs/adr/0013-session-tree.md)              | Session events form a pi-style tree per lane                           |
+| [0014](./docs/adr/0014-model-plugin.md)              | The model is a plugin, not a host Layer                                |
+| [0015](./docs/adr/0015-tool-contributions.md)        | Tool contributions are JSON, not effect-uai Tool values                |
+| [0016](./docs/adr/0016-inference-token-view.md)      | Chat follows the Inference token, not a plugin id                      |
+| [0017](./docs/adr/0017-harness-registry.md)          | Many harnesses on one host; a thread picks one                         |
+| [0018](./docs/adr/0018-harness-session-authority.md) | A harness may own its conversation; history is bootstrap material      |
+| [0019](./docs/adr/0019-thread-configuration.md)      | Thread configuration is harness, model, thinking level                 |
+| [0020](./docs/adr/0020-harness-event-surface.md)     | Harness events carry session facts, and the runtime records them       |
+| [0021](./docs/adr/0021-pi-bridge-subprocess.md)      | The pi harness is a subprocess bridge with an injected extension       |
+| [0022](./docs/adr/0022-pi-tool-bridging.md)          | oru's tools become pi tools; pi keeps its own                          |
+| [0023](./docs/adr/0023-pi-maintenance.md)            | pi maintenance is reported, not performed                              |
 
 ## Stack
 
 TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool layer, Tardigrade's log-driven component model as prior art.
+
+## Verifying
+
+```
+pnpm lint && pnpm fmt:check && pnpm -r typecheck && pnpm test
+```
+
+`pnpm test` is hermetic: the pi bridge runs against a scripted pi, models are scripted, no account is touched.
+
+To run the whole stack against the pi that is installed on this machine and signed in to a real provider — a real process, a real model, a real tool call, and the facts oru records from it:
+
+```
+ORU_PI_E2E_MODEL=<provider>/<model> pnpm --filter @oru/harness-pi e2e
+```
+
+`pi --list-models` names the candidates. The test skips without one, because only you know which account to spend. `apps/oru` is a browser app and cannot spawn pi, so the end-to-end host is this test; `plugins/harness-pi/src/index.ts` is the bridge it drives.

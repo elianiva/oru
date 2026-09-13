@@ -1,0 +1,260 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Effect, Match, Option, Schema, type Scope } from 'effect'
+import { EventJournal } from 'effect/unstable/eventlog'
+import { Harnesses } from '@oru/harness'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
+import {
+  defineTool,
+  foldThread,
+  Idle,
+  Inference,
+  inferencePlugin,
+  ToolKind,
+  workOf,
+} from '@oru/inference'
+import {
+  definePlugin,
+  makeHost,
+  ProjectCreated,
+  SessionLog,
+  sessionLogLayer,
+  ThreadCreated,
+  unsignedTree,
+  type SessionEvent,
+} from '@oru/kernel'
+import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
+
+/**
+ * The whole stack over a scripted pi: kernel log, harness registry, the pi
+ * bridge, and the inference loop that drives them.
+ *
+ * The bridge's own tests prove it speaks pi. This proves the composition: a
+ * thread that selects `pi` runs its turn through the bridge, oru executes the
+ * tool, and the run lands in oru's log as facts. That is the path a real host
+ * takes, minus the credentials a real model would need.
+ */
+
+const FAKE_PI = fileURLToPath(new URL('./fake-pi.mjs', import.meta.url))
+const MODEL = 'fake-provider/fake-model'
+
+const EchoArgs = Schema.Struct({ text: Schema.String })
+
+const echoToolPlugin = definePlugin({
+  id: 'tools/echo',
+  provides: [
+    ToolKind.of(
+      defineTool({
+        name: 'echo',
+        description: 'Return the text that was passed in.',
+        parameters: EchoArgs,
+        execute: (input: { readonly text: string }) =>
+          Effect.succeed(JSON.stringify({ echoed: input.text })),
+      }),
+    ),
+  ],
+})
+
+const cleanups: (() => void)[] = []
+
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
+})
+
+const bridge = (): PiHarness => {
+  const dir = mkdtempSync(join(tmpdir(), 'oru-pi-stack-'))
+  const harness = makePiHarness({
+    env: {
+      ...process.env,
+      ORU_PI_COMMAND: process.execPath,
+      ORU_PI_ARGS: JSON.stringify([FAKE_PI]),
+      ORU_PI_SESSION_DIR: join(dir, 'sessions'),
+      FAKE_PI_VERSION: '0.84.0',
+    },
+    // The bridge talks to people through oru; a test has no one to tell.
+    log: () => undefined,
+  })
+  cleanups.push(() => {
+    harness.shutdown()
+    rmSync(dir, { recursive: true, force: true })
+  })
+  return harness
+}
+
+const run = <A, E>(
+  effect: Effect.Effect<A, E, EventJournal.EventJournal | Scope.Scope | SessionLog>,
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+    ),
+  )
+
+const newId = Effect.sync(() => crypto.randomUUID())
+
+/** Open a thread under a project, the way the app's `CreateThread` does. */
+const openThread = (cwd: string) =>
+  Effect.gen(function* () {
+    const log = yield* SessionLog
+    const project = yield* newId
+    yield* log.write(
+      ProjectCreated.make({ ...unsignedTree, id: yield* newId, project, name: 'stack', cwd }),
+    )
+    const threadId = yield* newId
+    yield* log.write(
+      ThreadCreated.make({ ...unsignedTree, id: yield* newId, thread: threadId, project }),
+    )
+    return threadId
+  })
+
+const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
+  events.filter((event) =>
+    Match.value(event).pipe(
+      Match.tagsExhaustive({
+        'plugin/activated': () => false,
+        'plugin/deactivated': () => false,
+        'thread/created': (event) => event.thread === thread,
+        'project/created': () => false,
+        'turn/started': (event) => event.thread === thread,
+        'turn/failed': (event) => event.thread === thread,
+        'message/appended': (event) => event.thread === thread,
+        'tool/requested': (event) => event.thread === thread,
+        'tool/completed': (event) => event.thread === thread,
+        'thread/compacted': (event) => event.thread === thread,
+        'thread/branched': (event) => event.thread === thread,
+        'thread/configured': (event) => event.thread === thread,
+        'agent/inbox/spliced': (event) => event.thread === thread,
+      }),
+    ),
+  )
+
+const bodiesOf = (events: readonly SessionEvent[]): readonly string[] =>
+  events.flatMap((event) =>
+    event._tag === 'message/appended' ? [`${event.role}:${event.body}`] : [],
+  )
+
+const hostsOf = (harness: PiHarness) => [
+  harnessRegistryPlugin,
+  echoToolPlugin,
+  harnessPiPlugin(harness),
+  inferencePlugin,
+]
+
+describe('harness-pi in a host', () => {
+  it('runs a turn the thread selected and records oru’s facts', async () => {
+    const harness = bridge()
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost(hostsOf(harness))
+        const graph = yield* host.graph
+        expect(graph.active.has('oru/harness-pi')).toBe(true)
+        expect(graph.active.has('oru/inference')).toBe(true)
+
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        const thread = yield* openThread(tmpdir())
+
+        // What the picker shows: the registry offers pi, and pi offers a model.
+        const registry = yield* host.service(Harnesses)
+        const offered = yield* registry.list()
+        expect(offered.map((entry) => entry.harness.meta.id)).toContain('pi')
+        const entry = Option.getOrThrow(yield* registry.get('pi'))
+        expect((yield* entry.harness.listModels()).map((model) => model.id)).toContain(MODEL)
+
+        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
+        yield* inference.send(thread, '/tool echo {"text":"hi"}')
+        yield* inference.whenIdle(thread)
+
+        const events = threadFacts(yield* log.entries, thread)
+        expect(events.map((event) => event._tag)).toEqual([
+          'thread/created',
+          'thread/configured',
+          'message/appended',
+          'agent/inbox/spliced',
+          'turn/started',
+          'tool/requested',
+          'tool/completed',
+          'message/appended',
+        ])
+        expect(bodiesOf(events)).toEqual([
+          'user:/tool echo {"text":"hi"}',
+          'assistant:Tool said: {"echoed":"hi"}',
+        ])
+        // The bridge paired the call with its output, so nothing is left pending.
+        expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
+      }),
+    )
+  })
+
+  it('records a tool pi ran as failed, and leaves no work behind', async () => {
+    const harness = bridge()
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost(hostsOf(harness))
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        const thread = yield* openThread(tmpdir())
+
+        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
+        // `missing` is not in the toolkit, so the extension cannot run it and pi
+        // reports the call as an error.
+        yield* inference.send(thread, '/tool missing {}')
+        yield* inference.whenIdle(thread)
+
+        const events = threadFacts(yield* log.entries, thread)
+        const completed = events.find((event) => event._tag === 'tool/completed')
+        expect(completed?._tag === 'tool/completed' ? completed.ok : null).toBe(false)
+        expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe('no tool missing')
+        // A reported outcome is a fact, so nothing is left pending for the
+        // runtime to run (ADR-0022).
+        expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
+      }),
+    )
+  })
+
+  it('reports a bridge failure as a failed turn, not a broken host', async () => {
+    const harness = bridge()
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost(hostsOf(harness))
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        const thread = yield* openThread(tmpdir())
+
+        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
+        yield* inference.send(thread, '/fail')
+        yield* inference.whenIdle(thread)
+
+        const events = threadFacts(yield* log.entries, thread)
+        const failed = events.find((event) => event._tag === 'turn/failed')
+        expect(failed?._tag === 'turn/failed' ? failed.reason : '').toContain(
+          'scripted run failure',
+        )
+        // A failed turn leaves the thread idle, ready for the next prompt.
+        expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
+      }),
+    )
+  })
+
+  it('answers a health question without running anything', async () => {
+    const harness = bridge()
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost(hostsOf(harness))
+        const registry = yield* host.service(Harnesses)
+        const entry = Option.getOrThrow(yield* registry.get('pi'))
+        if (entry.harness.health === undefined) throw new Error('pi reports no health')
+        const health = yield* entry.harness.health()
+        expect(health.status).toBe('ready')
+        expect(health.installedVersion).toBe('0.84.0')
+      }),
+    )
+  })
+})

@@ -24,6 +24,7 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
       'plugin/deactivated': () => undefined,
       'project/created': () => undefined,
       'thread/created': () => undefined,
+      'thread/configured': () => undefined,
       'thread/compacted': () => undefined,
       'thread/branched': () => undefined,
       'agent/inbox/spliced': () => undefined,

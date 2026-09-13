@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@oru/harness-oru": "workspace:*",
+    "@oru/harness-registry": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }

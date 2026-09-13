@@ -17,6 +17,7 @@ import { twoPane } from './shell.ts'
 import { ThreadClient } from './thread-client.ts'
 import * as ThreadPanel from './thread-panel.ts'
 import { lineOf } from './transcript.ts'
+import { ThreadConfig } from './thread-options.ts'
 import { ViewGraph } from './view-graph.ts'
 
 const uiByPlugin = new Map(fixturePlugins.map((plugin) => [plugin.id, plugin.ui]))
@@ -76,11 +77,19 @@ export const SetLogging = Command.define('SetLogging', {
 export const CreateThread = Command.define('CreateThread', {
   messages: [Message.GotThreadMessage],
   execute: ThreadClient.pipe(
-    Effect.flatMap((rpc) => rpc.create),
-    Effect.map((created) =>
-      Message.GotThreadMessage({
-        message: ThreadPanel.Message.Opened({ threadId: created.threadId }),
-      }),
+    Effect.flatMap((rpc) =>
+      rpc.create(undefined).pipe(
+        // A new thread opens with the choices it has, so the pane never shows an
+        // empty picker and then fills it in.
+        Effect.flatMap((created) =>
+          rpc
+            .options(created.threadId)
+            .pipe(Effect.map((options) => ({ threadId: created.threadId, options }))),
+        ),
+      ),
+    ),
+    Effect.map((opened) =>
+      Message.GotThreadMessage({ message: ThreadPanel.Message.Opened(opened) }),
     ),
     Effect.orDie,
   ),
@@ -97,15 +106,50 @@ export const SendMessage = Command.define('SendMessage', {
     ),
 })
 
+export const ConfigureThread = Command.define('ConfigureThread', {
+  args: { threadId: ThreadId, config: ThreadConfig },
+  messages: [Message.GotThreadMessage],
+  execute: ({ threadId, config }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.configure(threadId, config)),
+      Effect.map((options) =>
+        Message.GotThreadMessage({ message: ThreadPanel.Message.OptionsArrived(options) }),
+      ),
+      Effect.orDie,
+    ),
+})
+
+export const StopThread = Command.define('StopThread', {
+  args: { threadId: ThreadId },
+  messages: [Message.SendFinished],
+  execute: ({ threadId }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.stop(threadId)),
+      Effect.as(Message.SendFinished()),
+      Effect.orDie,
+    ),
+})
+
+export const CompactThread = Command.define('CompactThread', {
+  args: { threadId: ThreadId },
+  messages: [Message.SendFinished],
+  execute: ({ threadId }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.compact(threadId)),
+      Effect.as(Message.SendFinished()),
+      Effect.orDie,
+    ),
+})
+
 const foldPluginOutMessage = (outMessage: PluginPanel.OutMessage): Update.Step<Model, Message> =>
-  PluginPanel.OutMessage.match(outMessage, {
+  PluginPanel.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
     RequestedAck: () => (model) => ({ model }),
   })
 
 const foldThreadOutMessage = (
   outMessage: ThreadPanel.OutMessage,
 ): Update.Step<Model, Message, ThreadClient> =>
-  ThreadPanel.OutMessage.match(outMessage, {
+  ThreadPanel.OutMessage.match<Update.Step<Model, Message, ThreadClient>>(outMessage, {
     RequestedSend:
       ({ text }) =>
       (model) => {
@@ -113,6 +157,23 @@ const foldThreadOutMessage = (
         if (threadId === undefined) return { model }
         return { model, commands: [SendMessage({ threadId, text })] }
       },
+    RequestedConfigure:
+      ({ config }) =>
+      (model) => {
+        const threadId = model.thread?.threadId
+        if (threadId === undefined) return { model }
+        return { model, commands: [ConfigureThread({ threadId, config })] }
+      },
+    RequestedStop: () => (model) => {
+      const threadId = model.thread?.threadId
+      if (threadId === undefined) return { model }
+      return { model, commands: [StopThread({ threadId })] }
+    },
+    RequestedCompact: () => (model) => {
+      const threadId = model.thread?.threadId
+      if (threadId === undefined) return { model }
+      return { model, commands: [CompactThread({ threadId })] }
+    },
   })
 
 const foldPlugin = (plugin: string) =>
@@ -222,6 +283,28 @@ export const subscriptions = Subscription.aggregate<Model, Message, GraphRpc | T
                   Stream.map((line) =>
                     Message.GotThreadMessage({
                       message: ThreadPanel.Message.LineArrived({ line }),
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          )
+        },
+      },
+    ),
+    signals: entry(
+      { threadId: Schema.UndefinedOr(ThreadId) },
+      {
+        modelToDependencies: (model) => ({ threadId: model.thread?.threadId }),
+        dependenciesToStream: ({ threadId }) => {
+          if (threadId === undefined) return Stream.empty
+          return Stream.unwrap(
+            ThreadClient.pipe(
+              Effect.map((rpc) =>
+                rpc.watchSignals(threadId).pipe(
+                  Stream.map((signal) =>
+                    Message.GotThreadMessage({
+                      message: ThreadPanel.Message.SignalArrived({ signal }),
                     }),
                   ),
                 ),

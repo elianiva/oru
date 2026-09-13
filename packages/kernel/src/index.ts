@@ -18,6 +18,7 @@ export {
   SessionEvent,
   ThreadBranched,
   ThreadCompacted,
+  ThreadConfigured,
   ThreadCreated,
   ToolCompleted,
   ToolRequested,
@@ -28,7 +29,10 @@ export {
   foldActivePlugins,
   foldNamedProjects,
   foldNamedThreads,
+  foldThreadConfig,
+  foldThreadCwd,
   foldThreadPath,
+  type ThreadConfig,
 } from './session-fold.ts'
 export {
   chain,

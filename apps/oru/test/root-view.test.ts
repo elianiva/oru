@@ -13,6 +13,15 @@ import {
   UserLine,
 } from '../src/transcript.ts'
 
+const emptyOptions = (threadId: string) => ({
+  threadId,
+  options: {
+    config: { harness: undefined, model: undefined, reasoning: undefined },
+    harnesses: [],
+    models: [],
+  },
+})
+
 describe('root view', () => {
   const bothPanels = HashMap.fromIterable([
     ['logging', PluginPanel.init({ title: 'Log' })],
@@ -127,6 +136,10 @@ describe('root view', () => {
         ToolCompletedLine.make({ name: 'echo' }),
         AssistantLine.make({ body: 'done' }),
       ],
+      live: [],
+      config: { harness: undefined, model: undefined, reasoning: undefined },
+      harnesses: [],
+      models: [],
     }
     Scene.scene(
       { update, view },
@@ -157,7 +170,7 @@ describe('root view', () => {
       Scene.Command.resolve(
         CreateThread,
         Message.GotThreadMessage({
-          message: ThreadPanel.Message.Opened({ threadId: 't1' }),
+          message: ThreadPanel.Message.Opened(emptyOptions('t1')),
         }),
       ),
       Scene.expect(Scene.text('model/fake')).not.toExist(),

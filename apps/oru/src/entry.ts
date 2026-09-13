@@ -25,9 +25,25 @@ const program = Effect.gen(function* () {
       setLive: (plugin, live) => hostClient.SetLive({ plugin, live }).pipe(Effect.orDie),
     }),
     Layer.succeed(ThreadClient, {
-      create: threadClient.CreateThread().pipe(Effect.orDie),
+      create: (cwd) => threadClient.CreateThread({ cwd }).pipe(Effect.orDie),
       send: (threadId, text) => threadClient.SendMessage({ threadId, text }).pipe(Effect.orDie),
       watch: (threadId) => threadClient.WatchThread({ threadId }).pipe(Stream.orDie),
+      options: (threadId) => threadClient.ThreadOptions({ threadId }).pipe(Effect.orDie),
+      configure: (threadId, configuration) =>
+        threadClient
+          .ConfigureThread({
+            threadId,
+            harness: configuration.harness,
+            model: configuration.model,
+            reasoning: configuration.reasoning,
+          })
+          .pipe(Effect.orDie),
+      watchSignals: (threadId) => threadClient.WatchSignals({ threadId }).pipe(Stream.orDie),
+      stop: (threadId) => threadClient.StopThread({ threadId }).pipe(Effect.orDie),
+      compact: (threadId, instructions) =>
+        threadClient.CompactThread({ threadId, instructions }).pipe(Effect.orDie),
+      fork: (sourceThreadId, cwd) =>
+        threadClient.ForkThread({ sourceThreadId, cwd }).pipe(Effect.orDie),
     }),
   )
   const container = document.getElementById('root')

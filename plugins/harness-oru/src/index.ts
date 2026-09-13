@@ -1,15 +1,15 @@
-import { Context, Effect, Layer, Stream } from 'effect'
+import { Context, Effect, Stream } from 'effect'
 import * as AiError from '@effect-uai/core/AiError'
 import {
   LanguageModel,
   type CommonRequest,
   type LanguageModelService,
 } from '@effect-uai/core/LanguageModel'
-import { definePlugin } from '@oru/kernel'
+import { definePlugin, type PluginContext } from '@oru/kernel'
 import {
-  defineHarness,
-  Harness,
+  HarnessKind,
   HarnessError,
+  defineHarness,
   type HarnessService,
   type HarnessTurnRequest,
   type ModelInfo,
@@ -31,6 +31,8 @@ const capabilities = {
   images: false,
   reasoning: false,
   sessionRestore: false,
+  // The runtime's log is this harness's memory: it replays history every turn.
+  ownsHistory: false,
   steering: 'queue' as const,
   interruption: true,
 }
@@ -95,38 +97,40 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
           ),
         ),
       ),
-    health: () => Effect.succeed({ ok: true }),
+    // The provider is a library, not an installation: once the LanguageModel is
+    // resolved there is nothing left to check.
+    health: () => Effect.succeed({ status: 'ready' }),
   })
 
-const setup = () =>
+const setup = (ctx: PluginContext) =>
   Effect.gen(function* () {
     const languageModel = yield* LanguageModel
-    const service = harnessFromLanguageModel(languageModel)
-    return Context.make(Harness, service)
+    // Contributed from setup because the service is assembled from a coeffect
+    // (ADR-0017), unlike a tool plugin's static payload.
+    yield* ctx.contribute(HarnessKind.of(harnessFromLanguageModel(languageModel)))
+    return Context.empty()
   })
 
 /**
  * `harness-oru` — the effect-uai harness.
  *
- * Bridges any `LanguageModel` provider (Responses, Anthropic, Gemini, Mistral, Mock)
- * into the unified `Harness` token. This is the reference implementation that
- * other harnesses (pi, claude-code, codex) mirror structurally via `defineHarness`.
+ * Bridges any `LanguageModel` provider (Responses, Anthropic, Gemini, Mistral,
+ * Mock) into oru's harness vocabulary. This is the reference implementation
+ * that the bridges (pi, claude-code, codex) mirror structurally via
+ * `defineHarness`, and the only one that does not own the conversation: the
+ * runtime's log is its memory, and every turn replays history through it.
  *
  * ```
- * Model plugin —provides LanguageModel→  harness-oru —provides Harness→  inference
+ * Model plugin —provides LanguageModel→  harness-oru —contributes→  Harnesses
  * ```
  *
- * Swap to another harness by providing `Harness` from a different plugin
- * (`harness-pi`, `harness-claude-code`, …) and not loading harness-oru.
+ * Swap to another harness by contributing a different one under `HarnessKind`
+ * (`oru/harness-pi`, …) and picking it per thread (ADR-0017, ADR-0019).
  */
 export const harnessOruPlugin = definePlugin({
   id: 'oru/harness-oru',
   needs: [LanguageModel],
-  provides: [Harness],
   server: { setup },
 })
-
-export const HarnessOruLive = (service: LanguageModelService): Layer.Layer<Harness, never, never> =>
-  Layer.succeed(Harness, harnessFromLanguageModel(service))
 
 export const makeHarnessOruService = harnessFromLanguageModel

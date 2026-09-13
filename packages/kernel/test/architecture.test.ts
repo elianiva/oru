@@ -52,6 +52,7 @@ const sessionTags = (events: readonly SessionEvent[]): readonly string[] =>
         'plugin/activated': (event) => `${event._tag}:${event.plugin}`,
         'plugin/deactivated': (event) => `${event._tag}:${event.plugin}`,
         'thread/created': (event) => event._tag,
+        'thread/configured': (event) => event._tag,
         'project/created': (event) => event._tag,
         'turn/started': (event) => event._tag,
         'turn/failed': (event) => event._tag,

@@ -3,6 +3,7 @@ import { Effect, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
 import {
   defineTool,
   demoModelPlugin,
@@ -42,6 +43,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
+          harnessRegistryPlugin,
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -64,6 +66,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
+          harnessRegistryPlugin,
           echoToolPlugin,
           mockModelPlugin('oru/model-empty', []),
           harnessOruPlugin,

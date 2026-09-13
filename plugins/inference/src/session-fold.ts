@@ -48,6 +48,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'thread/created': () => {},
         'thread/compacted': () => {},
         'thread/branched': () => {},
+        'thread/configured': () => {},
         'agent/inbox/spliced': () => {},
         'message/appended': (event) => {
           if (event.role === 'user') awaitingModel = true

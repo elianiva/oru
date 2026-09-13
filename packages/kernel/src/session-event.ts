@@ -41,6 +41,20 @@ export const ThreadCreated = Schema.TaggedStruct('thread/created', {
   project: ProjectId,
 })
 
+/**
+ * What a thread is configured to run: which harness, which model, how much
+ * reasoning. One fact per configuration, so the latest on the path is the
+ * answer and reproduction does not depend on a mutable store. A member is
+ * `undefined` when the thread leaves it to the harness's own default.
+ */
+export const ThreadConfigured = Schema.TaggedStruct('thread/configured', {
+  ...Tree,
+  thread: ThreadId,
+  harness: Schema.UndefinedOr(Schema.NonEmptyString),
+  model: Schema.UndefinedOr(Schema.NonEmptyString),
+  reasoning: Schema.UndefinedOr(Schema.NonEmptyString),
+})
+
 export const MessageRole = Schema.Literals(['user', 'assistant', 'tool'])
 export type MessageRole = typeof MessageRole.Type
 
@@ -117,6 +131,7 @@ export const SessionEvent = Schema.Union([
   PluginDeactivated,
   ProjectCreated,
   ThreadCreated,
+  ThreadConfigured,
   TurnStarted,
   TurnFailed,
   MessageAppended,

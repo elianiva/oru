@@ -50,7 +50,15 @@ _Avoid_: app, server, runtime
 
 **Runtime**:
 The agent execution layer: effect-uai's model and tool primitives, used by a built-in inference plugin that folds the session log. Distinct from the Kernel, which composes plugins.
-_Avoid_: harness, engine
+_Avoid_: engine; calling the Runtime itself a harness — a harness is what reaches it
+
+**Harness**:
+The seam through which the agent loop reaches a model or another agent. The runtime is one harness; a bridge to a foreign agent is another. A host registers many, and a thread picks one.
+_Avoid_: provider, adapter
+
+**Bridge**:
+A harness that drives something outside the runtime — a foreign agent's process and protocol — and translates its events into oru's vocabulary. A bridge may own its conversation, in which case the session log is its trace rather than its memory.
+_Avoid_: integration, connector
 
 **Agent**:
 A running agent loop scoped to one session. It streams model turns, runs tool calls, and holds live state by folding the session log. Continuation is that fold, not effect-uai's `Loop`.

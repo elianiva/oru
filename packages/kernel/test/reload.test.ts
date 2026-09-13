@@ -9,7 +9,6 @@ import {
   defineService,
   makeFacetLoader,
   makeHost,
-  serviceFacade,
 } from '../src/index.ts'
 import { facetEvents } from './fixtures/reload/events.ts'
 import { Banner, Echo } from './fixtures/reload/tokens.ts'
@@ -46,7 +45,7 @@ describe('FacetLoader', () => {
         Effect.gen(function* () {
           const host = yield* makeHost([readerPlugin])
           const loader = makeFacetLoader(host)
-          const echo = serviceFacade(host.service(Echo))
+          const echo = host.facade(Echo)
 
           yield* loader.reload(fixtureUrl('gen-a.ts'))
 

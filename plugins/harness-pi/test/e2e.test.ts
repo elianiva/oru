@@ -1,0 +1,199 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Effect, Match, Option, Schema, type Scope } from 'effect'
+import { EventJournal } from 'effect/unstable/eventlog'
+import { Harnesses } from '@oru/harness'
+import { harnessRegistryPlugin } from '@oru/harness-registry'
+import {
+  defineTool,
+  foldThread,
+  Idle,
+  Inference,
+  inferencePlugin,
+  ToolKind,
+  workOf,
+} from '@oru/inference'
+import {
+  definePlugin,
+  makeHost,
+  ProjectCreated,
+  SessionLog,
+  sessionLogLayer,
+  ThreadCreated,
+  unsignedTree,
+  type SessionEvent,
+} from '@oru/kernel'
+import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
+
+/**
+ * The whole stack against the pi on `PATH` and the account it is signed in to:
+ * a real process, a real model, a real tool call, and the facts oru records.
+ *
+ * This is the run a fake cannot stand in for. `ORU_PI_E2E_MODEL` names the
+ * model, in pi's `provider/id` form, because only the person running it knows
+ * which account to spend:
+ *
+ *   ORU_PI_E2E_MODEL=deepseek/deepseek-flash \
+ *     pnpm --filter @oru/harness-pi exec vitest run test/e2e.test.ts
+ *
+ * Everything else is the real thing: the kernel log, the harness registry, the
+ * pi bridge, and the inference loop. Without a model named, the run is skipped
+ * rather than pointed at somebody's account by default.
+ */
+
+const MODEL = process.env.ORU_PI_E2E_MODEL ?? ''
+const PROMPT = "Use the echo tool exactly once with text 'oru e2e', then answer with the word DONE."
+
+const EchoArgs = Schema.Struct({ text: Schema.String })
+
+const echoToolPlugin = definePlugin({
+  id: 'tools/echo',
+  provides: [
+    ToolKind.of(
+      defineTool({
+        name: 'echo',
+        description: 'Return the text that was passed in.',
+        parameters: EchoArgs,
+        execute: (input: { readonly text: string }) =>
+          Effect.succeed(JSON.stringify({ echoed: input.text })),
+      }),
+    ),
+  ],
+})
+
+const cleanups: (() => void)[] = []
+
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
+})
+
+const sessionsDir = (dir: string): string => join(dir, 'sessions')
+
+const bridge = (dir: string): PiHarness => {
+  const harness = makePiHarness({
+    // The installed pi, its credentials, and its own disposition.
+    env: { ...process.env, ORU_PI_SESSION_DIR: sessionsDir(dir) },
+    log: (message) => process.stdout.write(`pi: ${message}\n`),
+  })
+  cleanups.push(() => {
+    harness.shutdown()
+  })
+  return harness
+}
+
+const run = <A, E>(
+  effect: Effect.Effect<A, E, EventJournal.EventJournal | Scope.Scope | SessionLog>,
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+    ),
+  )
+
+const newId = Effect.sync(() => crypto.randomUUID())
+
+const openThread = (cwd: string) =>
+  Effect.gen(function* () {
+    const log = yield* SessionLog
+    const project = yield* newId
+    yield* log.write(
+      ProjectCreated.make({ ...unsignedTree, id: yield* newId, project, name: 'e2e', cwd }),
+    )
+    const thread = yield* newId
+    yield* log.write(ThreadCreated.make({ ...unsignedTree, id: yield* newId, thread, project }))
+    return thread
+  })
+
+const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
+  events.filter((event) =>
+    Match.value(event).pipe(
+      Match.tagsExhaustive({
+        'plugin/activated': () => false,
+        'plugin/deactivated': () => false,
+        'project/created': () => false,
+        'thread/created': (event) => event.thread === thread,
+        'thread/configured': (event) => event.thread === thread,
+        'thread/compacted': (event) => event.thread === thread,
+        'thread/branched': (event) => event.thread === thread,
+        'agent/inbox/spliced': (event) => event.thread === thread,
+        'turn/started': (event) => event.thread === thread,
+        'turn/failed': (event) => event.thread === thread,
+        'message/appended': (event) => event.thread === thread,
+        'tool/requested': (event) => event.thread === thread,
+        'tool/completed': (event) => event.thread === thread,
+      }),
+    ),
+  )
+
+const transcriptOf = (events: readonly SessionEvent[]): readonly string[] =>
+  events.flatMap((event) =>
+    event._tag === 'message/appended' ? [`${event.role}: ${event.body}`] : [],
+  )
+
+describe.runIf(MODEL !== '')('oru driving the installed pi, for real', () => {
+  it('runs a turn in a real pi process and records what happened', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-cwd-'))
+    cleanups.push(() => {
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(cwd, { recursive: true, force: true })
+    })
+    const harness = bridge(dir)
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([
+          harnessRegistryPlugin,
+          echoToolPlugin,
+          harnessPiPlugin(harness),
+          inferencePlugin,
+        ])
+        const registry = yield* host.service(Harnesses)
+        const entry = Option.getOrThrow(yield* registry.get('pi'))
+        if (entry.harness.health === undefined) throw new Error('pi reports no health')
+        // pi has to be installed and signed in before a model is worth calling.
+        const health = yield* entry.harness.health()
+        expect(health.status).toBe('ready')
+
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        const thread = yield* openThread(cwd)
+
+        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
+        yield* inference.send(thread, PROMPT)
+        yield* inference.whenIdle(thread)
+
+        const events = threadFacts(yield* log.entries, thread)
+        process.stdout.write(`${events.map((event) => event._tag).join(' ')}\n`)
+        process.stdout.write(`${transcriptOf(events).join('\n')}\n`)
+        const failed = events.find((event) => event._tag === 'turn/failed')
+        if (failed?._tag === 'turn/failed') process.stdout.write(`turn failed: ${failed.reason}\n`)
+
+        // The model answered through pi, and its answer is oru's fact.
+        expect(failed).toBeUndefined()
+        expect(events.at(-1)?._tag).toBe('message/appended')
+        expect(
+          transcriptOf(events).some(
+            (line) => line.startsWith('assistant: ') && line.length > 'assistant: '.length,
+          ),
+        ).toBe(true)
+
+        // It was told to call oru's tool, so pi called it, oru ran it, and the
+        // outcome is a fact rather than work left pending.
+        const requested = events.find((event) => event._tag === 'tool/requested')
+        const completed = events.find((event) => event._tag === 'tool/completed')
+        expect(requested?._tag === 'tool/requested' ? requested.name : undefined).toBe('echo')
+        expect(completed?._tag === 'tool/completed' ? completed.ok : undefined).toBe(true)
+        expect(completed?._tag === 'tool/completed' ? completed.result : '').toContain('oru e2e')
+        expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
+
+        // pi keeps its own session for the thread, where the bridge told it to.
+        const sessionFile = join(sessionsDir(dir), `${thread}.jsonl`)
+        expect(existsSync(sessionFile)).toBe(true)
+        expect(readFileSync(sessionFile, 'utf8')).toContain('"type":"session"')
+      }),
+    )
+  })
+})
