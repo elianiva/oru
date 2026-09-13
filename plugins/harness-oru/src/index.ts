@@ -4,7 +4,7 @@ import {
   type CommonRequest,
   type LanguageModelService,
 } from '@effect-uai/core/LanguageModel'
-import { definePlugin, type PluginContext } from '@oru/kernel'
+import { definePlugin } from '@oru/kernel'
 import {
   defineHarness,
   Harness,
@@ -122,12 +122,11 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
     health: () => Effect.succeed({ ok: true }),
   })
 
-const setup = (ctx: PluginContext<readonly [typeof LanguageModel]>) =>
-  Effect.sync(function () {
-    const languageModel = ctx.service(LanguageModel)
-    const service = harnessFromLanguageModel(languageModel)
-    return Context.make(Harness, service)
-  })
+const setup = Effect.gen(function* () {
+  const languageModel = yield* LanguageModel
+  const service = harnessFromLanguageModel(languageModel)
+  return Context.make(Harness, service)
+})
 
 /**
  * `harness-oru` — the effect-uai harness.

@@ -7,28 +7,32 @@ import type {
 } from './contribution.ts'
 import type { PluginId, PluginScope } from './primitives.ts'
 import type { SessionLog } from './session-log.ts'
-import type { AnyServiceToken, IdentifierOf, ServiceOf } from './service.ts'
+import type { AnyServiceToken, IdentifierOf } from './service.ts'
 
-export interface PluginContext<Needs extends readonly AnyServiceToken[]> {
+export interface PluginContext {
   readonly id: PluginId
   readonly scope: PluginScope
-  readonly service: <T extends Needs[number]>(token: T) => ServiceOf<T>
   readonly contributions: <C>(
     kind: ContributionKind<C>,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
 }
 
+export type SetupEffect<
+  Needs extends readonly AnyServiceToken[],
+  Provides extends readonly Contribution[],
+> = Effect.Effect<
+  Context.Context<ServiceProvisions<Provides>>,
+  unknown,
+  IdentifierOf<Needs[number]> | Scope.Scope | SessionLog
+>
+
 export interface ServerFacet<
   Needs extends readonly AnyServiceToken[],
   Provides extends readonly Contribution[],
 > {
-  readonly setup: (
-    ctx: PluginContext<Needs>,
-  ) => Effect.Effect<
-    Context.Context<ServiceProvisions<Provides>>,
-    unknown,
-    IdentifierOf<Needs[number]> | Scope.Scope | SessionLog
-  >
+  readonly setup:
+    | SetupEffect<Needs, Provides>
+    | ((ctx: PluginContext) => SetupEffect<Needs, Provides>)
 }
 
 export interface Plugin<

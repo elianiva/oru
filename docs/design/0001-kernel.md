@@ -54,10 +54,10 @@ export const greeterPlugin = definePlugin({
   id: 'greeter',
   needs: [Logger],
   server: {
-    setup: (ctx) => {
-      const logger = ctx.service(Logger) // stable facade, synchronous handle
+    setup: Effect.gen(function* () {
+      const logger = yield* Logger // Effect DI, stable facade
       return Effect.void
-    },
+    }),
   },
 })
 ```
@@ -122,10 +122,9 @@ packages/kernel/src/
 - **Reversal is the scope.** Each plugin forks a child `Scope`; every contribution registers a
   finalizer on it, so `deactivate` is `Scope.close` and reversal is LIFO and idempotent by
   construction.
-- **Facades are stable.** `ctx.service(token)` and the ambient `yield* Token` path both return a
-  `Proxy` that resolves the current implementation at call time through the string-keyed registry, so
-  a handle captured before a cutover keeps working (ADR-0011). Non-method members are rejected at
-  activation.
+- **Facades are stable.** `yield* Token` returns a `Proxy` that resolves the current
+  implementation at call time through the string-keyed registry, so a handle captured before a
+  cutover keeps working (ADR-0011). Non-method members are rejected at activation.
 - **Contribution kinds are open.** The kernel stores, exposes, and reverses typed payloads by kind id
   without interpreting them; tools and submodels land as new kinds owned by their own packages.
 

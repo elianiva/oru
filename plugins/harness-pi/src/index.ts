@@ -1,7 +1,7 @@
 import { Context, Effect, Stream } from 'effect'
 import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
-import { definePlugin, type PluginContext } from '@oru/kernel'
+import { definePlugin } from '@oru/kernel'
 import { defineHarness, Harness, type HarnessService } from '@oru/harness'
 
 /**
@@ -77,8 +77,7 @@ const makeHarnessPiService = (): HarnessService => {
   })
 }
 
-const setup = (_ctx: PluginContext<readonly []>) =>
-  Effect.succeed(Context.make(Harness, makeHarnessPiService()))
+const setup = Effect.succeed(Context.make(Harness, makeHarnessPiService()))
 
 export const harnessPiPlugin = definePlugin({
   id: 'oru/harness-pi',

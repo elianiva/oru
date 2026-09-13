@@ -25,14 +25,12 @@ const readerPlugin = definePlugin({
   needs: [Echo],
   provides: [Reader],
   server: {
-    setup: (ctx) => {
-      const echo = ctx.service(Echo)
-      return Effect.succeed(
-        Context.make(Reader, {
-          ping: echo.echo('live'),
-        }),
-      )
-    },
+    setup: Effect.gen(function* () {
+      const echo = yield* Echo
+      return Context.make(Reader, {
+        ping: echo.echo('live'),
+      })
+    }),
   },
 })
 

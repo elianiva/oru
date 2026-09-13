@@ -4,9 +4,9 @@ import { Harness } from '@oru/harness'
 import { Inference, openInference } from './inference.ts'
 import { ToolKind } from './tool-kind.ts'
 
-const setup = (ctx: PluginContext<readonly [typeof Harness]>) =>
+const setup = (ctx: PluginContext) =>
   Effect.gen(function* () {
-    const harness = ctx.service(Harness)
+    const harness = yield* Harness
     const log = yield* SessionLog
     const loadTools = ctx
       .contributions(ToolKind)
