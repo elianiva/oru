@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { setTimeout as sleepFor } from 'node:timers/promises'
-import { Option } from 'effect'
+import { Match, Option } from 'effect'
 import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
 import {
@@ -64,6 +64,8 @@ const STOP_GRACE_MS = 4_000
 const STOP_KILL_MS = 4_000
 const SESSION_VERSION = 3
 
+/** The tools file the injected extension reads (`oru-pi-extension.mjs`). */
+export const TOOLS_FILE_ENV = 'ORU_PI_TOOLS_FILE'
 export const NO_BUILTIN_TOOLS_ENV = 'ORU_PI_NO_BUILTIN_TOOLS'
 export const SKILLS_ENV = 'ORU_PI_SKILLS'
 
@@ -501,7 +503,7 @@ export class PiSession {
       cwd,
       launch: resolvePiLaunch(this.deps.env),
       env: piChildEnv(this.deps.env, {
-        ORU_PI_TOOLS_FILE: toolsFileFor(this.deps.paths, this.threadId),
+        [TOOLS_FILE_ENV]: toolsFileFor(this.deps.paths, this.threadId),
       }),
       args,
       onEvent: (event) => this.handleEvent(event),
@@ -654,109 +656,97 @@ export class PiSession {
       emit(HarnessLifecycle.RawUnhandled({ type: message.type, payload: message.raw }))
       return
     }
-    const event = message.event
-    switch (event.type) {
-      case 'agent_settled': {
-        const settled = this.settled
-        this.settled = null
-        settled?.resolve()
-        return
-      }
-      case 'message_update': {
-        const delta = event.assistantMessageEvent
-        if (delta.type === 'text_delta' && delta.delta !== undefined) {
-          emit(Turn.TurnEvent.TextDelta({ text: delta.delta }))
-          return
-        }
-        if (delta.type === 'thinking_delta' && delta.delta !== undefined) {
-          emit(Turn.TurnEvent.ReasoningDelta({ text: delta.delta, kind: 'trace' }))
-          return
-        }
-        if (delta.type === 'toolcall_start' || delta.type === 'toolcall_delta') {
-          const call = toolCallOf(delta)
-          if (call === undefined) {
-            emit(HarnessLifecycle.RawUnhandled({ type: delta.type, payload: '{}' }))
+    Match.value(message.event).pipe(
+      Match.withReturnType<void>(),
+      Match.discriminatorsExhaustive('type')({
+        agent_settled: () => {
+          const settled = this.settled
+          this.settled = null
+          settled?.resolve()
+        },
+        message_update: (event) => {
+          const delta = event.assistantMessageEvent
+          if (delta.type === 'text_delta' && delta.delta !== undefined) {
+            emit(Turn.TurnEvent.TextDelta({ text: delta.delta }))
             return
           }
-          if (delta.type === 'toolcall_start') {
-            emit(Turn.TurnEvent.ToolCallStart({ call_id: call.id, name: call.name }))
-          } else if (delta.delta !== undefined) {
-            emit(Turn.TurnEvent.ToolCallArgsDelta({ call_id: call.id, delta: delta.delta }))
+          if (delta.type === 'thinking_delta' && delta.delta !== undefined) {
+            emit(Turn.TurnEvent.ReasoningDelta({ text: delta.delta, kind: 'trace' }))
+            return
           }
-          return
-        }
-        emit(HarnessLifecycle.RawUnhandled({ type: delta.type, payload: '{}' }))
-        return
-      }
-      case 'tool_execution_start': {
-        emit(
-          Turn.TurnEvent.ToolCallStart({
-            call_id: event.toolCallId,
-            name: event.toolName,
-          }),
-        )
-        return
-      }
-      case 'tool_execution_end': {
-        // pi ran this call itself, built-in or forwarded: the runtime records
-        // the outcome as a fact, and whether it failed is only known here
-        // (ADR-0007).
-        emit(
-          HarnessLifecycle.ToolResult({
-            call_id: event.toolCallId,
-            name: event.toolName,
-            ok: event.isError !== true,
-            result: toolResultText(event.result),
-          }),
-        )
-        return
-      }
-      case 'compaction_start': {
-        const automatic = event.reason !== 'manual'
-        this.automaticCompactions.push(automatic)
-        emit(HarnessLifecycle.CompactionStarted({ automatic }))
-        return
-      }
-      case 'compaction_end': {
-        if (event.errorMessage !== undefined) {
-          emit(HarnessLifecycle.ProviderWarning({ message: event.errorMessage }))
-        }
-        return
-      }
-      case 'auto_retry_start': {
-        emit(
-          HarnessLifecycle.ProviderWarning({
-            message: `pi is retrying after an error: ${event.errorMessage ?? 'unknown error'}`,
-          }),
-        )
-        return
-      }
-      case 'auto_retry_end': {
-        if (event.success !== true) {
+          if (delta.type === 'toolcall_start' || delta.type === 'toolcall_delta') {
+            const call = toolCallOf(delta)
+            if (call === undefined) {
+              emit(HarnessLifecycle.RawUnhandled({ type: delta.type, payload: '{}' }))
+              return
+            }
+            if (delta.type === 'toolcall_start') {
+              emit(Turn.TurnEvent.ToolCallStart({ call_id: call.id, name: call.name }))
+            } else if (delta.delta !== undefined) {
+              emit(Turn.TurnEvent.ToolCallArgsDelta({ call_id: call.id, delta: delta.delta }))
+            }
+            return
+          }
+          emit(HarnessLifecycle.RawUnhandled({ type: delta.type, payload: '{}' }))
+        },
+        tool_execution_start: (event) =>
           emit(
-            HarnessLifecycle.ProviderError({
-              message: event.finalError ?? 'pi gave up retrying',
-              retryable: false,
+            Turn.TurnEvent.ToolCallStart({
+              call_id: event.toolCallId,
+              name: event.toolName,
             }),
-          )
-        }
-        return
-      }
-      case 'extension_error': {
-        emit(
-          HarnessLifecycle.ProviderWarning({
-            message: `a pi extension failed on ${event.event ?? 'an event'}: ${
-              event.error ?? 'unknown error'
-            }`,
-          }),
-        )
-        return
-      }
-      default:
-        // Understood, and nothing oru records: turn boundaries, entry appends,
-        // queue updates, tool output progress.
-        return
-    }
+          ),
+        tool_execution_end: (event) =>
+          // pi ran this call itself, built-in or forwarded: the runtime records
+          // the outcome as a fact, and whether it failed is only known here
+          // (ADR-0007).
+          emit(
+            HarnessLifecycle.ToolResult({
+              call_id: event.toolCallId,
+              name: event.toolName,
+              ok: event.isError !== true,
+              result: toolResultText(event.result),
+            }),
+          ),
+        compaction_start: (event) => {
+          const automatic = event.reason !== 'manual'
+          this.automaticCompactions.push(automatic)
+          emit(HarnessLifecycle.CompactionStarted({ automatic }))
+        },
+        compaction_end: (event) => {
+          if (event.errorMessage !== undefined) {
+            emit(HarnessLifecycle.ProviderWarning({ message: event.errorMessage }))
+          }
+        },
+        auto_retry_start: (event) =>
+          emit(
+            HarnessLifecycle.ProviderWarning({
+              message: `pi is retrying after an error: ${event.errorMessage ?? 'unknown error'}`,
+            }),
+          ),
+        auto_retry_end: (event) => {
+          if (event.success !== true) {
+            emit(
+              HarnessLifecycle.ProviderError({
+                message: event.finalError ?? 'pi gave up retrying',
+                retryable: false,
+              }),
+            )
+          }
+        },
+        extension_error: (event) =>
+          emit(
+            HarnessLifecycle.ProviderWarning({
+              message: `a pi extension failed on ${event.event ?? 'an event'}: ${
+                event.error ?? 'unknown error'
+              }`,
+            }),
+          ),
+        // Understood, and nothing oru records: turn boundaries.
+        agent_start: () => {},
+        agent_end: () => {},
+      }),
+    )
   }
 
   private handleChannelMessage(message: PiChannelMessage): void {
