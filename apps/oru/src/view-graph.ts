@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { PluginId } from '@oru/kernel'
+import { PluginId, TokenId } from '@oru/kernel'
 
 export const Panel = Schema.Struct({
   plugin: PluginId,
@@ -9,5 +9,6 @@ export type Panel = typeof Panel.Type
 
 export const ViewGraph = Schema.Struct({
   active: Schema.Array(Panel),
+  tokens: Schema.Array(TokenId),
 })
 export type ViewGraph = typeof ViewGraph.Type

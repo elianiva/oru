@@ -1,6 +1,6 @@
 export { inferencePlugin } from './plugin.ts'
 export { Inference } from './inference.ts'
-export { demoModelLayer, demoModelId } from './demo-model.ts'
+export { demoModelId, demoModelPlugin, mockModelPlugin, modelPlugin } from './demo-model.ts'
 export {
   Idle,
   CallModel,
@@ -11,4 +11,10 @@ export {
   type PendingCall,
   type ThreadState,
 } from './session-fold.ts'
-export { ToolKind, defineTool, contributeTool, type ToolContribution } from './tool-kind.ts'
+export {
+  ToolKind,
+  defineTool,
+  contributeTool,
+  type ToolContribution,
+  type ToolOutcome,
+} from './tool-kind.ts'

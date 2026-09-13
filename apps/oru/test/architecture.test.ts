@@ -3,7 +3,14 @@ import { Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { foldActivePlugins, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
-import { foldThread, Idle, inferencePlugin, workOf, demoModelLayer } from '@oru/inference'
+import {
+  demoModelPlugin,
+  foldThread,
+  Idle,
+  Inference,
+  inferencePlugin,
+  workOf,
+} from '@oru/inference'
 import { echoToolPlugin, fixturePlugins, fixtureTitles, loggingPlugin } from '../src/fixtures.ts'
 import { HostRpc, hostRpcHandlers } from '../src/host-rpc.ts'
 import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
@@ -13,7 +20,7 @@ describe('assembled architecture', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const plugins = [...fixturePlugins, echoToolPlugin, inferencePlugin]
+          const plugins = [...fixturePlugins, echoToolPlugin, demoModelPlugin, inferencePlugin]
           const host = yield* makeHost(plugins)
           const log = yield* SessionLog
           const hostClient = yield* RpcTest.makeClient(HostRpc).pipe(
@@ -24,10 +31,12 @@ describe('assembled architecture', () => {
           )
 
           const graph = yield* hostClient.GetGraph()
+          expect(graph.tokens).toContain(Inference.key)
           expect(graph.active.map((panel) => panel.plugin).sort()).toEqual([
             'greeter',
             'logging',
             'oru/inference',
+            'oru/model-demo',
             'tools/echo',
           ])
           expect([...foldActivePlugins(yield* log.entries)].sort()).toEqual(
@@ -59,11 +68,7 @@ describe('assembled architecture', () => {
           expect(down.active.some((panel) => panel.plugin === 'greeter')).toBe(false)
           expect(foldActivePlugins(yield* log.entries).has('greeter')).toBe(false)
           expect(foldActivePlugins(yield* log.entries).has('logging')).toBe(false)
-        }).pipe(
-          Effect.provide(sessionLogLayer),
-          Effect.provide(EventJournal.layerMemory),
-          Effect.provide(demoModelLayer),
-        ),
+        }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
       ),
     )
   })

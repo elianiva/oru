@@ -38,6 +38,7 @@ export const viewGraphOf = Effect.fnUntraced(function* (
       plugin,
       title: titleOf(byId.get(plugin), plugin, titles),
     })),
+    tokens: [...graph.providers.keys()],
   }
 })
 

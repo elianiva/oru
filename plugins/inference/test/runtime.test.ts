@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { Effect, Layer, Schema, type Scope } from 'effect'
+import { Effect, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import { LanguageModel } from '@effect-uai/core/LanguageModel'
-import * as MockProvider from '@effect-uai/core/testing/MockProvider'
 import { contribute, definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
-import { demoModelLayer, defineTool, Inference, inferencePlugin } from '../src/index.ts'
+import {
+  defineTool,
+  demoModelPlugin,
+  Inference,
+  inferencePlugin,
+  mockModelPlugin,
+} from '../src/index.ts'
 import { ToolKind } from '../src/tool-kind.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -18,23 +22,18 @@ const echoToolPlugin = definePlugin({
         name: 'echo',
         description: 'Return the text that was passed in.',
         parameters: EchoArgs,
-        execute: (input) => Effect.succeed({ echoed: input.text }),
+        execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
       }),
     ),
   ],
 })
 
 const runRuntime = <A, E>(
-  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | LanguageModel | Scope.Scope>,
-  model: Layer.Layer<LanguageModel> = demoModelLayer,
+  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,
 ) =>
   Effect.runPromise(
     Effect.scoped(
-      effect.pipe(
-        Effect.provide(sessionLogLayer),
-        Effect.provide(EventJournal.layerMemory),
-        Effect.provide(model),
-      ),
+      effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     ),
   )
 
@@ -42,7 +41,7 @@ describe('inference runtime', () => {
   it('records a user message, a turn, a tool request, and a tool result', async () => {
     await runRuntime(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, inferencePlugin])
+        const host = yield* makeHost([echoToolPlugin, demoModelPlugin, inferencePlugin])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
@@ -59,7 +58,11 @@ describe('inference runtime', () => {
   it('writes turn/failed and still succeeds send when the model dies', async () => {
     await runRuntime(
       Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, inferencePlugin])
+        const host = yield* makeHost([
+          echoToolPlugin,
+          mockModelPlugin('oru/model-empty', []),
+          inferencePlugin,
+        ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.send('t1', 'hello')
@@ -72,7 +75,6 @@ describe('inference runtime', () => {
         expect(failed?._tag).toBe('turn/failed')
         if (failed?._tag === 'turn/failed') expect(failed.reason.length).toBeGreaterThan(0)
       }),
-      MockProvider.layer([]),
     )
   })
 })

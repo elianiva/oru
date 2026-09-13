@@ -1,6 +1,6 @@
 import { Context, Effect, Option, Schema } from 'effect'
 import { contribute, definePlugin, defineService, provide } from '@oru/kernel'
-import { defineTool, inferencePlugin, ToolKind } from '@oru/inference'
+import { defineTool, demoModelPlugin, inferencePlugin, ToolKind } from '@oru/inference'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -58,13 +58,13 @@ export const echoToolPlugin = definePlugin({
         name: 'echo',
         description: 'Return the text that was passed in.',
         parameters: EchoArgs,
-        execute: (input) => Effect.succeed({ echoed: input.text }),
+        execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
       }),
     ),
   ],
 })
 
-export const hostPlugins = [...fixturePlugins, echoToolPlugin, inferencePlugin]
+export const hostPlugins = [...fixturePlugins, echoToolPlugin, demoModelPlugin, inferencePlugin]
 
 export const fixtureTitles: ReadonlyMap<string, string> = new Map(
   fixturePlugins.flatMap((plugin) =>
