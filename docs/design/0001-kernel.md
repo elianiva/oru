@@ -19,24 +19,35 @@ collides with Effect's `Context` while Effect v4 renamed the old `Context.Tag`/`
 
 ## Usage (caller's view)
 
-A plugin author imports `defineService`, `definePlugin`, `provide`, `contribute`, and
-`defineContributionKind`. Tokens are `Context.Service` values; `needs`/`provides` are data.
+A plugin author imports `defineService`, `definePlugin`, and `defineContributionKind`. Tokens are
+`Context.Service` values; `needs`/`provides` are data. A service is contributed by listing its token;
+a data payload is contributed by calling the kind that owns it.
 
 ```ts
 import { Context, Effect } from 'effect'
-import { defineService, definePlugin, provide } from '@oru/kernel'
+import { defineContributionKind, defineService, definePlugin } from '@oru/kernel'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
 }
 const Logger = defineService<LoggerService>('oru/logger')
 
+interface ToolSpec {
+  readonly name: string
+}
+const ToolKind = defineContributionKind<ToolSpec>('oru/tool')
+
 export const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [provide(Logger)],
+  provides: [Logger],
   server: {
     setup: () => Effect.succeed(Context.make(Logger, { log: (m) => Effect.log(m) })),
   },
+})
+
+export const echoToolPlugin = definePlugin({
+  id: 'echo-tool',
+  provides: [ToolKind.of({ name: 'echo' })],
 })
 
 export const greeterPlugin = definePlugin({
@@ -70,7 +81,7 @@ packages/kernel/src/
   index.ts         public re-exports only
   primitives.ts    PluginId, TokenId, ThreadId, PluginScope schemas
   service.ts       ServiceToken (Context.Service), defineService, serviceId
-  contribution.ts  ContributionKind, provide, contribute, serviceTokensOf
+  contribution.ts  ContributionKind, DataContribution, serviceTokensOf, dataContributionsOf
   plugin.ts        Plugin, PluginContext, ServerFacet, definePlugin, AnyPlugin
   event.ts         HostEvent schema union, members derived with Schema.TaggedStruct
   errors.ts        schema-backed TaggedError classes, MismatchProblem union
@@ -88,12 +99,23 @@ packages/kernel/src/
   never drift from its schema. This is what lets `HostEvent = Schema.Union([...])` compose and feed
   the journal (ADR-0007) and RPC seam (ADR-0008) without a parallel hand-written type.
 - **Tokens are `Context.Service<S, S>` plus a stable string `.key`.** No `Tag`/`GenericTag` in
-  Effect v4. The registry is keyed by the **string**, never object identity, which is what lets a
+  Effect v4. `defineService` keeps both parameters precise — `Service<any, S>` would erase the
+  identifier and silently accept any requirement, which is the type the coeffect check below depends
+  on. The registry is keyed by the **string**, never object identity, which is what lets a
   reloaded bundle (fresh token objects, same ids) keep provider continuity (ADR-0011).
+- **Contributions are a token or tagged schema data.** `provides` mixes two things: a service token,
+  whose value is the `Context` the setup returns, and a `DataContribution` — tagged schema data the
+  kernel stores and reverses by kind id without interpreting. Only the kind owns the payload type,
+  so `ToolKind.of(spec)` is the only way to build one and a payload can never be paired with a kind
+  it does not belong to. A token is a live `Context.Service`, not schema-able data, so it goes in as
+  itself.
 - **`setup` returns an Effect `Context`, and `needs` are its requirement channel.** `setup` has type
-  `(ctx) => Effect<Context<ServiceProvisions<Provides>>, E, ServiceShape<Needs[number]> | Scope>`,
-  so an undeclared coeffect fails to type-check and declaration/behavior disagreement surfaces at
-  activation via a runtime `Context.getOption` check (ADR-0006).
+  `(ctx) => Effect<Context<ServiceProvisions<Provides>>, E, IdentifierOf<Needs[number]> | Scope>`.
+  The requirement channel `R` rejects an undeclared coeffect, and `Context<Services>` is
+  contravariant, so a setup that omits a declared service or substitutes another one does not
+  type-check either. Types cannot see a _returned_ service the declaration never claimed — a
+  superset still satisfies the declaration — so that direction, plus every facet whose types were
+  erased, is caught at activation by the `Context.getOption` / key-diff check (ADR-0006).
 - **One pure `resolve`**, shared by boot and the future watcher: Kahn's fixpoint over
   `needs`/`provides`, returning an activation order plus a `blocked` map. Unmet coeffects are graph
   state, not a hard error (ADR-0004, ADR-0010).
@@ -110,7 +132,9 @@ packages/kernel/src/
 Invariants in types: declared-coeffect access (`Needs[number]`), setup/declaration shape
 (`ServiceProvisions<Provides>`), provider-before-consumer order (computed, not emergent). Validation
 lives at `definePlugin`/`resolve` (structural) and at activation (declaration drift), per
-boundary-discipline.
+boundary-discipline. `test/typetest/*.tst.ts` pins the type-level half — an omitted or substituted
+service, an undeclared coeffect, and the `ServiceProvisions` derivation itself; `tsc` compiles those
+files and vitest does not run them, so a directive that stops being an error fails `pnpm typecheck`.
 
 ## Synthesis decision
 
@@ -131,8 +155,11 @@ dependents-before-providers teardown makes it unreachable in kernel-managed flow
   across facet generations.
 - We accept re-deriving the whole plan on each registry change instead of an incremental graph in
   exchange for one boot/reactive resolution mechanism and trivially idempotent transitions.
-- We accept declaration/setup agreement checked twice (compile time on `R`, runtime on the returned
-  `Context`) in exchange for surfacing drift at activation, which ADR-0006 requires.
+- We accept declaration/setup agreement checked in the type system where it is provable (an
+  undeclared coeffect on `R`, a missing or substituted service on `Context<Services>`) and at
+  activation otherwise (a service returned but never declared, and facets loaded with erased types).
+  A `Context` is only ever checked to _contain_ its declaration, exactly as Effect's `Layer<in ROut>`
+  works; the kernel cannot publish on a type it cannot see, so it rejects the extra key instead.
 - We accept `Effect<..., unknown, ...>` setup errors wrapped into `SetupFailed` at the seam in
   exchange for not constraining what plugin authors may fail with.
 

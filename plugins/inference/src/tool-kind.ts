@@ -1,5 +1,5 @@
 import { Effect, Schema, SchemaTransformation } from 'effect'
-import { contribute, defineContributionKind } from '@oru/kernel'
+import { defineContributionKind } from '@oru/kernel'
 
 export interface ToolOutcome {
   readonly ok: boolean
@@ -47,5 +47,3 @@ export const defineTool = <A>(spec: {
 })
 
 export const ToolKind = defineContributionKind<ToolContribution>('oru/tool')
-
-export const contributeTool = (spec: ToolContribution) => contribute(ToolKind, spec)

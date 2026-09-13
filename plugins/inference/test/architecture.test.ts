@@ -5,7 +5,6 @@ import { LanguageModel, turnFromStream } from '@effect-uai/core/LanguageModel'
 import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
 import {
-  contribute,
   definePlugin,
   foldActivePlugins,
   makeHost,
@@ -30,8 +29,7 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
   provides: [
-    contribute(
-      ToolKind,
+    ToolKind.of(
       defineTool({
         name: 'echo',
         description: 'Return the text that was passed in.',

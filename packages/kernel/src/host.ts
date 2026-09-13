@@ -23,6 +23,7 @@ import {
   CoeffectsUnmet,
   DeclarationMismatch,
   ServiceMissing,
+  ServiceUndeclared,
   SetupFailed,
   type ActivationError,
   type BootError,
@@ -117,7 +118,8 @@ export const makeHost = Effect.fnUntraced(function* (
       Effect.map((map) =>
         (map.get(kind.id) ?? []).map((entry) => ({
           plugin: entry.plugin,
-          // SAFETY: contribute(kind, value) stores under kind.id; readers pass the same kind
+          // SAFETY: the payload schema is `unknown`; the kind that wrote it owns the type, and
+          // readers look up by the same kind id
           value: entry.value as C,
         })),
       ),
@@ -189,9 +191,20 @@ export const makeHost = Effect.fnUntraced(function* (
       Effect.onError(() => Scope.close(pluginScope, Exit.void)),
     )
 
-    const problems = serviceTokens(plugin)
-      .filter((token) => Option.isNone(Context.getOption(token)(provided)))
-      .map((token) => ServiceMissing.make({ token: serviceId(token) }))
+    // The registry publishes by declaration, so both directions of drift matter: a declared
+    // service the setup omitted breaks consumers, and a returned service nobody declared is
+    // unreachable — it is never published, resolved, or shown in the graph.
+    const declared = new Set(serviceTokens(plugin).map(serviceId))
+    const problems = [
+      ...serviceTokens(plugin).flatMap((token) =>
+        Option.isNone(Context.getOption(token)(provided))
+          ? [ServiceMissing.make({ token: serviceId(token) })]
+          : [],
+      ),
+      ...[...provided.mapUnsafe.keys()].flatMap((token) =>
+        declared.has(token) ? [] : [ServiceUndeclared.make({ token })],
+      ),
+    ]
     if (problems.length > 0) {
       yield* Scope.close(pluginScope, Exit.void)
       return yield* Effect.fail(new DeclarationMismatch({ plugin: plugin.id, problems }))
@@ -210,9 +223,9 @@ export const makeHost = Effect.fnUntraced(function* (
         yield* Ref.update(store, (map) => {
           const next = new Map(map)
           for (const contribution of dataContributions(plugin)) {
-            const list = next.get(contribution.kind.id) ?? []
+            const list = next.get(contribution.kind) ?? []
             next.set(
-              contribution.kind.id,
+              contribution.kind,
               list.filter((entry) => entry.plugin !== plugin.id),
             )
           }
@@ -256,8 +269,8 @@ export const makeHost = Effect.fnUntraced(function* (
         )
       }
       for (const contribution of dataContributions(plugin)) {
-        const list = next.get(contribution.kind.id) ?? []
-        next.set(contribution.kind.id, [...list, { plugin: plugin.id, value: contribution.value }])
+        const list = next.get(contribution.kind) ?? []
+        next.set(contribution.kind, [...list, { plugin: plugin.id, value: contribution.value }])
       }
       return next
     })

@@ -9,7 +9,6 @@ import {
   defineService,
   makeFacetLoader,
   makeHost,
-  provide,
   serviceFacade,
 } from '../src/index.ts'
 import { facetEvents } from './fixtures/reload/events.ts'
@@ -24,7 +23,7 @@ const Reader = defineService<ReaderService>('oru/facet-reader')
 const readerPlugin = definePlugin({
   id: 'facet-reader',
   needs: [Echo],
-  provides: [provide(Reader)],
+  provides: [Reader],
   server: {
     setup: (ctx) => {
       const echo = ctx.service(Echo)

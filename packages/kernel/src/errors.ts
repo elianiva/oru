@@ -3,7 +3,10 @@ import { PluginId, TokenId } from './primitives.ts'
 
 export const ServiceMissing = Schema.TaggedStruct('ServiceMissing', { token: TokenId })
 
-export const MismatchProblem = Schema.Union([ServiceMissing])
+/** A plugin returned a service its declaration never claimed, so nothing can resolve it. */
+export const ServiceUndeclared = Schema.TaggedStruct('ServiceUndeclared', { token: TokenId })
+
+export const MismatchProblem = Schema.Union([ServiceMissing, ServiceUndeclared])
 export type MismatchProblem = typeof MismatchProblem.Type
 
 export class ProviderUnavailable extends Schema.TaggedError<ProviderUnavailable>()(

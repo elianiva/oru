@@ -1,6 +1,6 @@
 # Chat follows the Inference token, not a plugin id
 
-The Foldkit root opens the thread pane when `ViewGraph.tokens` contains `Inference.key`. It does not check `plugin === 'oru/inference'`. Host RPC copies live registry keys into `tokens`. A replacement engine plugin can use another id as long as it `provide`s `Inference`.
+The Foldkit root opens the thread pane when `ViewGraph.tokens` contains `Inference.key`. It does not check `plugin === 'oru/inference'`. Host RPC copies live registry keys into `tokens`. A replacement engine plugin can use another id as long as it lists `Inference` in `provides`.
 
 ## Considered options
 

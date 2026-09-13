@@ -6,7 +6,6 @@ import {
   defineService,
   foldActivePlugins,
   makeHost,
-  provide,
   SessionLog,
   sessionLogLayer,
   type SessionEvent,
@@ -26,7 +25,7 @@ const Greeter = defineService<GreeterService>('oru/greeter')
 
 const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [provide(Logger)],
+  provides: [Logger],
   server: {
     setup: () => Effect.succeed(Context.make(Logger, { log: () => Effect.void })),
   },
@@ -35,7 +34,7 @@ const loggingPlugin = definePlugin({
 const greeterPlugin = definePlugin({
   id: 'greeter',
   needs: [Logger],
-  provides: [provide(Greeter)],
+  provides: [Greeter],
   server: {
     setup: () =>
       Effect.succeed(

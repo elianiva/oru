@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Effect, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import { contribute, definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
+import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import {
   defineTool,
   demoModelPlugin,
@@ -16,8 +16,7 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
   provides: [
-    contribute(
-      ToolKind,
+    ToolKind.of(
       defineTool({
         name: 'echo',
         description: 'Return the text that was passed in.',

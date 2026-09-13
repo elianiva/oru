@@ -3,7 +3,7 @@ import { LanguageModel, type LanguageModelService } from '@effect-uai/core/Langu
 import * as Items from '@effect-uai/core/Items'
 import * as MockProvider from '@effect-uai/core/testing/MockProvider'
 import type * as Turn from '@effect-uai/core/Turn'
-import { definePlugin, provide, type PluginId } from '@oru/kernel'
+import { definePlugin, type PluginId } from '@oru/kernel'
 
 export const demoModelId = 'mock'
 
@@ -30,7 +30,7 @@ const demoTurns = [
 export const modelPlugin = (id: PluginId, service: LanguageModelService) =>
   definePlugin({
     id,
-    provides: [provide(LanguageModel)],
+    provides: [LanguageModel],
     server: {
       setup: () => Effect.succeed(Context.make(LanguageModel, service)),
     },
@@ -39,7 +39,7 @@ export const modelPlugin = (id: PluginId, service: LanguageModelService) =>
 export const mockModelPlugin = (id: PluginId, scriptedTurns: ReadonlyArray<Turn.Turn>) =>
   definePlugin({
     id,
-    provides: [provide(LanguageModel)],
+    provides: [LanguageModel],
     server: {
       setup: () =>
         Effect.sync(() => Context.make(LanguageModel, MockProvider.make(scriptedTurns).service)),

@@ -10,4 +10,4 @@
 
 ## Consequences
 
-The reactive watcher in ADR-0004 diffs declarations instead of tracing calls, and the graph can be rendered in the UI. A declaration that disagrees with `setup` behavior surfaces at activation.
+The reactive watcher in ADR-0004 diffs declarations instead of tracing calls, and the graph can be rendered in the UI. A declaration that disagrees with `setup` behavior surfaces at activation, in both directions: a declared service `setup` does not return (`ServiceMissing`) and a returned service the declaration never claimed (`ServiceUndeclared`, which nothing could resolve because the kernel publishes by declaration).

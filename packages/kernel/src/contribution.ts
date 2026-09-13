@@ -1,4 +1,4 @@
-import { Data, Predicate } from 'effect'
+import { Predicate, Schema } from 'effect'
 import type { PluginId } from './primitives.ts'
 import type { AnyServiceToken, IdentifierOf } from './service.ts'
 
@@ -7,52 +7,48 @@ export interface ContributionEntry<C> {
   readonly value: C
 }
 
+/**
+ * A named family of contribution payloads. The kind owns construction, so a payload
+ * can never be paired with a kind it does not belong to.
+ */
 export interface ContributionKind<C> {
   readonly id: string
-  readonly _C?: (c: C) => C
+  readonly of: (value: C) => DataContribution
 }
 
-export const defineContributionKind = <C>(id: string): ContributionKind<C> => ({ id })
+/**
+ * A payload a plugin adds under a kind id. The payload stays opaque here — the kind
+ * that reads it owns its type, and the kernel never interprets it.
+ */
+export const DataContribution = Schema.TaggedStruct('Data', {
+  kind: Schema.String,
+  value: Schema.Unknown,
+})
+export type DataContribution = typeof DataContribution.Type
 
-export class ServiceContribution<
-  T extends AnyServiceToken = AnyServiceToken,
-> extends Data.TaggedClass('Service')<{
-  readonly token: T
-}> {}
+export const defineContributionKind = <C>(id: string): ContributionKind<C> => ({
+  id,
+  of: (value) => DataContribution.make({ kind: id, value }),
+})
 
-export class DataContribution<
-  // oxlint-disable-next-line typescript/no-explicit-any -- contribution lists mix kinds
-  C = any,
-> extends Data.TaggedClass('Data')<{
-  readonly kind: ContributionKind<C>
-  readonly value: C
-}> {}
+/**
+ * What a plugin declares in `provides`: a service token whose value its setup returns,
+ * or a data payload registered under a kind.
+ */
+export type Contribution = AnyServiceToken | DataContribution
 
-// oxlint-disable-next-line typescript/no-explicit-any -- contribution lists mix service tokens and data kinds
-export type Contribution = ServiceContribution<any> | DataContribution<any>
-
-export const provide = <T extends AnyServiceToken>(token: T): ServiceContribution<T> =>
-  new ServiceContribution({ token })
-
-export const contribute = <C>(kind: ContributionKind<C>, value: C): DataContribution<C> =>
-  new DataContribution({ kind, value })
-
-export const isServiceContribution = (c: Contribution): c is ServiceContribution =>
-  Predicate.isTagged(c, 'Service')
-
-export const isDataContribution = (c: Contribution): c is DataContribution =>
-  Predicate.isTagged(c, 'Data')
-
-type TokenOf<C> = C extends ServiceContribution<infer T> ? T : never
-
-export type ServiceProvisions<P extends readonly Contribution[]> = IdentifierOf<TokenOf<P[number]>>
+export type ServiceProvisions<P extends readonly Contribution[]> = IdentifierOf<P[number]>
 
 export const serviceTokensOf = (
   contributions: readonly Contribution[],
 ): readonly AnyServiceToken[] =>
-  contributions.flatMap((c) => (isServiceContribution(c) ? [c.token] : []))
+  contributions.flatMap((contribution) =>
+    Predicate.isTagged(contribution, 'Data') ? [] : [contribution],
+  )
 
 export const dataContributionsOf = (
   contributions: readonly Contribution[],
-  // oxlint-disable-next-line typescript/no-explicit-any -- callers recover C from ContributionKind
-): readonly DataContribution<any>[] => contributions.filter(isDataContribution)
+): readonly DataContribution[] =>
+  contributions.flatMap((contribution) =>
+    Predicate.isTagged(contribution, 'Data') ? [contribution] : [],
+  )

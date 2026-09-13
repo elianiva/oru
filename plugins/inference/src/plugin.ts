@@ -1,6 +1,6 @@
 import { Context, Effect, Scope } from 'effect'
 import { LanguageModel } from '@effect-uai/core/LanguageModel'
-import { definePlugin, provide, SessionLog, type PluginContext } from '@oru/kernel'
+import { definePlugin, SessionLog, type PluginContext } from '@oru/kernel'
 import { Inference, openInference } from './inference.ts'
 import { ToolKind } from './tool-kind.ts'
 
@@ -18,6 +18,6 @@ const setup = (ctx: PluginContext<readonly [typeof LanguageModel]>) =>
 export const inferencePlugin = definePlugin({
   id: 'oru/inference',
   needs: [LanguageModel],
-  provides: [provide(Inference)],
+  provides: [Inference],
   server: { setup },
 })

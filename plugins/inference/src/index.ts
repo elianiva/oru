@@ -11,10 +11,4 @@ export {
   type PendingCall,
   type ThreadState,
 } from './session-fold.ts'
-export {
-  ToolKind,
-  defineTool,
-  contributeTool,
-  type ToolContribution,
-  type ToolOutcome,
-} from './tool-kind.ts'
+export { ToolKind, defineTool, type ToolContribution, type ToolOutcome } from './tool-kind.ts'

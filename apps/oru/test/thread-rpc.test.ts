@@ -7,7 +7,6 @@ import {
   foldNamedThreads,
   makeHost,
   MessageAppended,
-  provide,
   SessionLog,
   sessionLogLayer,
   unsignedTree,
@@ -25,7 +24,7 @@ import { ThreadRpc, threadRpcHandlers } from '../src/thread-rpc.ts'
 
 const stubEnginePlugin = definePlugin({
   id: 'engines/stub',
-  provides: [provide(Inference)],
+  provides: [Inference],
   server: {
     setup: () =>
       Effect.gen(function* () {

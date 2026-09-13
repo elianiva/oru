@@ -1,26 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { Result } from 'effect'
-import {
-  DuplicateProvider,
-  GraphCycle,
-  definePlugin,
-  defineService,
-  provide,
-  resolve,
-} from '../src/index'
+import { DuplicateProvider, GraphCycle, definePlugin, defineService, resolve } from '../src/index'
 
 const A = defineService<{ readonly a: () => void }>('oru/a')
 const B = defineService<{ readonly b: () => void }>('oru/b')
 
 const providerA = definePlugin({
   id: 'provider-a',
-  provides: [provide(A)],
+  provides: [A],
 })
 
 const consumerB = definePlugin({
   id: 'consumer-b',
   needs: [A],
-  provides: [provide(B)],
+  provides: [B],
 })
 
 describe('resolve', () => {
@@ -38,7 +31,7 @@ describe('resolve', () => {
   it('fails when two plugins provide the same token', () => {
     const other = definePlugin({
       id: 'other-a',
-      provides: [provide(A)],
+      provides: [A],
     })
     const plan = resolve([providerA, other], new Set())
 
@@ -53,12 +46,12 @@ describe('resolve', () => {
     const ping = definePlugin({
       id: 'ping',
       needs: [B],
-      provides: [provide(A)],
+      provides: [A],
     })
     const pong = definePlugin({
       id: 'pong',
       needs: [A],
-      provides: [provide(B)],
+      provides: [B],
     })
     const plan = resolve([ping, pong], new Set())
 

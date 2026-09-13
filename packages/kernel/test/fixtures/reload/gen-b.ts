@@ -1,11 +1,11 @@
 import { Context, Effect } from 'effect'
-import { definePlugin, provide } from '../../../src/index.ts'
+import { definePlugin } from '../../../src/index.ts'
 import { facetEvents } from './events.ts'
 import { Echo } from './tokens.ts'
 
 export default definePlugin({
   id: 'facet-echo',
-  provides: [provide(Echo)],
+  provides: [Echo],
   server: {
     setup: () =>
       Effect.gen(function* () {

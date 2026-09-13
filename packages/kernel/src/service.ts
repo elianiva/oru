@@ -13,6 +13,6 @@ export type ServiceOf<T> =
 export type IdentifierOf<T> =
   T extends Context.Service<infer Identifier, infer _Instance> ? Identifier : never
 
-export const defineService = <S>(id: string): ServiceToken<S> => Context.Service<S>(id)
+export const defineService = <S>(id: string): Context.Service<S, S> => Context.Service<S>(id)
 
 export const serviceId = (token: AnyServiceToken): TokenId => token.key

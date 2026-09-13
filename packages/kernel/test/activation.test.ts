@@ -4,11 +4,12 @@ import { EventJournal } from 'effect/unstable/eventlog'
 import {
   DeclarationMismatch,
   ServiceMissing,
+  ServiceUndeclared,
   SessionLog,
+  defineContributionKind,
   definePlugin,
   defineService,
   makeHost,
-  provide,
 } from '../src/index'
 
 interface LoggerService {
@@ -27,7 +28,7 @@ const events: string[] = []
 
 const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [provide(Logger)],
+  provides: [Logger],
   server: {
     setup: () =>
       Effect.gen(function* () {
@@ -53,7 +54,7 @@ const loggingPlugin = definePlugin({
 const greeterPlugin = definePlugin({
   id: 'greeter',
   needs: [Logger],
-  provides: [provide(Greeter)],
+  provides: [Greeter],
   server: {
     setup: (ctx) =>
       Effect.gen(function* () {
@@ -129,12 +130,11 @@ describe('kernel activation', () => {
   })
 
   it('records data contributions and reverses them with the plugin', async () => {
-    const { defineContributionKind, contribute } = await import('../src/index')
     const ToolKind = defineContributionKind<{ readonly name: string }>('oru/tool')
 
     const toolsPlugin = definePlugin({
       id: 'tools',
-      provides: [contribute(ToolKind, { name: 'search' })],
+      provides: [ToolKind.of({ name: 'search' })],
     })
 
     await Effect.runPromise(
@@ -155,7 +155,7 @@ describe('kernel activation', () => {
   it('fails activation when setup omits a declared service', async () => {
     const hollow = definePlugin({
       id: 'hollow',
-      provides: [provide(Logger)],
+      provides: [Logger],
       server: {
         setup: () =>
           // SAFETY: this plugin declares Logger but returns an empty context to exercise DeclarationMismatch
@@ -181,10 +181,46 @@ describe('kernel activation', () => {
     )
   })
 
+  it('fails activation when setup returns a service the declaration never claimed', async () => {
+    const sneaky = definePlugin({
+      id: 'sneaky',
+      provides: [Logger],
+      server: {
+        setup: () =>
+          // extra provisions type-check (a Context is only checked to *contain* the declarations),
+          // so this is the case the runtime check has to catch
+          Effect.succeed(
+            Context.merge(
+              Context.make(Logger, { log: () => Effect.void }),
+              Context.make(Greeter, { greet: () => Effect.succeed('hi') }),
+            ),
+          ),
+      },
+    })
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([])
+          const result = yield* Effect.result(host.activate(sneaky))
+          expect(result).toEqual(
+            Result.fail(
+              new DeclarationMismatch({
+                plugin: 'sneaky',
+                problems: [ServiceUndeclared.make({ token: 'oru/greeter' })],
+              }),
+            ),
+          )
+          expect((yield* host.graph).active.has('sneaky')).toBe(false)
+        }),
+      ).pipe(Effect.provide(EventJournal.layerMemory)),
+    )
+  })
+
   it('provides SessionLog to setup and resolves a provided service from the host', async () => {
     const probe = definePlugin({
       id: 'probe',
-      provides: [provide(Logger)],
+      provides: [Logger],
       server: {
         setup: () =>
           Effect.gen(function* () {

@@ -1,5 +1,5 @@
 import { Context, Effect, Option, Schema } from 'effect'
-import { contribute, definePlugin, defineService, provide } from '@oru/kernel'
+import { definePlugin, defineService } from '@oru/kernel'
 import { defineTool, demoModelPlugin, inferencePlugin, ToolKind } from '@oru/inference'
 
 interface LoggerService {
@@ -23,7 +23,7 @@ export const decodePanelUi = Schema.decodeUnknownOption(PanelUi)
 
 export const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [provide(Logger)],
+  provides: [Logger],
   ui: { title: 'Log' } satisfies PanelUi,
   server: {
     setup: () => Effect.succeed(Context.make(Logger, { log: () => Effect.void })),
@@ -33,7 +33,7 @@ export const loggingPlugin = definePlugin({
 export const greeterPlugin = definePlugin({
   id: 'greeter',
   needs: [Logger],
-  provides: [provide(Greeter)],
+  provides: [Greeter],
   ui: { title: 'Greet' } satisfies PanelUi,
   server: {
     setup: () =>
@@ -52,8 +52,7 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 export const echoToolPlugin = definePlugin({
   id: 'tools/echo',
   provides: [
-    contribute(
-      ToolKind,
+    ToolKind.of(
       defineTool({
         name: 'echo',
         description: 'Return the text that was passed in.',
