@@ -252,6 +252,15 @@ interface PiAssistantSeed {
   readonly content: PiContentBlock[]
 }
 
+/**
+ * pi sums `usage.cost.total` over the session for its stats, so a seed without
+ * cost crashes `get_session_stats` on real pi: seeded usage carries zero cost.
+ */
+const SEED_USAGE = {
+  ...ZERO_USAGE,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+}
+
 const seedAssistant = (content: PiContentBlock[]): PiAssistantSeed => ({
   message: {
     role: 'assistant',
@@ -259,7 +268,7 @@ const seedAssistant = (content: PiContentBlock[]): PiAssistantSeed => ({
     api: 'oru',
     provider: 'oru',
     model: 'oru',
-    usage: ZERO_USAGE,
+    usage: SEED_USAGE,
     stopReason: 'stop',
     timestamp: 0,
   },

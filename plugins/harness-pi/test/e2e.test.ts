@@ -26,24 +26,26 @@ import {
   type SessionEvent,
 } from '@oru/kernel'
 import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
+import { PI_CLI } from './scripted-provider.ts'
 
 /**
- * The whole stack against the pi on `PATH` and the account it is signed in to:
- * a real process, a real model, a real tool call, and the facts oru records.
+ * The whole stack against the vendored pi and a real model: a real process, a
+ * real provider account, a real tool call, and the facts oru records.
  *
- * This is the run a fake cannot stand in for. `ORU_PI_E2E_MODEL` names the
- * model, in pi's `provider/id` form, because only the person running it knows
- * which account to spend:
+ * This is the run a scripted provider cannot stand in for, and it spends real
+ * money, so it only runs when the vendored pi is installed, signed in, and
+ * offering the model: otherwise the suite reports a skip rather than pointing
+ * at somebody's account by default. `ORU_PI_E2E_MODEL` overrides the model,
+ * in pi's `provider/id` form, when the account to spend is a different one:
  *
- *   ORU_PI_E2E_MODEL=deepseek/deepseek-flash \
- *     pnpm --filter @oru/harness-pi exec vitest run test/e2e.test.ts
+ *   ORU_PI_E2E_MODEL=deepseek/deepseek-chat \
+ *     pnpm --filter @oru/harness-pi e2e
  *
- * Everything else is the real thing: the kernel log, the harness registry, the
- * pi bridge, and the inference loop. Without a model named, the run is skipped
- * rather than pointed at somebody's account by default.
+ * Only the model is real and shared: pi's session lands in a temporary
+ * directory, so the run never touches the user's own threads.
  */
 
-const MODEL = process.env.ORU_PI_E2E_MODEL ?? ''
+const MODEL = process.env.ORU_PI_E2E_MODEL ?? 'opencode-go/muse-spark-1.3-contributor'
 const PROMPT = "Use the echo tool exactly once with text 'oru e2e', then answer with the word DONE."
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -63,6 +65,48 @@ const echoToolPlugin = definePlugin({
   ],
 })
 
+/** The vendored pi, the user's own account, and a temporary session dir. */
+const e2eEnv = (dir: string): NodeJS.ProcessEnv => ({
+  ...process.env,
+  ORU_PI_COMMAND: process.execPath,
+  ORU_PI_ARGS: JSON.stringify([PI_CLI]),
+  ORU_PI_SESSION_DIR: join(dir, 'sessions'),
+})
+
+interface E2EReadiness {
+  readonly run: boolean
+  readonly reason: string
+}
+
+const readiness = await Effect.runPromise(
+  Effect.gen(function* () {
+    const dir = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-probe-'))
+    const probe = makePiHarness({ env: e2eEnv(dir), log: () => undefined })
+    try {
+      const health = yield* probe.service.health!()
+      if (health.status !== 'ready') {
+        return { run: false, reason: `pi is ${health.status}` } satisfies E2EReadiness
+      }
+      const models = yield* probe.service.listModels()
+      if (!models.some((model) => model.id === MODEL)) {
+        return { run: false, reason: `pi offers no model ${MODEL}` } satisfies E2EReadiness
+      }
+      return { run: true, reason: '' } satisfies E2EReadiness
+    } finally {
+      probe.shutdown()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.succeed({ run: false, reason: String(cause) } satisfies E2EReadiness),
+    ),
+  ),
+)
+
+if (!readiness.run) {
+  process.stdout.write(`pi e2e skipped: ${readiness.reason}\n`)
+}
+
 const cleanups: (() => void)[] = []
 
 afterEach(() => {
@@ -73,8 +117,7 @@ const sessionsDir = (dir: string): string => join(dir, 'sessions')
 
 const bridge = (dir: string): PiHarness => {
   const harness = makePiHarness({
-    // The installed pi, its credentials, and its own disposition.
-    env: { ...process.env, ORU_PI_SESSION_DIR: sessionsDir(dir) },
+    env: e2eEnv(dir),
     log: (message) => process.stdout.write(`pi: ${message}\n`),
   })
   cleanups.push(() => {
@@ -132,7 +175,7 @@ const transcriptOf = (events: readonly SessionEvent[]): readonly string[] =>
     event._tag === 'message/appended' ? [`${event.role}: ${event.body}`] : [],
   )
 
-describe.runIf(MODEL !== '')('oru driving the installed pi, for real', () => {
+describe.runIf(readiness.run)('oru driving pi, for real', () => {
   it('runs a turn in a real pi process and records what happened', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-'))
     const cwd = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-cwd-'))
@@ -153,7 +196,7 @@ describe.runIf(MODEL !== '')('oru driving the installed pi, for real', () => {
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
         if (entry.harness.health === undefined) throw new Error('pi reports no health')
-        // pi has to be installed and signed in before a model is worth calling.
+        // The guard already proved this; the turn is only worth running on it.
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
 

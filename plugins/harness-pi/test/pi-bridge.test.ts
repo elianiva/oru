@@ -1,7 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Effect, Result, Schema, Stream } from 'effect'
 import * as Items from '@effect-uai/core/Items'
@@ -10,22 +8,29 @@ import * as Toolkit from '@effect-uai/core/Toolkit'
 import * as Turn from '@effect-uai/core/Turn'
 import { HarnessError, type HarnessEvent, type HarnessTurnRequest } from '@oru/harness'
 import { makePiHarness, type PiHarness } from '../src/index.ts'
+import {
+  SCRIPTED_MINI,
+  SCRIPTED_MODEL,
+  startScriptedProvider,
+  type ScriptedFunctionTool,
+  type ScriptedProvider,
+} from './scripted-provider.ts'
 
 /**
- * The bridge against a scripted pi.
+ * The bridge against a real pi with a scripted model.
  *
- * `test/fake-pi.mjs` speaks pi's RPC dialect and loads the bridge's injected
- * extension the way pi loads it, over the same fds, so these tests exercise the
- * real path: spawn, ready gate, session file, event translation, tool channel,
- * and everything the runtime records.
+ * `test/scripted-provider.ts` answers pi's provider calls the way a declared
+ * OpenAI-compatible endpoint would, so these tests exercise the real path:
+ * spawn, ready gate, session file, event translation, tool channel, and
+ * everything the runtime records. What the model says is scripted; nothing
+ * else is.
  */
 
-const FAKE_PI = fileURLToPath(new URL('./fake-pi.mjs', import.meta.url))
-const MODEL = 'fake-provider/fake-model'
+const MODEL = SCRIPTED_MODEL
 const ECHO_ARGS = Schema.Struct({ text: Schema.String })
 
-/** What the bridge hands pi for a tool: a name, a description, a JSON Schema. */
-const PiRegisteredTool = Schema.Struct({
+/** What pi offered the model for a tool: a name, a description, a JSON Schema. */
+const PiOfferedTool = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
   parameters: Schema.Struct({
@@ -49,37 +54,31 @@ const harnessErrorOf = <A, E>(result: Result.Result<A, E>): HarnessError => {
 
 interface Bridge {
   readonly pi: PiHarness
+  readonly scripted: ScriptedProvider
   readonly dir: string
 }
 
 const built: Bridge[] = []
 
-const bridge = (
+const bridge = async (
   overrides: Readonly<Record<string, string>> = {},
-  argvDumpOf?: (dir: string) => string,
-): Bridge => {
-  const dir = mkdtempSync(join(tmpdir(), 'oru-pi-'))
-  const env = {
-    ...process.env,
-    ORU_PI_COMMAND: process.execPath,
-    ORU_PI_ARGS: JSON.stringify([FAKE_PI]),
-    ORU_PI_SESSION_DIR: join(dir, 'sessions'),
-    FAKE_PI_VERSION: '0.84.0',
-    ...overrides,
-  }
+  scriptedOptions: { readonly piVersion?: string | undefined } = {},
+): Promise<Bridge> => {
+  const scripted = await startScriptedProvider(scriptedOptions)
   const pi = makePiHarness({
-    env: argvDumpOf === undefined ? env : { ...env, FAKE_PI_ARGV_DUMP: argvDumpOf(dir) },
+    env: { ...scripted.env, ...overrides },
     // The bridge talks to people through oru; a test has no one to tell.
     log: () => undefined,
   })
-  const created = { pi, dir }
+  const created = { pi, scripted, dir: scripted.dir }
   built.push(created)
   return created
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const entry of built.splice(0)) {
     entry.pi.shutdown()
+    await entry.scripted.close()
     rmSync(entry.dir, { recursive: true, force: true })
   }
 })
@@ -128,25 +127,6 @@ const echoToolkit = () =>
 
 const tagOf = (event: HarnessEvent): string => event._tag
 
-/**
- * A turn that stays open is only steerable once pi has taken the prompt, and
- * the way to know that is pi's own command log.
- */
-const waitForModes = (file: string, mode: string, count: number): Promise<void> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      for (;;) {
-        const seen = existsSync(file)
-          ? readFileSync(file, 'utf8')
-              .split('\n')
-              .filter((line) => line === mode).length
-          : 0
-        if (seen >= count) return
-        yield* Effect.sleep('20 millis')
-      }
-    }).pipe(Effect.timeout('10 seconds')),
-  )
-
 const turnOf = (collected: readonly HarnessEvent[]): Turn.Turn => {
   for (const event of collected) {
     if (event._tag === 'TurnComplete') return event.turn
@@ -154,14 +134,21 @@ const turnOf = (collected: readonly HarnessEvent[]): Turn.Turn => {
   throw new Error('the bridge reported no turn')
 }
 
+/** What the model saw for a tool: pi forwards oru's JSON Schema, as declared. */
+const offeredTool = (
+  offered: readonly ScriptedFunctionTool[],
+  name: string,
+): { readonly name: string; readonly description: unknown; readonly parameters: unknown } => {
+  const found = offered.find((tool) => tool.name === name)
+  if (found === undefined) throw new Error(`pi offered no tool ${name}`)
+  return found
+}
+
 describe('pi catalogue and health', () => {
   it('lists pi models in the provider/id form a turn passes back, with pi thinking levels', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     const models = await Effect.runPromise(entry.pi.service.listModels())
-    expect(models.map((model) => model.id)).toEqual([
-      'fake-provider/fake-model',
-      'fake-provider/fake-mini',
-    ])
+    expect(models.map((model) => model.id)).toEqual([SCRIPTED_MODEL, SCRIPTED_MINI])
     const [reasoning, plain] = models
     expect(reasoning?.isDefault).toBe(true)
     expect(reasoning?.contextWindow).toBe(200_000)
@@ -170,7 +157,7 @@ describe('pi catalogue and health', () => {
   })
 
   it('reports health from the installed pi version', async () => {
-    const entry = bridge({ FAKE_PI_VERSION: '0.83.9' })
+    const entry = await bridge({}, { piVersion: '0.83.9' })
     const health = await Effect.runPromise(entry.pi.service.health!())
     expect(health.status).toBe('unsupported_version')
     expect(health.installedVersion).toBe('0.83.9')
@@ -179,7 +166,7 @@ describe('pi catalogue and health', () => {
   })
 
   it('reports a missing pi instead of failing the thread', async () => {
-    const entry = bridge({ ORU_PI_COMMAND: '/nonexistent/pi-binary' })
+    const entry = await bridge({ ORU_PI_COMMAND: '/nonexistent/pi-binary' })
     const health = await Effect.runPromise(entry.pi.service.health!())
     expect(health.status).toBe('not_installed')
   })
@@ -187,7 +174,7 @@ describe('pi catalogue and health', () => {
 
 describe('pi turns', () => {
   it('runs a turn, reports live deltas, and assembles it from pi session', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     const collected = await events(entry, request('t1', 'hi'))
     expect(collected.map(tagOf)).toContain('TextDelta')
     expect(collected.map(tagOf)).toContain('ContextWindow')
@@ -206,7 +193,7 @@ describe('pi turns', () => {
   })
 
   it('seeds pi with the history the thread already had', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     const history = [
       Items.userText('earlier question'),
       Items.assistantText('earlier answer'),
@@ -219,8 +206,7 @@ describe('pi turns', () => {
   })
 
   it('runs a tool oru contributed, through the extension pi loaded', async () => {
-    const dump = join(tmpdir(), `oru-pi-tools-${Date.now().toString(36)}.json`)
-    const entry = bridge({ FAKE_PI_TOOLS_DUMP: dump })
+    const entry = await bridge()
     const collected = await events(
       entry,
       request('tools', '/tool echo {"text":"hi"}', { tools: echoToolkit() }),
@@ -249,32 +235,31 @@ describe('pi turns', () => {
     ])
 
     // What pi's model sees: oru's JSON Schema, converted.
-    const registered = Schema.decodeUnknownSync(PiRegisteredTool)(
-      JSON.parse(readFileSync(dump, 'utf8').trim()),
+    const registered = Schema.decodeUnknownSync(PiOfferedTool)(
+      offeredTool(entry.scripted.toolsOfLastRequest(), 'echo'),
     )
     expect(registered.name).toBe('echo')
     expect(registered.description).toBe('Return the text that was passed in.')
     expect(registered.parameters.type).toBe('object')
     expect(registered.parameters.properties.text.type).toBe('string')
     expect(registered.parameters.required).toContain('text')
-    rmSync(dump, { force: true })
   })
 
   it('reports a tool that failed as a failed result, not as a happy one', async () => {
-    const entry = bridge()
-    // `echo` is not registered here, so the extension cannot run it: pi says so
-    // in the result, and that is what the runtime records.
+    const entry = await bridge()
+    // `echo` is not registered here, so pi cannot run it: pi says so in the
+    // result, and that is what the runtime records.
     const collected = await events(entry, request('failed-tool', '/tool echo {"text":"hi"}'))
 
     expect(toolResultOf(collected).ok).toBe(false)
-    expect(toolResultOf(collected).result).toBe('no tool echo')
+    expect(toolResultOf(collected).result).toBe('Tool echo not found')
     // The failure is pi's report about a tool, not a failed turn: the run still
     // lands as an assembled turn.
     expect(turnOf(collected).stop_reason).toBe('stop')
   })
 
   it('reports a provider failure as a failed turn, after saying why', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     const seen: string[] = []
     const failed = await Effect.runPromise(
       Effect.result(
@@ -293,7 +278,7 @@ describe('pi turns', () => {
   })
 
   it('refuses a turn that has nothing to prompt, instead of repeating the last one', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     await events(entry, request('settled', 'hi'))
     const reply = await Effect.runPromise(
       Effect.result(
@@ -313,41 +298,54 @@ describe('pi turns', () => {
   })
 
   it('steers a running turn and aborts one', async () => {
-    const modes = join(tmpdir(), `oru-pi-modes-${Date.now().toString(36)}.log`)
-    const entry = bridge({ FAKE_PI_MODE_LOG: modes })
+    const entry = await bridge()
 
-    const held = events(entry, request('steered', '/hold'))
-    await waitForModes(modes, 'prompt', 1)
+    // A turn is only steerable once pi has taken the prompt, and the way to
+    // know that is the provider's own request log. pi queues the steer and
+    // delivers it after the running assistant message finishes, so the turn
+    // assembles from both answers, with the steer recorded as the user
+    // message the runtime never saw sent.
+    const held = events(entry, request('steered', '/slow'))
+    await entry.scripted.waitForRequests(1)
     await Effect.runPromise(entry.pi.service.steer!('steered', 'go left'))
-    expect(turnOf(await held).items).toEqual([Items.assistantText('Steered')])
+    expect(turnOf(await held).items).toEqual([
+      Items.assistantText('Slow answer streaming.'),
+      Items.userText('go left'),
+      Items.assistantText('Response to: go left'),
+    ])
 
     // An aborted run has no assistant answer to record, and effect-uai has no
     // "cancelled" stop reason, so the turn fails with the reason instead.
     const stopped = Effect.runPromise(
       Effect.result(entry.pi.service.streamTurn(request('aborted', '/hold')).pipe(Stream.runDrain)),
     )
-    await waitForModes(modes, 'prompt', 2)
+    await entry.scripted.waitForRequests(3)
     await Effect.runPromise(entry.pi.service.abort!('aborted'))
     const ended = await stopped
     expect(Result.isFailure(ended)).toBe(true)
     if (Result.isFailure(ended)) {
       expect(harnessErrorOf(ended).message).toContain('aborted')
     }
-    rmSync(modes, { force: true })
   })
 
   it('compacts a thread and reports what pi kept', async () => {
-    const entry = bridge()
-    await events(entry, request('compacted', 'hi'))
+    const entry = await bridge()
+    const note = join(entry.dir, 'note.md')
+    writeFileSync(note, 'oru compaction note', 'utf8')
+    // The read leaves a file operation in pi's session for the compaction to
+    // report, and the two large turns leave an older turn for it to summarize.
+    await events(entry, request('compacted', `/tool read {"path":${JSON.stringify(note)}}`))
+    await events(entry, request('compacted', '/large-context'))
+    await events(entry, request('compacted', '/large-context'))
     const compaction = await Effect.runPromise(
       entry.pi.service.compact!({ threadId: 'compacted', instructions: 'keep the gist' }),
     )
-    expect(compaction.summary).toBe('keep the gist')
-    expect(compaction.readFiles).toEqual(['src/a.ts'])
+    expect(compaction.summary).toContain('Scripted summary (focus: keep the gist).')
+    expect(compaction.readFiles).toEqual([note])
   })
 
   it('forks a thread into a new pi session', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     await events(entry, request('source', 'hi'))
     await Effect.runPromise(
       entry.pi.service.fork!({
@@ -364,7 +362,7 @@ describe('pi turns', () => {
   })
 
   it('stops a thread without losing its session, and discards it on request', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     await events(entry, request('released', 'hi'))
     await Effect.runPromise(entry.pi.service.stop!('released'))
     expect(existsSync(sessionFile(entry, 'released'))).toBe(true)
@@ -378,7 +376,7 @@ describe('pi turns', () => {
   })
 
   it('replaces the pi child when the thread working directory changes', async () => {
-    const entry = bridge()
+    const entry = await bridge()
     const first = join(entry.dir, 'one')
     const second = join(entry.dir, 'two')
     mkdirSync(first, { recursive: true })
@@ -389,23 +387,18 @@ describe('pi turns', () => {
   })
 
   it("turns pi's built-in tools off when the opt-out asks for it, and not otherwise", async () => {
-    const launched = (entry: Bridge): readonly string[] =>
-      readFileSync(join(entry.dir, 'argv.jsonl'), 'utf8')
-        .trim()
-        .split('\n')
-        .flatMap((line) => Schema.decodeUnknownSync(Schema.Array(Schema.String))(JSON.parse(line)))
-    const dumpArgv = (dir: string) => join(dir, 'argv.jsonl')
-
-    const ordinary = bridge({}, dumpArgv)
-    await events(ordinary, request('builtins', 'hi'))
-    expect(launched(ordinary)).toContain('--extension')
-    expect(launched(ordinary)).not.toContain('--no-builtin-tools')
+    const ordinary = await bridge()
+    await events(ordinary, request('builtins', 'hi', { tools: echoToolkit() }))
+    // pi's own coding tools reach the model alongside oru's.
+    const offered = ordinary.scripted.toolsOfLastRequest().map((tool) => tool.name)
+    expect(offered).toContain('read')
+    expect(offered).toContain('bash')
+    expect(offered).toContain('echo')
 
     // The opt-out keeps the injected extension loaded: it is pi's own coding
     // tools the flag removes, not oru's.
-    const opted = bridge({ ORU_PI_NO_BUILTIN_TOOLS: '1' }, dumpArgv)
-    await events(opted, request('opted', 'hi'))
-    expect(launched(opted)).toContain('--no-builtin-tools')
-    expect(launched(opted)).toContain('--extension')
+    const opted = await bridge({ ORU_PI_NO_BUILTIN_TOOLS: '1' })
+    await events(opted, request('opted', 'hi', { tools: echoToolkit() }))
+    expect(opted.scripted.toolsOfLastRequest().map((tool) => tool.name)).toEqual(['echo'])
   })
 })

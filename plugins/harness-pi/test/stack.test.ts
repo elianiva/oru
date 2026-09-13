@@ -1,7 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Effect, Match, Option, Schema, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
@@ -27,10 +24,15 @@ import {
   type SessionEvent,
 } from '@oru/kernel'
 import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
+import {
+  SCRIPTED_MODEL,
+  startScriptedProvider,
+  type ScriptedProvider,
+} from './scripted-provider.ts'
 
 /**
- * The whole stack over a scripted pi: kernel log, harness registry, the pi
- * bridge, and the inference loop that drives them.
+ * The whole stack over a real pi with a scripted model: kernel log, harness
+ * registry, the pi bridge, and the inference loop that drives them.
  *
  * The bridge's own tests prove it speaks pi. This proves the composition: a
  * thread that selects `pi` runs its turn through the bridge, oru executes the
@@ -38,8 +40,7 @@ import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
  * takes, minus the credentials a real model would need.
  */
 
-const FAKE_PI = fileURLToPath(new URL('./fake-pi.mjs', import.meta.url))
-const MODEL = 'fake-provider/fake-model'
+const MODEL = SCRIPTED_MODEL
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
 
@@ -58,28 +59,22 @@ const echoToolPlugin = definePlugin({
   ],
 })
 
-const cleanups: (() => void)[] = []
+const cleanups: Array<() => Promise<void> | void> = []
 
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup()
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup()
 })
 
-const bridge = (): PiHarness => {
-  const dir = mkdtempSync(join(tmpdir(), 'oru-pi-stack-'))
+const bridge = async (): Promise<PiHarness> => {
+  const scripted: ScriptedProvider = await startScriptedProvider()
   const harness = makePiHarness({
-    env: {
-      ...process.env,
-      ORU_PI_COMMAND: process.execPath,
-      ORU_PI_ARGS: JSON.stringify([FAKE_PI]),
-      ORU_PI_SESSION_DIR: join(dir, 'sessions'),
-      FAKE_PI_VERSION: '0.84.0',
-    },
+    env: scripted.env,
     // The bridge talks to people through oru; a test has no one to tell.
     log: () => undefined,
   })
-  cleanups.push(() => {
+  cleanups.push(async () => {
     harness.shutdown()
-    rmSync(dir, { recursive: true, force: true })
+    await scripted.close()
   })
   return harness
 }
@@ -145,7 +140,7 @@ const hostsOf = (harness: PiHarness) => [
 
 describe('harness-pi in a host', () => {
   it("runs a turn the thread selected and records oru's facts", async () => {
-    const harness = bridge()
+    const harness = await bridge()
 
     await run(
       Effect.gen(function* () {
@@ -191,7 +186,7 @@ describe('harness-pi in a host', () => {
   })
 
   it('records a tool pi ran as failed, and leaves no work behind', async () => {
-    const harness = bridge()
+    const harness = await bridge()
 
     await run(
       Effect.gen(function* () {
@@ -209,7 +204,9 @@ describe('harness-pi in a host', () => {
         const events = threadFacts(yield* log.entries, thread)
         const completed = events.find((event) => event._tag === 'tool/completed')
         expect(completed?._tag === 'tool/completed' ? completed.ok : null).toBe(false)
-        expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe('no tool missing')
+        expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe(
+          'Tool missing not found',
+        )
         // A reported outcome is a fact, so nothing is left pending for the
         // runtime to run (ADR-0007).
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
@@ -218,7 +215,7 @@ describe('harness-pi in a host', () => {
   })
 
   it('reports a bridge failure as a failed turn, not a broken host', async () => {
-    const harness = bridge()
+    const harness = await bridge()
 
     await run(
       Effect.gen(function* () {
@@ -243,7 +240,7 @@ describe('harness-pi in a host', () => {
   })
 
   it('answers a health question without running anything', async () => {
-    const harness = bridge()
+    const harness = await bridge()
 
     await run(
       Effect.gen(function* () {
