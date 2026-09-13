@@ -16,13 +16,16 @@ import { demoModelId } from './demo-model.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
 import { foldThread, workOf } from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
-import type { HarnessService, ModelInfo } from '@oru/harness'
+import type { HarnessError, HarnessService, HarnessTurnRequest, ModelInfo } from '@oru/harness'
 
 export interface InferenceContract {
   readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
   readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
-  /** Unified model query — delegates to the active harness. */
-  readonly listModels: () => Effect.Effect<readonly ModelInfo[], SessionLogError>
+  /**
+   * Unified model query — delegates to the active harness, so a failure is the
+   * harness's, not the session log's.
+   */
+  readonly listModels: () => Effect.Effect<readonly ModelInfo[], HarnessError>
   /**
    * Steering: inject a follow-up prompt.
    * - queue-mode harnesses (oru): appends to history, drains on next loop.
@@ -122,17 +125,13 @@ export const openInference = (
             const toolkit = tools.length === 0 ? undefined : toolkitOf(tools)
             // Resolve model: prefer the harness catalogue's first entry when it contains demoModelId,
             // otherwise use demoModelId directly (keeps existing tests stable).
-            const models = yield* harness
-              .listModels()
-              .pipe(Effect.orElseSucceed(() => [] as readonly ModelInfo[]))
+            const models = yield* harness.listModels().pipe(Effect.orElseSucceed(() => []))
             const hasDemo = models.some((m) => m.id === demoModelId)
             const modelId = hasDemo ? demoModelId : (models[0]?.id ?? demoModelId)
-            const request = {
-              threadId: thread,
-              history,
-              model: modelId,
-              ...(toolkit === undefined ? {} : { tools: toolkit }),
-            }
+            const request: HarnessTurnRequest =
+              toolkit === undefined
+                ? { threadId: thread, history, model: modelId }
+                : { threadId: thread, history, model: modelId, tools: toolkit }
             const assembled = yield* Effect.result(harness.turn(request))
             if (Result.isFailure(assembled)) {
               yield* log.write(
@@ -220,11 +219,7 @@ export const openInference = (
         if (done === undefined) return
         yield* Deferred.await(done)
       }),
-    listModels: () =>
-      harness.listModels().pipe(
-        Effect.mapError((cause) => cause as unknown as SessionLogError),
-        Effect.orElseSucceed(() => [] as readonly ModelInfo[]),
-      ) as Effect.Effect<readonly ModelInfo[], SessionLogError>,
+    listModels: () => harness.listModels(),
     steer: (thread, text) =>
       Effect.gen(function* () {
         // Prefer harness-native inject steering when the capability is present.

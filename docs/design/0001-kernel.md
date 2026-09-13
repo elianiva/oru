@@ -54,10 +54,11 @@ export const greeterPlugin = definePlugin({
   id: 'greeter',
   needs: [Logger],
   server: {
-    setup: Effect.gen(function* () {
-      const logger = yield* Logger // Effect DI, stable facade
-      return Effect.void
-    }),
+    setup: () =>
+      Effect.gen(function* () {
+        const logger = yield* Logger // Effect DI, stable facade
+        return Effect.void
+      }),
   },
 })
 ```

@@ -1,6 +1,5 @@
 import { Context, Data, Effect, Option, Stream } from 'effect'
 import type * as Items from '@effect-uai/core/Items'
-import type * as Tool from '@effect-uai/core/Tool'
 import type * as Toolkit from '@effect-uai/core/Toolkit'
 import type * as Turn from '@effect-uai/core/Turn'
 
@@ -58,20 +57,21 @@ export interface ModelInfo {
   readonly costTier?: 'low' | 'medium' | 'high'
 }
 
+/**
+ * One turn, in the vocabulary every harness can carry.
+ *
+ * The members are the ones a harness actually forwards to its provider; thread
+ * identity rides alongside them. A field no harness can honor does not belong
+ * here — a bridge that cannot forward it would have to drop it silently.
+ */
 export interface HarnessTurnRequest {
   readonly threadId: string
   readonly history: readonly Items.HistoryItem[]
   readonly model: string
   // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; harness accepts any toolkit
   readonly tools?: Toolkit.Toolkit<any>
-  /** Raw descriptors, alternative to Toolkit when the caller already rendered. */
-  readonly toolDescriptors?: readonly Tool.ToolDescriptor[]
   readonly temperature?: number
   readonly maxOutputTokens?: number
-  readonly reasoningLevel?: string
-  readonly instructions?: string
-  /** Opaque provider options forwarded verbatim (e.g. serviceTier, effort, promptMode). */
-  readonly providerOptions?: Record<string, unknown>
 }
 
 export type { Turn } from '@effect-uai/core/Turn'
@@ -91,6 +91,18 @@ export interface HarnessService {
 }
 
 export class Harness extends Context.Service<Harness, HarnessService>()('oru/harness') {}
+
+/**
+ * `T` with its `readonly` modifiers removed.
+ *
+ * Contracts declare `readonly` members, but `defineHarness` and the provider
+ * bridges assemble their value one member at a time: an optional member is added
+ * only when it is present, because `exactOptionalPropertyTypes` treats "absent"
+ * and `undefined` as different contracts, and a conditional spread would hide
+ * that omission behind an empty object. Build through this view, then hand the
+ * finished value back as `T`.
+ */
+export type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 /** Collect a `streamTurn` into a single `Turn`. */
 export const turnFromStream = (
@@ -113,6 +125,8 @@ export const turnFromStream = (
     ),
   )
 
+const noModels: readonly ModelInfo[] = []
+
 /** Define a harness bridge. */
 export const defineHarness = (spec: {
   readonly meta: HarnessMeta
@@ -125,20 +139,19 @@ export const defineHarness = (spec: {
   readonly health?: () => Effect.Effect<{ ok: boolean; message?: string }, HarnessError>
   readonly usage?: () => Effect.Effect<unknown, HarnessError>
 }): HarnessService => {
-  const capabilities: HarnessCapabilities = { ...defaultCapabilities, ...spec.capabilities }
-  const listModels = spec.listModels ?? (() => Effect.succeed([] as readonly ModelInfo[]))
   const streamTurn = spec.streamTurn
-  const turn = spec.turn ?? ((request: HarnessTurnRequest) => turnFromStream(streamTurn(request)))
-  // SAFETY: HarnessService is a plain record; extra keys are fine
-  return {
+  const service: Mutable<HarnessService> = {
     meta: spec.meta,
-    capabilities,
-    listModels,
+    capabilities: { ...defaultCapabilities, ...spec.capabilities },
+    listModels: spec.listModels ?? (() => Effect.succeed(noModels)),
     streamTurn,
-    turn,
-    ...(spec.steer === undefined ? {} : { steer: spec.steer }),
-    ...(spec.abort === undefined ? {} : { abort: spec.abort }),
-    ...(spec.health === undefined ? {} : { health: spec.health }),
-    ...(spec.usage === undefined ? {} : { usage: spec.usage }),
+    turn: spec.turn ?? ((request) => turnFromStream(streamTurn(request))),
   }
+  // A capability the harness did not implement stays absent so callers can gate
+  // on it; it is added only once it is proven present.
+  if (spec.steer !== undefined) service.steer = spec.steer
+  if (spec.abort !== undefined) service.abort = spec.abort
+  if (spec.health !== undefined) service.health = spec.health
+  if (spec.usage !== undefined) service.usage = spec.usage
+  return service
 }

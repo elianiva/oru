@@ -68,8 +68,8 @@ export const undeclaredCoeffect = definePlugin({
   needs: [Logger],
   provides: [Logger],
   server: {
-    // @ts-expect-error setup must not yield a coeffect the declaration does not list
     setup: () =>
+      // @ts-expect-error setup must not yield a coeffect the declaration does not list
       Effect.gen(function* () {
         yield* Greeter
         return Context.make(Logger, { log: () => {} })

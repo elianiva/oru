@@ -178,12 +178,7 @@ export const makeHost = Effect.fnUntraced(function* (
     }
 
     const rawSetup = plugin.server?.setup
-    const setup =
-      rawSetup === undefined
-        ? Effect.succeed(Context.empty())
-        : typeof rawSetup === 'function'
-          ? (rawSetup as (ctx: PluginContext) => Effect.Effect<unknown, unknown, unknown>)(ctx)
-          : (rawSetup as Effect.Effect<unknown, unknown, unknown>)
+    const setup = rawSetup === undefined ? Effect.succeed(Context.empty()) : rawSetup(ctx)
     // SAFETY: missing server facets contribute an empty context; present facets return their provision context
     const base = setup as Effect.Effect<Context.Context<unknown>, unknown, Scope.Scope>
     let wired = base

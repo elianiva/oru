@@ -77,7 +77,7 @@ const makeHarnessPiService = (): HarnessService => {
   })
 }
 
-const setup = Effect.succeed(Context.make(Harness, makeHarnessPiService()))
+const setup = () => Effect.succeed(Context.make(Harness, makeHarnessPiService()))
 
 export const harnessPiPlugin = definePlugin({
   id: 'oru/harness-pi',

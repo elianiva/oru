@@ -10,5 +10,6 @@ export {
   type HarnessService,
   type HarnessTurnRequest,
   type ModelInfo,
+  type Mutable,
   type Turn,
 } from './harness.ts'

@@ -30,9 +30,12 @@ export interface ServerFacet<
   Needs extends readonly AnyServiceToken[],
   Provides extends readonly Contribution[],
 > {
-  readonly setup:
-    | SetupEffect<Needs, Provides>
-    | ((ctx: PluginContext) => SetupEffect<Needs, Provides>)
+  /**
+   * Activation for this facet: it receives the plugin's context and returns the
+   * services the declaration claims. One shape, so the host never has to
+   * discriminate at runtime between "already built" and "build me".
+   */
+  readonly setup: (ctx: PluginContext) => SetupEffect<Needs, Provides>
 }
 
 export interface Plugin<

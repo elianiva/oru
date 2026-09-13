@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Stream } from 'effect'
+import * as AiError from '@effect-uai/core/AiError'
 import {
   LanguageModel,
   type CommonRequest,
@@ -12,6 +13,7 @@ import {
   type HarnessService,
   type HarnessTurnRequest,
   type ModelInfo,
+  type Mutable,
 } from '@oru/harness'
 
 export const demoModelId = 'mock'
@@ -47,37 +49,34 @@ const catalogue: readonly ModelInfo[] = [
   },
 ] as const
 
-interface MaybeAiError {
-  readonly _tag?: string
-  readonly message?: string
-  readonly code?: string
-  readonly retryable?: boolean
-}
+/**
+ * Provider failures reach this bridge as the typed `AiError` union, so the tag is
+ * already the code and the retry policy is a branch on the domain value — no
+ * structural probing of an `unknown` cause.
+ */
+const isRetryable = (cause: AiError.AiError): boolean =>
+  cause._tag === 'RateLimited' || cause._tag === 'Unavailable' || cause._tag === 'Timeout'
 
-const asMaybeAiError = (cause: unknown): MaybeAiError =>
-  typeof cause === 'object' && cause !== null ? (cause as MaybeAiError) : {}
+const toHarnessError = (cause: AiError.AiError): HarnessError =>
+  new HarnessError({
+    message: AiError.describe(cause),
+    code: cause._tag,
+    retryable: isRetryable(cause),
+    cause,
+  })
 
-const mapAiError = (cause: unknown): HarnessError => {
-  if (cause instanceof HarnessError) return cause
-  const anyCause = asMaybeAiError(cause)
-  const message =
-    typeof anyCause.message === 'string' && anyCause.message.length > 0
-      ? anyCause.message
-      : String(cause)
-  const retryable = typeof anyCause.retryable === 'boolean' ? anyCause.retryable : undefined
-  const base = { message, cause } as const
-  if (typeof anyCause.code === 'string') {
-    if (retryable !== undefined)
-      return new HarnessError({ ...base, code: anyCause.code, retryable })
-    return new HarnessError({ ...base, code: anyCause.code })
-  }
-  if (typeof anyCause._tag === 'string') {
-    if (retryable !== undefined)
-      return new HarnessError({ ...base, code: anyCause._tag, retryable })
-    return new HarnessError({ ...base, code: anyCause._tag })
-  }
-  if (retryable !== undefined) return new HarnessError({ ...base, retryable })
-  return new HarnessError(base)
+/**
+ * The harness request is the model request plus thread identity, so forward
+ * exactly the members `CommonRequest` declares. Adding an optional member only
+ * once it is present keeps "absent" distinct from `undefined`, which the model
+ * contract does not accept under `exactOptionalPropertyTypes`.
+ */
+const toCommonRequest = (request: HarnessTurnRequest): CommonRequest => {
+  const common: Mutable<CommonRequest> = { history: request.history, model: request.model }
+  if (request.tools !== undefined) common.tools = request.tools
+  if (request.temperature !== undefined) common.temperature = request.temperature
+  if (request.maxOutputTokens !== undefined) common.maxOutputTokens = request.maxOutputTokens
+  return common
 }
 
 export const harnessFromLanguageModel = (model: LanguageModelService): HarnessService =>
@@ -85,32 +84,9 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
     meta,
     capabilities,
     listModels: () => Effect.succeed(catalogue),
-    streamTurn: (request: HarnessTurnRequest) => {
-      const common: Record<string, unknown> = {
-        history: request.history,
-        model: request.model,
-      }
-      if (request.tools !== undefined) common['tools'] = request.tools
-      if (request.toolDescriptors !== undefined) common['toolDescriptors'] = request.toolDescriptors
-      if (request.temperature !== undefined) common['temperature'] = request.temperature
-      if (request.maxOutputTokens !== undefined) common['maxOutputTokens'] = request.maxOutputTokens
-      if (request.reasoningLevel !== undefined) common['reasoningLevel'] = request.reasoningLevel
-      if (request.instructions !== undefined) common['instructions'] = request.instructions
-      if (request.providerOptions !== undefined) common['providerOptions'] = request.providerOptions
-      return model.streamTurn(common as CommonRequest).pipe(Stream.mapError(mapAiError))
-    },
-    turn: (request: HarnessTurnRequest) => {
-      const common: Record<string, unknown> = {
-        history: request.history,
-        model: request.model,
-      }
-      if (request.tools !== undefined) common['tools'] = request.tools
-      if (request.toolDescriptors !== undefined) common['toolDescriptors'] = request.toolDescriptors
-      if (request.temperature !== undefined) common['temperature'] = request.temperature
-      if (request.maxOutputTokens !== undefined) common['maxOutputTokens'] = request.maxOutputTokens
-      if (request.providerOptions !== undefined) common['providerOptions'] = request.providerOptions
-      return model.turn(common as CommonRequest).pipe(Effect.mapError(mapAiError))
-    },
+    streamTurn: (request) =>
+      model.streamTurn(toCommonRequest(request)).pipe(Stream.mapError(toHarnessError)),
+    turn: (request) => model.turn(toCommonRequest(request)).pipe(Effect.mapError(toHarnessError)),
     abort: (threadId: string) =>
       Effect.void.pipe(
         Effect.tap(() =>
@@ -122,11 +98,12 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
     health: () => Effect.succeed({ ok: true }),
   })
 
-const setup = Effect.gen(function* () {
-  const languageModel = yield* LanguageModel
-  const service = harnessFromLanguageModel(languageModel)
-  return Context.make(Harness, service)
-})
+const setup = () =>
+  Effect.gen(function* () {
+    const languageModel = yield* LanguageModel
+    const service = harnessFromLanguageModel(languageModel)
+    return Context.make(Harness, service)
+  })
 
 /**
  * `harness-oru` — the effect-uai harness.

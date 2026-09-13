@@ -56,14 +56,15 @@ const greeterPlugin = definePlugin({
   needs: [Logger],
   provides: [Greeter],
   server: {
-    setup: Effect.gen(function* () {
-      const logger = yield* Logger
-      yield* logger.log('greeter:up')
-      yield* logger.log('greeter:ambient')
-      return Context.make(Greeter, {
-        greet: (name) => logger.log(`hello ${name}`).pipe(Effect.as(`hello ${name}`)),
-      })
-    }),
+    setup: () =>
+      Effect.gen(function* () {
+        const logger = yield* Logger
+        yield* logger.log('greeter:up')
+        yield* logger.log('greeter:ambient')
+        return Context.make(Greeter, {
+          greet: (name) => logger.log(`hello ${name}`).pipe(Effect.as(`hello ${name}`)),
+        })
+      }),
   },
 })
 
