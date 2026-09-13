@@ -4,7 +4,7 @@ import type { HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { inferencePlugin } from '@oru/inference'
+import { Inference } from '@oru/inference'
 import { PluginId, ThreadId } from '@oru/kernel'
 import { button } from '@/components/ui/button.ts'
 import * as Sidebar from '@/components/ui/sidebar.ts'
@@ -32,8 +32,7 @@ const titledPlugins = (graph: ViewGraph): ReadonlySet<string> => {
   return ids
 }
 
-const inferenceLive = (graph: ViewGraph): boolean =>
-  graph.active.some((panel) => panel.plugin === inferencePlugin.id)
+const inferenceLive = (graph: ViewGraph): boolean => graph.tokens.includes(Inference.key)
 
 export const Model = Schema.Struct({
   panels: Schema.HashMap(PluginId, PluginPanel.Model),

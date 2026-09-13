@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
+import { Inference } from '@oru/inference'
 import { CreateThread, Message, update, wiredView as view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import * as ThreadPanel from '../src/thread-panel.ts'
@@ -27,7 +28,7 @@ describe('root view', () => {
       Scene.expect(Scene.text('Log')).toExist(),
       Scene.Subscription.emit(
         Message.GraphArrived({
-          graph: { active: [{ plugin: 'logging', title: 'Log' }] },
+          graph: { active: [{ plugin: 'logging', title: 'Log' }], tokens: [] },
         }),
       ),
       Scene.expect(Scene.text('Greet')).not.toExist(),
@@ -46,6 +47,7 @@ describe('root view', () => {
               { plugin: 'logging', title: 'Log' },
               { plugin: 'greeter', title: 'Greet' },
             ],
+            tokens: [],
           },
         }),
       ),
@@ -64,6 +66,7 @@ describe('root view', () => {
             { plugin: 'logging', title: 'Log' },
             { plugin: 'greeter', title: 'Greet' },
           ],
+          tokens: [],
         },
       }),
     )
@@ -83,20 +86,34 @@ describe('root view', () => {
     )
   })
 
-  it('opens a thread panel when inference becomes active', () => {
+  it('opens a thread panel when the Inference token is live', () => {
     const next = update(
       idle,
       Message.GraphArrived({
         graph: {
           active: [
             { plugin: 'logging', title: 'Log' },
-            { plugin: 'oru/inference', title: 'oru/inference' },
+            { plugin: 'engines/stub', title: 'engines/stub' },
           ],
+          tokens: [Inference.key],
         },
       }),
     )
     expect(next.model.thread).toEqual(ThreadPanel.init())
     expect('commands' in next ? next.commands : undefined).toHaveLength(1)
+  })
+
+  it('does not open a thread panel for the inference plugin id without the token', () => {
+    const next = update(
+      idle,
+      Message.GraphArrived({
+        graph: {
+          active: [{ plugin: 'oru/inference', title: 'oru/inference' }],
+          tokens: [],
+        },
+      }),
+    )
+    expect(next.model.thread).toBeUndefined()
   })
 
   it('shows a turn and a tool call on the thread panel', () => {
@@ -131,8 +148,9 @@ describe('root view', () => {
           graph: {
             active: [
               { plugin: 'model/fake', title: 'model/fake' },
-              { plugin: 'oru/inference', title: 'oru/inference' },
+              { plugin: 'engines/stub', title: 'engines/stub' },
             ],
+            tokens: [Inference.key],
           },
         }),
       ),

@@ -4,7 +4,7 @@ import * as Items from '@effect-uai/core/Items'
 import * as Tool from '@effect-uai/core/Tool'
 import * as Toolkit from '@effect-uai/core/Toolkit'
 import type { PendingCall } from './session-fold.ts'
-import type { ToolContribution } from './tool-kind.ts'
+import type { ToolContribution, ToolOutcome } from './tool-kind.ts'
 
 export const historyOf = (
   events: readonly SessionEvent[],
@@ -49,7 +49,23 @@ export const historyOf = (
 }
 
 export const toolkitOf = (tools: readonly ToolContribution[]) =>
-  Toolkit.fromArray(tools.map((tool) => tool.localTool))
+  Toolkit.fromArray(
+    tools.map((tool) =>
+      Tool.make({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: Tool.fromEffectSchema(tool.parameters),
+        run: (input) =>
+          tool
+            .runJson(JSON.stringify(input))
+            .pipe(
+              Effect.flatMap((outcome) =>
+                outcome.ok ? Effect.succeed(outcome.result) : Effect.fail(outcome.result),
+              ),
+            ),
+      }),
+    ),
+  )
 
 export const failureReason = (cause: unknown): string => {
   if (cause instanceof Error && cause.message !== '') return cause.message
@@ -59,20 +75,10 @@ export const failureReason = (cause: unknown): string => {
 export const runTool = (
   tools: readonly ToolContribution[],
   pending: PendingCall,
-): Effect.Effect<{ readonly ok: boolean; readonly result: string }> => {
+): Effect.Effect<ToolOutcome> => {
   const tool = tools.find((candidate) => candidate.name === pending.name)
   if (tool === undefined) {
     return Effect.succeed({ ok: false, result: `unknown tool ${pending.name}` })
   }
-  const ran = Tool.execute(tool.localTool, {
-    type: 'function_call',
-    call_id: pending.call,
-    name: pending.name,
-    arguments: pending.arguments,
-  }).pipe(
-    Effect.map((output) => ({ ok: true, result: output.output })),
-    Effect.catch((cause) => Effect.succeed({ ok: false, result: failureReason(cause) })),
-  )
-  // SAFETY: defineTool execute is Effect<unknown> with no remaining requirements
-  return ran as Effect.Effect<{ readonly ok: boolean; readonly result: string }>
+  return tool.runJson(pending.arguments)
 }

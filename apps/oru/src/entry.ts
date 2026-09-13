@@ -3,7 +3,6 @@ import { Effect, Layer, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import { makeHost, sessionLogLayer } from '@oru/kernel'
-import { demoModelLayer } from '@oru/inference'
 import { Runtime } from 'foldkit'
 import { fixtureTitles, hostPlugins } from './fixtures.ts'
 import { GraphRpc } from './graph-rpc.ts'
@@ -47,10 +46,6 @@ const program = Effect.gen(function* () {
 
 Effect.runFork(
   Effect.scoped(
-    program.pipe(
-      Effect.provide(sessionLogLayer),
-      Effect.provide(EventJournal.layerMemory),
-      Effect.provide(demoModelLayer),
-    ),
+    program.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
   ),
 )
