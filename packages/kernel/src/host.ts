@@ -12,7 +12,6 @@ import {
   Semaphore,
   Stream,
 } from 'effect'
-import { EventJournal } from 'effect/unstable/eventlog'
 import {
   dataContributionsOf,
   serviceTokensOf,
@@ -20,6 +19,7 @@ import {
   type ContributionKind,
   type DataContribution,
 } from './contribution.ts'
+import { BootKind } from './boot.ts'
 import {
   CoeffectsUnmet,
   DeclarationMismatch,
@@ -36,7 +36,7 @@ import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
 import { openHostFactRecorder, recoverLifecycle } from './host-lifecycle.ts'
-import { fromJournal, SessionLog } from './session-log.ts'
+import { SessionLog } from './session-log.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -81,10 +81,14 @@ interface Generation {
 
 export const makeHost = Effect.fnUntraced(function* (
   plugins: readonly AnyPlugin[],
-): Effect.fn.Return<Host, BootError, Scope.Scope | EventJournal.EventJournal> {
+): Effect.fn.Return<Host, BootError, Scope.Scope | SessionLog> {
   const hostScope = yield* Scope.Scope
   const pubsub = yield* PubSub.unbounded<HostEvent>()
-  const log = fromJournal(yield* EventJournal.EventJournal)
+  // The journal is a service rather than a second reader of it. Two `SessionLog`
+  // values over one journal serialize their writes under two locks, which is
+  // how two facts come to share a leaf (ADR-0003), and the SQL driver rejects
+  // the overlap outright.
+  const log = yield* SessionLog
   const known = new Map<PluginId, AnyPlugin>()
   for (const plugin of plugins) {
     if (!known.has(plugin.id)) known.set(plugin.id, plugin)
@@ -117,6 +121,24 @@ export const makeHost = Effect.fnUntraced(function* (
   const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
   const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
   const generations = yield* Ref.make<ReadonlyMap<PluginId, Generation>>(new Map())
+  const booted = yield* Ref.make<ReadonlySet<PluginId>>(new Set())
+
+  /**
+   * Run the boot steps the current plugin set has not run yet.
+   *
+   * The host calls this once its activation pass is done and again after any
+   * later activation, so a step that reads the whole graph never runs against
+   * part of it, and a plugin that joins after boot still gets its step
+   * (ADR-0010).
+   */
+  const runBootSteps = Effect.fnUntraced(function* () {
+    const done = yield* Ref.get(booted)
+    for (const step of yield* readContributions(BootKind)) {
+      if (done.has(step.plugin)) continue
+      yield* Ref.update(booted, (set) => new Set(set).add(step.plugin))
+      yield* step.value
+    }
+  })
 
   const readContributions = <C>(
     kind: ContributionKind<C>,
@@ -310,6 +332,13 @@ export const makeHost = Effect.fnUntraced(function* (
       next.delete(plugin.id)
       return next
     })
+    // A fresh generation has not run its boot step yet, so one that activates
+    // after boot still gets it.
+    yield* Ref.update(booted, (set) => {
+      const next = new Set(set)
+      next.delete(plugin.id)
+      return next
+    })
     return activation
   })
 
@@ -382,6 +411,7 @@ export const makeHost = Effect.fnUntraced(function* (
         yield* remember(plugin)
         const result = yield* Effect.result(install(plugin))
         yield* reconcile()
+        yield* runBootSteps()
         return yield* Effect.fromResult(result)
       }),
     )
@@ -431,6 +461,7 @@ export const makeHost = Effect.fnUntraced(function* (
           ? yield* Effect.result(cutover(plugin))
           : yield* Effect.result(install(plugin))
         yield* reconcile()
+        yield* runBootSteps()
         return yield* Effect.fromResult(result)
       }),
     )
@@ -449,6 +480,7 @@ export const makeHost = Effect.fnUntraced(function* (
     yield* install(plugin).pipe(Effect.ignore)
   }
   yield* refreshBlocked()
+  yield* runBootSteps()
 
   return {
     activate,

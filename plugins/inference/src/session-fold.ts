@@ -36,8 +36,10 @@ export interface ThreadState {
 export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): ThreadState => {
   let awaitingModel = false
   let openTurn: TurnId | undefined
-  const requested: PendingCall[] = []
-  const completed = new Set<string>()
+  // Keyed by turn and call, so a harness reusing a call id in a later turn is
+  // asking again, and a request that follows its own completion reopens the
+  // work instead of leaving the turn with no answer and nothing to run.
+  const pending = new Map<string, PendingCall>()
 
   for (const event of pathOfLane(events, threadLane(thread))) {
     Match.value(event).pipe(
@@ -52,17 +54,24 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'agent/inbox/spliced': () => {},
         'message/appended': (event) => {
           if (event.role === 'user') awaitingModel = true
-          if (event.role === 'assistant') awaitingModel = false
+          // The model answered, so this turn is closed and the next request
+          // opens its own rather than continuing this one.
+          if (event.role === 'assistant') {
+            awaitingModel = false
+            openTurn = undefined
+          }
         },
         'turn/started': (event) => {
           openTurn = event.turn
         },
         'turn/failed': () => {
           awaitingModel = false
+          openTurn = undefined
         },
         'tool/requested': (event) => {
           awaitingModel = false
-          requested.push(
+          pending.set(
+            `${event.turn}:${event.call}`,
             PendingCall.make({
               turn: event.turn,
               call: event.call,
@@ -72,7 +81,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           )
         },
         'tool/completed': (event) => {
-          completed.add(event.call)
+          pending.delete(`${event.turn}:${event.call}`)
           awaitingModel = true
         },
       }),
@@ -83,7 +92,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
     thread,
     openTurn,
     awaitingModel,
-    pending: requested.filter((call) => !completed.has(call.call)),
+    pending: [...pending.values()],
   }
 }
 

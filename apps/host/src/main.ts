@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Effect, type Scope } from 'effect'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
+import type { SqlError } from 'effect/unstable/sql/SqlError'
 import type { BootError } from '@oru/kernel'
 import { packageVersion, parseArgs, usage } from './cli.ts'
 import { hostPlugins } from './plugins.ts'
@@ -13,10 +14,14 @@ const write = (line: string, stream: NodeJS.WriteStream) =>
 
 /**
  * A `ServeError` carries the reason it wrapped and nothing else, so its own
- * message is empty; everything else already says what went wrong.
+ * message is empty, and a `SqlError` says something only when the driver did.
+ * Everything else already says what went wrong.
  */
-const describeFailure = (error: BootError | ServeError): string =>
-  error._tag === 'ServeError' ? String(error.cause) : error.message
+const describeFailure = (error: BootError | ServeError | SqlError): string => {
+  if (error._tag === 'ServeError') return String(error.cause)
+  if (error._tag === 'SqlError') return error.message ?? String(error.cause)
+  return error.message
+}
 
 /**
  * Resolve when the process is asked to stop, so the scope closes in order: the
@@ -55,6 +60,7 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
       plugins: hostPlugins,
       hostname: command.hostname,
       port: command.port,
+      journal: command.journal,
     })
     yield* write(`oru host listening on ${running.url}\n`, process.stdout)
     yield* askedToStop

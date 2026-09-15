@@ -6,6 +6,7 @@ import {
   ServiceMissing,
   ServiceUndeclared,
   SessionLog,
+  sessionLogLayer,
   defineContributionKind,
   definePlugin,
   defineService,
@@ -101,7 +102,7 @@ describe('kernel activation', () => {
           expect(after.providers.has('oru/greeter')).toBe(false)
           expect(events.at(-1)).toBe('logger:close')
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -124,7 +125,7 @@ describe('kernel activation', () => {
           expect(live.active.has('logging')).toBe(true)
           expect(live.active.has('lonely')).toBe(false)
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -147,7 +148,7 @@ describe('kernel activation', () => {
           const after = yield* host.contributions(ToolKind)
           expect(after).toEqual([])
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -176,7 +177,7 @@ describe('kernel activation', () => {
             ),
           )
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -212,7 +213,7 @@ describe('kernel activation', () => {
           )
           expect((yield* host.graph).active.has('sneaky')).toBe(false)
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
@@ -237,7 +238,7 @@ describe('kernel activation', () => {
           const logger = yield* host.service(Logger)
           yield* logger.log('ok')
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 })

@@ -171,4 +171,83 @@ describe('session fold', () => {
     ])
     expect(workOf(foldThread(afterFail, 't1'))).toEqual(Idle.make({}))
   })
+
+  it('opens a turn for the next request, and runs a call id a new turn reuses', () => {
+    const first = [
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'e1',
+        thread: 't1',
+        role: 'user',
+        body: 'hello',
+      }),
+      TurnStarted.make({ ...unsignedTree, id: 'e2', thread: 't1', turn: 'turn-1' }),
+      ToolRequested.make({
+        ...unsignedTree,
+        id: 'e3',
+        thread: 't1',
+        turn: 'turn-1',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{"text":"hi"}',
+      }),
+      ToolCompleted.make({
+        ...unsignedTree,
+        id: 'e4',
+        thread: 't1',
+        turn: 'turn-1',
+        call: 'call_1',
+        name: 'echo',
+        ok: true,
+        result: '{"echoed":"hi"}',
+      }),
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'e5',
+        thread: 't1',
+        role: 'assistant',
+        body: 'done',
+      }),
+    ]
+    expect(workOf(foldThread(chain(first), 't1'))).toEqual(Idle.make({}))
+
+    // The answered turn is closed, so the next request starts its own.
+    const afterRequest = chain([
+      ...first,
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'e6',
+        thread: 't1',
+        role: 'user',
+        body: 'again',
+      }),
+    ])
+    expect(workOf(foldThread(afterRequest, 't1'))).toEqual(CallModel.make({ turn: undefined }))
+
+    // A bridge reusing the call id in the new turn is asking again, not
+    // repeating a call this thread already ran.
+    const afterReuse = chain([
+      ...first,
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'e6',
+        thread: 't1',
+        role: 'user',
+        body: 'again',
+      }),
+      TurnStarted.make({ ...unsignedTree, id: 'e7', thread: 't1', turn: 'turn-2' }),
+      ToolRequested.make({
+        ...unsignedTree,
+        id: 'e8',
+        thread: 't1',
+        turn: 'turn-2',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{"text":"again"}',
+      }),
+    ])
+    const reused = workOf(foldThread(afterReuse, 't1'))
+    expect(reused._tag).toBe('RunTool')
+    if (reused._tag === 'RunTool') expect(reused.pending.turn).toBe('turn-2')
+  })
 })

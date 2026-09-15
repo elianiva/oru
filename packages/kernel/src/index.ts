@@ -1,3 +1,4 @@
+export * from './boot.ts'
 export * from './contribution.ts'
 export * from './errors.ts'
 export * from './event.ts'
@@ -36,6 +37,7 @@ export {
 } from './session-fold.ts'
 export {
   chain,
+  compactionCut,
   laneOf,
   leafOf,
   modelVisiblePath,

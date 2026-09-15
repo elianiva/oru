@@ -16,12 +16,15 @@ import {
 import {
   InboxSpliced,
   MessageAppended,
+  ThreadBranched,
   ThreadCompacted,
   ThreadConfigured,
   ToolCompleted,
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  compactionCut,
+  foldNamedThreads,
   foldThreadConfig,
   foldThreadCwd,
   pathOfLane,
@@ -66,6 +69,12 @@ export interface InferenceContract {
   readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
   readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
   /**
+   * Continue every lane the log names with work left. Idempotent, and meant to
+   * run once the graph is whole, so a restarted host finishes the turns it
+   * inherited rather than leaving them parked (ADR-0010).
+   */
+  readonly resume: () => Effect.Effect<void>
+  /**
    * Unified model query. Delegates to the active harness, so a failure is the
    * harness's, not the session log's.
    */
@@ -88,11 +97,15 @@ export interface InferenceContract {
   readonly stop: (thread: string) => Effect.Effect<void, SessionLogError | HarnessError>
   /** Release a thread's harness session and delete what it kept. */
   readonly discard: (thread: string) => Effect.Effect<void, SessionLogError | HarnessError>
-  /** Copy a thread's harness session, at a checkpoint, into a new thread. */
+  /**
+   * Fork a thread's conversation into a new thread. The new lane records the
+   * entry it continues from, so its memory is reprojected from the log; the
+   * active harness is asked to copy its own session only when it can.
+   */
   readonly fork: (
     request: HarnessForkRequest,
   ) => Effect.Effect<void, SessionLogError | HarnessError>
-  /** Compact a thread's harness session and record what it kept. */
+  /** Compact a thread's harness session and record the view the log keeps. */
   readonly compact: (
     thread: string,
     instructions?: string,
@@ -305,9 +318,7 @@ export const openInference = (
     ): Effect.Effect<void, SessionLogError> =>
       Effect.gen(function* () {
         for (const compaction of collected.compactions) {
-          // `firstKeptEntryId` is oru's: the runtime fills it with the thread's
-          // current leaf, because the harness's checkpoint id is its own.
-          const firstKeptEntryId = lastEventIdOf(events, thread) ?? (yield* newId())
+          const firstKeptEntryId = compactionCut(events, thread) ?? (yield* newId())
           yield* log.write(
             ThreadCompacted.make({
               ...unsignedTree,
@@ -448,6 +459,18 @@ export const openInference = (
         }),
       )
 
+    /**
+     * Continue the lanes a restarted host finds with work left: the fold, not a
+     * snapshot, is what says which threads were running (ADR-0010).
+     */
+    const resume = Effect.gen(function* () {
+      const entries = yield* log.entries
+      for (const thread of foldNamedThreads(entries)) {
+        if (workOf(foldThread(entries, thread))._tag === 'Idle') continue
+        yield* kick(thread)
+      }
+    })
+
     const queueSteer = (thread: string, text: string) =>
       Effect.gen(function* () {
         yield* log.write(
@@ -474,6 +497,7 @@ export const openInference = (
     return {
       signals: Stream.fromPubSub(signals),
       send: (thread, text) => queueSteer(thread, text),
+      resume: () => resume.pipe(Effect.orDie),
       whenIdle: (thread) =>
         Effect.gen(function* () {
           const done = idle.get(thread)
@@ -549,15 +573,34 @@ export const openInference = (
       fork: (request) =>
         Effect.gen(function* () {
           const events = yield* log.entries
-          const harness = yield* resolveHarness(foldThreadConfig(events, request.sourceThreadId))
-          if (harness?.fork === undefined) {
-            return yield* Effect.fail(
-              new HarnessError({
-                message: 'the active harness cannot fork a thread',
-                code: 'unsupported_operation',
+          const fromId = lastEventIdOf(events, request.sourceThreadId)
+          // The fork runs as its source did until someone says otherwise.
+          const config = foldThreadConfig(events, request.sourceThreadId)
+          yield* log.write(
+            ThreadConfigured.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread: request.targetThreadId,
+              harness: config.harness,
+              model: config.model,
+              reasoning: config.reasoning,
+            }),
+          )
+          // The lane is oru's: the fork reaches back to the entry it continues
+          // from whether or not the harness can copy a session of its own.
+          if (fromId !== undefined) {
+            yield* log.write(
+              ThreadBranched.make({
+                ...unsignedTree,
+                id: yield* newId(),
+                thread: request.targetThreadId,
+                fromId,
+                summary: undefined,
               }),
             )
           }
+          const harness = yield* resolveHarness(config)
+          if (harness?.fork === undefined) return
           yield* harness.fork(request)
         }),
       compact: (thread, instructions) =>
@@ -581,7 +624,7 @@ export const openInference = (
               id: yield* newId(),
               thread,
               summary: compaction.summary,
-              firstKeptEntryId: lastEventIdOf(events, thread) ?? (yield* newId()),
+              firstKeptEntryId: compactionCut(events, thread) ?? (yield* newId()),
               tokensBefore: compaction.tokensBefore,
               readFiles: compaction.readFiles,
               modifiedFiles: compaction.modifiedFiles,

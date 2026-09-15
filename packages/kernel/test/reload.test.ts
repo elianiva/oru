@@ -9,6 +9,7 @@ import {
   defineService,
   makeFacetLoader,
   makeHost,
+  sessionLogLayer,
 } from '../src/index.ts'
 import { facetEvents } from './fixtures/reload/events.ts'
 import { Banner, Echo } from './fixtures/reload/tokens.ts'
@@ -81,7 +82,7 @@ describe('FacetLoader', () => {
           expect(yield* echo.echo('x')).toBe('b:x')
           expect(facetEvents).toEqual(['a:open', 'b:open', 'a:close'])
         }),
-      ).pipe(Effect.provide(EventJournal.layerMemory)),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 })
