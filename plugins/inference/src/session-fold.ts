@@ -5,6 +5,7 @@ import {
   ThreadId,
   ToolCallId,
   TurnId,
+  type ApprovalVerdict,
   type SessionEvent,
 } from '@oru/kernel'
 
@@ -23,7 +24,13 @@ export const CallModel = Schema.TaggedStruct('CallModel', {
 export const RunTool = Schema.TaggedStruct('RunTool', {
   pending: PendingCall,
 })
-export const Work = Schema.Union([Idle, CallModel, RunTool])
+export const AwaitApproval = Schema.TaggedStruct('AwaitApproval', {
+  pending: PendingCall,
+})
+export const RecordDenied = Schema.TaggedStruct('RecordDenied', {
+  pending: PendingCall,
+})
+export const Work = Schema.Union([Idle, CallModel, RunTool, AwaitApproval, RecordDenied])
 export type Work = typeof Work.Type
 
 export interface ThreadState {
@@ -31,15 +38,16 @@ export interface ThreadState {
   readonly openTurn: TurnId | undefined
   readonly awaitingModel: boolean
   readonly pending: readonly PendingCall[]
+  readonly decisions: ReadonlyMap<string, ApprovalVerdict>
 }
+
+const requestKey = (call: string): string => call
 
 export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): ThreadState => {
   let awaitingModel = false
   let openTurn: TurnId | undefined
-  // Keyed by turn and call, so a harness reusing a call id in a later turn is
-  // asking again, and a request that follows its own completion reopens the
-  // work instead of leaving the turn with no answer and nothing to run.
   const pending = new Map<string, PendingCall>()
+  const decisions = new Map<string, ApprovalVerdict>()
 
   for (const event of pathOfLane(events, threadLane(thread))) {
     Match.value(event).pipe(
@@ -54,8 +62,6 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'agent/inbox/spliced': () => {},
         'message/appended': (event) => {
           if (event.role === 'user') awaitingModel = true
-          // The model answered, so this turn is closed and the next request
-          // opens its own rather than continuing this one.
           if (event.role === 'assistant') {
             awaitingModel = false
             openTurn = undefined
@@ -73,7 +79,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'tool/requested': (event) => {
           awaitingModel = false
           pending.set(
-            `${event.turn}:${event.call}`,
+            requestKey(event.call),
             PendingCall.make({
               turn: event.turn,
               call: event.call,
@@ -83,8 +89,11 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           )
         },
         'tool/completed': (event) => {
-          pending.delete(`${event.turn}:${event.call}`)
+          pending.delete(requestKey(event.call))
           awaitingModel = true
+        },
+        'approval/decided': (event) => {
+          if (!decisions.has(event.request)) decisions.set(event.request, event.decision)
         },
       }),
     )
@@ -95,12 +104,31 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
     openTurn,
     awaitingModel,
     pending: [...pending.values()],
+    decisions,
   }
 }
 
 export const workOf = (state: ThreadState): Work => {
   const pending = state.pending[0]
-  if (pending !== undefined) return RunTool.make({ pending })
+  if (pending !== undefined) {
+    const decision = state.decisions.get(requestKey(pending.call))
+    if (decision === undefined) return AwaitApproval.make({ pending })
+    if (decision === 'deny') return RecordDenied.make({ pending })
+    return RunTool.make({ pending })
+  }
   if (state.awaitingModel) return CallModel.make({ turn: state.openTurn })
   return Idle.make({})
 }
+
+export const decisionOf = (
+  events: readonly SessionEvent[],
+  thread: ThreadId,
+  request: string,
+): ApprovalVerdict | undefined => foldThread(events, thread).decisions.get(request)
+
+export const pendingCallOf = (
+  events: readonly SessionEvent[],
+  thread: ThreadId,
+  request: string,
+): PendingCall | undefined =>
+  foldThread(events, thread).pending.find((pending) => pending.call === request)

@@ -51,6 +51,11 @@ export interface ThreadClientContract {
     sourceThreadId: ThreadId,
     cwd?: string,
   ) => Effect.Effect<{ readonly threadId: ThreadId }>
+  readonly decide: (
+    threadId: ThreadId,
+    request: string,
+    decision: 'approve' | 'deny',
+  ) => Effect.Effect<void>
 }
 
 export class ThreadClient extends Context.Service<ThreadClient, ThreadClientContract>()(
@@ -106,6 +111,8 @@ export const threadClientOf = (
     compact: (threadId, instructions) =>
       client.CompactThread({ threadId, instructions }).pipe(Effect.orDie),
     fork: (sourceThreadId, cwd) => client.ForkThread({ sourceThreadId, cwd }).pipe(Effect.orDie),
+    decide: (threadId, request, decision) =>
+      client.DecideApproval({ threadId, request, decision }).pipe(Effect.orDie),
   })
 
 /**

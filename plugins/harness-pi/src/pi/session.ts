@@ -91,6 +91,12 @@ export interface PiRunInput {
   readonly model: string | undefined
   readonly reasoning: string | undefined
   readonly instructions: string | undefined
+  readonly awaitApproval?: (input: {
+    readonly request: string
+    readonly call: string
+    readonly name: string
+    readonly arguments: string
+  }) => Promise<'approve' | 'deny'>
 }
 
 export interface PiSessionDeps {
@@ -234,6 +240,7 @@ export class PiSession {
   private model: string | null = null
   private reasoning: string | null = null
   private toolBridge: PiToolBridge | null = null
+  private awaitApproval: PiRunInput['awaitApproval']
   private readonly threadId: string
   private readonly deps: PiSessionDeps
 
@@ -269,6 +276,7 @@ export class PiSession {
     this.running = true
     this.emit = emit
     this.toolBridge = input.bridge
+    this.awaitApproval = input.awaitApproval
     this.automaticCompactions = []
     try {
       const child = await this.ensureChild(input)
@@ -325,6 +333,7 @@ export class PiSession {
     } finally {
       this.emit = null
       this.toolBridge = null
+      this.awaitApproval = undefined
       this.settled = null
       this.running = false
     }
@@ -783,6 +792,26 @@ export class PiSession {
         isError: true,
       })
       return
+    }
+    const awaitApproval = this.awaitApproval
+    if (awaitApproval !== undefined) {
+      const decision = await awaitApproval({
+        request: id,
+        call: id,
+        name,
+        arguments: argumentsJson,
+      })
+      if (decision === 'deny') {
+        child?.sendChannel({
+          kind: 'tool-result',
+          id,
+          text: JSON.stringify({
+            error: { kind: 'denied', message: 'the user denied this tool call' },
+          }),
+          isError: true,
+        })
+        return
+      }
     }
     const outcome = await bridge.run(name, argumentsJson, (callId, delta) => {
       this.emit?.(Turn.TurnEvent.ToolCallArgsDelta({ call_id: callId, delta }))

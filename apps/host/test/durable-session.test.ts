@@ -29,7 +29,6 @@ import {
   inferencePlugin,
   ToolKind,
   workOf,
-  type Work,
 } from '@oru/inference'
 import { ThreadClient, ProjectClient, clientsFor, type ThreadClientContract } from '@oru/rpc'
 import { serveHost } from '../src/index.ts'
@@ -207,6 +206,14 @@ const request = (
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
     const watching = yield* answerNumber(thread, threadId, nth).pipe(Effect.forkScoped)
+    yield* thread.watch(threadId).pipe(
+      Stream.runForEach((event) =>
+        event._tag === 'tool/requested'
+          ? thread.decide(threadId, event.call, 'approve')
+          : Effect.void,
+      ),
+      Effect.forkScoped,
+    )
     yield* thread.send(threadId, text)
     yield* Fiber.join(watching)
   })
@@ -253,14 +260,11 @@ describe('one journal, two hosts', () => {
     expect(replay.folded).toEqual(live)
   })
 
-  it('resumes the turn a killed host left in flight', async () => {
+  it('keeps a pending approval across a host restart', async () => {
     const file = sessionFile()
-    const gate = Deferred.makeUnsafe<void>()
-    const started = Deferred.makeUnsafe<void>()
     const calls = Ref.makeUnsafe(0)
-    const plugins = pluginsFor(echoToolPlugin(gate, started, calls))
+    const plugins = pluginsFor(echoToolPlugin(openGate(), openGate(), calls))
     let thread = ''
-    let pending: Work = Idle.make({})
 
     await Effect.runPromise(
       withHost(
@@ -277,12 +281,8 @@ describe('one journal, two hosts', () => {
           ).pipe(Effect.forkScoped)
           yield* client.send(thread, 'hello')
           const requested = yield* Fiber.join(watching)
-          // The tool the demo model asked for cannot finish, so the kill lands
-          // mid-turn with a request and no result.
-          yield* Deferred.await(started)
-          expect(yield* Ref.get(calls)).toBe(1)
-          pending = workOf(foldThread(requested, thread))
-          expect(pending._tag).toBe('RunTool')
+          expect(workOf(foldThread(requested, thread))._tag).toBe('AwaitApproval')
+          expect(yield* Ref.get(calls)).toBe(0)
         }),
       ),
     )
@@ -293,25 +293,25 @@ describe('one journal, two hosts', () => {
         plugins,
         Effect.gen(function* () {
           const client = yield* ThreadClient
-          // Opening the journal resumed the lane: the facts are the ones the
-          // kill left, and the tool is running again, so the log has not moved.
           const atOpen = yield* factsUntil(
             client,
             thread,
             (event) => event._tag === 'tool/requested',
           )
-          expect(workOf(foldThread(atOpen, thread))).toEqual(pending)
+          expect(workOf(foldThread(atOpen, thread))._tag).toBe('AwaitApproval')
+          const requested = atOpen.find((event) => event._tag === 'tool/requested')
+          if (requested === undefined || requested._tag !== 'tool/requested') {
+            throw new Error('expected a pending tool request')
+          }
           const watching = yield* answerNumber(client, thread, 1).pipe(Effect.forkScoped)
-          yield* Deferred.succeed(gate, undefined)
+          yield* client.decide(thread, requested.call, 'approve')
           const answers = yield* Fiber.join(watching)
           expect(bodiesOf(answers)).toEqual(['assistant:done'])
         }),
       ),
     )
 
-    // At least once: the request that outlived its host ran again, and the turn
-    // it belonged to closed with an answer instead of parking.
-    expect(Ref.getUnsafe(calls)).toBe(3)
+    expect(Ref.getUnsafe(calls)).toBe(1)
     const lane = await readJournal(file, (log) =>
       log.entries.pipe(Effect.map((entries) => laneOf(entries, thread))),
     )
@@ -321,8 +321,7 @@ describe('one journal, two hosts', () => {
       'agent/inbox/spliced',
       'turn/started',
       'tool/requested',
-      'tool/completed',
-      'tool/requested',
+      'approval/decided',
       'tool/completed',
       'message/appended',
     ])

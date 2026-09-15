@@ -22,6 +22,8 @@ export {
   ThreadConfigured,
   ThreadContextWindow,
   ThreadCreated,
+  ApprovalDecided,
+  ApprovalVerdict,
   ToolCompleted,
   ToolRequested,
   TurnFailed,

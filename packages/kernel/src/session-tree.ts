@@ -29,6 +29,7 @@ export const laneOf = (event: SessionEvent): Lane =>
       'message/appended': (event) => threadLane(event.thread),
       'tool/requested': (event) => threadLane(event.thread),
       'tool/completed': (event) => threadLane(event.thread),
+      'approval/decided': (event) => threadLane(event.thread),
       'thread/compacted': (event) => threadLane(event.thread),
       'thread/branched': (event) => threadLane(event.thread),
       'agent/inbox/spliced': (event) => threadLane(event.thread),

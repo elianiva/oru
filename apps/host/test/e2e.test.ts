@@ -81,6 +81,14 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
             Stream.runCollect,
             Effect.forkScoped,
           )
+          yield* thread.watch(created.threadId).pipe(
+            Stream.runForEach((event) =>
+              event._tag === 'tool/requested'
+                ? thread.decide(created.threadId, event.call, 'approve')
+                : Effect.void,
+            ),
+            Effect.forkScoped,
+          )
           yield* thread.send(created.threadId, PROMPT)
           const events = yield* Fiber.join(watching)
 
@@ -127,6 +135,7 @@ const TURN_FACTS = [
   'agent/inbox/spliced',
   'turn/started',
   'tool/requested',
+  'approval/decided',
   'tool/completed',
   'message/appended',
   'turn/usage',

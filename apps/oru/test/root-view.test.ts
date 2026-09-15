@@ -158,8 +158,8 @@ describe('root view', () => {
       lines: [
         UserLine.make({ body: 'hello' }),
         TurnLine.make({}),
-        ToolRequestedLine.make({ name: 'echo' }),
-        ToolCompletedLine.make({ name: 'echo' }),
+        ToolRequestedLine.make({ name: 'echo', call: 'call_1' }),
+        ToolCompletedLine.make({ name: 'echo', call: 'call_1' }),
         AssistantLine.make({ body: 'done' }),
       ],
       live: [],
@@ -175,6 +175,29 @@ describe('root view', () => {
       Scene.expect(Scene.text('tool/requested echo')).toExist(),
       Scene.expect(Scene.text('tool/completed echo')).toExist(),
       Scene.expect(Scene.text('assistant: done')).toExist(),
+    )
+  })
+
+  it('offers approve and deny on a pending tool request', () => {
+    const thread = {
+      ...idleThread(),
+      threadId: 't1',
+      draft: '',
+      lines: [
+        UserLine.make({ body: 'hello' }),
+        TurnLine.make({}),
+        ToolRequestedLine.make({ name: 'echo', call: 'call_1' }),
+      ],
+      live: [],
+      config: { harness: undefined, model: undefined, reasoning: undefined },
+      harnesses: [],
+      models: [],
+    }
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...init().model, panels: bothPanels, thread }),
+      Scene.expect(Scene.text('Approve')).toExist(),
+      Scene.expect(Scene.text('Deny')).toExist(),
     )
   })
 

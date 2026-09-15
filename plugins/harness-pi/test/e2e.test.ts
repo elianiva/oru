@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Effect, Match, Option, Schema, type Scope } from 'effect'
+import { Effect, Match, Option, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { Harnesses } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
@@ -135,6 +135,20 @@ const run = <A, E>(
     ),
   )
 
+const approveAll = (inference: Inference['Service']) =>
+  Effect.gen(function* () {
+    const log = yield* SessionLog
+    const live = yield* log.subscribe
+    yield* live.pipe(
+      Stream.runForEach((event) =>
+        event._tag === 'tool/requested'
+          ? inference.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
+          : Effect.void,
+      ),
+      Effect.forkScoped,
+    )
+  })
+
 const newId = Effect.sync(() => crypto.randomUUID())
 
 const openThread = (cwd: string) =>
@@ -167,6 +181,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'thread/context-window': (event) => event.thread === thread,
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
+        'approval/decided': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
       }),
     ),
@@ -207,6 +222,7 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         const thread = yield* openThread(cwd)
 
         yield* inference.configure(thread, { harness: 'pi', model: MODEL })
+        yield* approveAll(inference)
         yield* inference.send(thread, PROMPT)
         yield* inference.whenIdle(thread)
 

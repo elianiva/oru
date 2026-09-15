@@ -20,9 +20,13 @@ export {
   Idle,
   CallModel,
   RunTool,
+  AwaitApproval,
+  RecordDenied,
   Work,
   foldThread,
   workOf,
+  decisionOf,
+  pendingCallOf,
   type PendingCall,
   type ThreadState,
 } from './session-fold.ts'

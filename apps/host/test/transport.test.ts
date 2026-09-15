@@ -92,12 +92,24 @@ describe('the RPC transport', () => {
       Effect.gen(function* () {
         const thread = yield* ThreadClient
         const created = yield* openThread(process.cwd())
-        const facts = yield* thread
-          .watch(created.threadId)
-          .pipe(Stream.take(7), Stream.runCollect, Effect.forkScoped)
+        const facts = yield* thread.watch(created.threadId).pipe(
+          Stream.takeUntil(
+            (event) => event._tag === 'message/appended' && event.role === 'assistant',
+          ),
+          Stream.runCollect,
+          Effect.forkScoped,
+        )
         const signals = yield* thread.watchSignals(created.threadId).pipe(
           Stream.takeUntil((signal) => signal._tag === 'settled'),
           Stream.runCollect,
+          Effect.forkScoped,
+        )
+        yield* thread.watch(created.threadId).pipe(
+          Stream.runForEach((event) =>
+            event._tag === 'tool/requested'
+              ? thread.decide(created.threadId, event.call, 'approve')
+              : Effect.void,
+          ),
           Effect.forkScoped,
         )
         // Live signals have no snapshot to replay, so the subscription has to
@@ -117,6 +129,7 @@ describe('the RPC transport', () => {
       'agent/inbox/spliced',
       'turn/started',
       'tool/requested',
+      'approval/decided',
       'tool/completed',
       'message/appended',
     ])

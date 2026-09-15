@@ -121,6 +121,20 @@ export const ToolCompleted = Schema.TaggedStruct('tool/completed', {
   result: Schema.String,
 })
 
+/**
+ * The human's answer to one tool request. `request` is the provider request
+ * id (the tool call id), so a duplicate id folds as the same pending entry.
+ */
+export const ApprovalVerdict = Schema.Literals(['approve', 'deny'])
+export type ApprovalVerdict = typeof ApprovalVerdict.Type
+
+export const ApprovalDecided = Schema.TaggedStruct('approval/decided', {
+  ...Tree,
+  thread: ThreadId,
+  request: Schema.NonEmptyString,
+  decision: ApprovalVerdict,
+})
+
 export const ThreadCompacted = Schema.TaggedStruct('thread/compacted', {
   ...Tree,
   thread: ThreadId,
@@ -166,6 +180,7 @@ export const SessionEvent = Schema.Union([
   MessageAppended,
   ToolRequested,
   ToolCompleted,
+  ApprovalDecided,
   ThreadCompacted,
   ThreadBranched,
   InboxSpliced,

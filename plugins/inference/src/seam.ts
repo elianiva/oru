@@ -29,6 +29,7 @@ export const historyOf = (
         'tool/completed': (event) => {
           history.push(Items.toolCallOutput(event.call, event.result))
         },
+        'approval/decided': () => {},
         'thread/compacted': (event) => {
           history.push(Items.userText(event.summary))
         },

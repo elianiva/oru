@@ -166,6 +166,21 @@ export const CompactThread = Command.define('CompactThread', {
     ),
 })
 
+export const DecideApproval = Command.define('DecideApproval', {
+  args: {
+    threadId: ThreadId,
+    request: Schema.String,
+    decision: Schema.Literals(['approve', 'deny']),
+  },
+  messages: [Message.SendFinished],
+  execute: ({ threadId, request, decision }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((rpc) => rpc.decide(threadId, request, decision)),
+      Effect.as(Message.SendFinished()),
+      Effect.orDie,
+    ),
+})
+
 export const RefreshThreadOptions = Command.define('RefreshThreadOptions', {
   args: { threadId: ThreadId },
   messages: [Message.GotThreadMessage],
@@ -224,6 +239,13 @@ const foldThreadOutMessage = (
         if (threadId === undefined) return { model }
         return { model, commands: [CompactThread({ threadId })] }
       },
+      RequestedDecide:
+        ({ request, decision }) =>
+        (model) => {
+          const threadId = model.thread?.threadId
+          if (threadId === undefined) return { model }
+          return { model, commands: [DecideApproval({ threadId, request, decision })] }
+        },
       RequestedCreateThread:
         ({ project }) =>
         (model) => ({ model, commands: [CreateThread({ project })] }),

@@ -9,6 +9,7 @@ import {
   type HarnessEvent,
   type HarnessService,
   type HarnessTurnRequest,
+  type Mutable,
 } from '@oru/harness'
 import { ORU_PI_EXTENSION_SOURCE } from './pi/extension.ts'
 import { resolvePiPaths, type PiPaths } from './pi/paths.ts'
@@ -103,14 +104,18 @@ export const makePiHarness = (options: PiHarnessOptions = {}): PiHarness => {
     return created
   }
 
-  const inputOf = (request: HarnessTurnRequest): PiRunInput => ({
-    cwd: request.cwd ?? process.cwd(),
-    history: request.history,
-    bridge: request.tools === undefined ? NO_TOOLS : toolBridgeOf(request.tools),
-    model: request.model,
-    reasoning: request.reasoning,
-    instructions: request.instructions,
-  })
+  const inputOf = (request: HarnessTurnRequest): PiRunInput => {
+    const input: Mutable<PiRunInput> = {
+      cwd: request.cwd ?? process.cwd(),
+      history: request.history,
+      bridge: request.tools === undefined ? NO_TOOLS : toolBridgeOf(request.tools),
+      model: request.model,
+      reasoning: request.reasoning,
+      instructions: request.instructions,
+    }
+    if (request.awaitToolApproval !== undefined) input.awaitApproval = request.awaitToolApproval
+    return input
+  }
 
   const service = defineHarness({
     meta: { id: 'pi', label: 'pi', icon: 'terminal' },

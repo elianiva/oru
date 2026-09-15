@@ -213,4 +213,15 @@ export const threadRpcHandlers = (host: Host) => ({
       )
       return { threadId: created.threadId }
     }).pipe(Effect.orDie),
+  DecideApproval: (payload: {
+    readonly threadId: ThreadId
+    readonly request: string
+    readonly decision: 'approve' | 'deny'
+  }) =>
+    host.service(Inference).pipe(
+      Effect.flatMap((inference) =>
+        inference.decide(payload.threadId, payload.request, payload.decision),
+      ),
+      Effect.orDie,
+    ),
 })

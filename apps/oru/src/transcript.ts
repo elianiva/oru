@@ -14,8 +14,18 @@ export const ContextWindowLine = Schema.TaggedStruct('context-window', {
   tokens: Schema.Number,
   contextWindow: Schema.Number,
 })
-export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', { name: Schema.String })
-export const ToolCompletedLine = Schema.TaggedStruct('tool/completed', { name: Schema.String })
+export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', {
+  name: Schema.String,
+  call: Schema.String,
+})
+export const ToolCompletedLine = Schema.TaggedStruct('tool/completed', {
+  name: Schema.String,
+  call: Schema.String,
+})
+export const ApprovalDecidedLine = Schema.TaggedStruct('approval/decided', {
+  request: Schema.String,
+  decision: Schema.Literals(['approve', 'deny']),
+})
 export const TranscriptLine = Schema.Union([
   UserLine,
   AssistantLine,
@@ -25,6 +35,7 @@ export const TranscriptLine = Schema.Union([
   ContextWindowLine,
   ToolRequestedLine,
   ToolCompletedLine,
+  ApprovalDecidedLine,
 ])
 export type TranscriptLine = typeof TranscriptLine.Type
 
@@ -54,8 +65,10 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
         }),
       'thread/context-window': (event) =>
         ContextWindowLine.make({ tokens: event.tokens, contextWindow: event.contextWindow }),
-      'tool/requested': (event) => ToolRequestedLine.make({ name: event.name }),
-      'tool/completed': (event) => ToolCompletedLine.make({ name: event.name }),
+      'tool/requested': (event) => ToolRequestedLine.make({ name: event.name, call: event.call }),
+      'tool/completed': (event) => ToolCompletedLine.make({ name: event.name, call: event.call }),
+      'approval/decided': (event) =>
+        ApprovalDecidedLine.make({ request: event.request, decision: event.decision }),
     }),
   )
 
@@ -73,5 +86,6 @@ export const labelOf = (line: TranscriptLine): string =>
       'context-window': (line) => `context ${line.tokens}/${line.contextWindow}`,
       'tool/requested': (line) => `tool/requested ${line.name}`,
       'tool/completed': (line) => `tool/completed ${line.name}`,
+      'approval/decided': (line) => `approval/${line.decision} ${line.request}`,
     }),
   )
