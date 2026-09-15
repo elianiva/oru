@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MessageAppended,
+  ProjectCreated,
   SessionActivated,
   ThreadCreated,
   ThreadContextWindow,
@@ -14,7 +15,7 @@ import {
   threadLane,
   unsignedTree,
 } from '../src/index.ts'
-import { foldNamedThreads } from '../src/session-fold.ts'
+import { foldNamedThreads, foldProject, foldProjects, foldThreadCwd } from '../src/session-fold.ts'
 
 describe('foldNamedThreads', () => {
   it('names a thread from thread/created without any messages', () => {
@@ -92,6 +93,39 @@ describe('session tree', () => {
     expect(leafOf(events, threadLane('t1'))).toBe('e3')
     expect(pathFromLeaf(events, 'e3').map((event) => event.id)).toEqual(['e0', 'e1', 'e3'])
     expect(abandoned.id).toBe('e2')
+  })
+})
+
+describe('foldProjects', () => {
+  it('reads name and cwd from project/created', () => {
+    const created = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+    })
+    expect(foldProjects([created])).toEqual([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
+    expect(foldProject([created], 'p1')).toEqual({ id: 'p1', name: 'oru', cwd: '/tmp/oru' })
+  })
+})
+
+describe('foldThreadCwd', () => {
+  it("returns the absolute cwd of the thread's project", () => {
+    const project = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+    })
+    const thread = ThreadCreated.make({
+      ...unsignedTree,
+      id: 'e2',
+      thread: 't1',
+      project: 'p1',
+    })
+    expect(foldThreadCwd([project, thread], 't1')).toBe('/tmp/oru')
   })
 })
 
