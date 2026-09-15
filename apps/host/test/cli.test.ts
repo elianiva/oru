@@ -1,8 +1,8 @@
-import { mkdtempSync, statSync } from 'node:fs'
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Command, defaultHost, defaultPort, packageVersion, parseArgs } from '../src/index.ts'
+import { Command, packageVersion, parseArgs } from '../src/index.ts'
 import { ranHost, startedHost } from './spawn-host.ts'
 
 const scratchHome = () => mkdtempSync(join(tmpdir(), 'oru-host-cli-'))
@@ -108,11 +108,32 @@ describe('the host binary', () => {
     const ran = await ranHost(['config', 'list'], { ...process.env, ORU_HOME: home })
     expect(ran.code).toBe(0)
     expect(ran.stdout).toContain(`home=${home} source=env lifetime=startup`)
-    expect(ran.stdout).toContain(`host=${defaultHost} source=default lifetime=startup`)
-    expect(ran.stdout).toContain(`port=${String(defaultPort)} source=default lifetime=startup`)
+    expect(ran.stdout).toContain('host=127.0.0.1 source=default lifetime=startup')
+    expect(ran.stdout).toContain('port=7317 source=default lifetime=startup')
     expect(ran.stdout).toContain(
       `journal=${join(home, 'data', 'oru.db')} source=default lifetime=startup`,
     )
+    expect(ran.stdout).toContain('pi.command= source=default lifetime=startup')
+  })
+
+  it('exits two for an unknown config key and for bad JSON', async () => {
+    const home = scratchHome()
+    const unknown = await ranHost(['config', 'set', 'token', 'x'], {
+      ...process.env,
+      ORU_HOME: home,
+    })
+    expect(unknown.code).toBe(2)
+    expect(unknown.stderr).toContain('unknown setting token')
+
+    const write = await ranHost(['config', 'set', 'host', '127.0.0.1'], {
+      ...process.env,
+      ORU_HOME: home,
+    })
+    expect(write.code).toBe(0)
+    writeFileSync(join(home, 'config.json'), '{', 'utf8')
+    const listed = await ranHost(['config', 'list'], { ...process.env, ORU_HOME: home })
+    expect(listed.code).toBe(2)
+    expect(listed.stderr).toContain('not JSON')
   })
 
   it('writes host through config set and reads it back as file', async () => {
@@ -127,6 +148,6 @@ describe('the host binary', () => {
     const unset = await ranHost(['config', 'unset', 'host'], env)
     expect(unset.code).toBe(0)
     const again = await ranHost(['config', 'list'], env)
-    expect(again.stdout).toContain(`host=${defaultHost} source=default lifetime=startup`)
+    expect(again.stdout).toContain('host=127.0.0.1 source=default lifetime=startup')
   })
 })

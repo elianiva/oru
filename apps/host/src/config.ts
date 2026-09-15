@@ -33,13 +33,6 @@ interface FileDraft {
   pi?: FilePi | undefined
 }
 
-export interface ServeDraft {
-  home?: string | undefined
-  hostname?: string | undefined
-  port?: number | undefined
-  journal?: string | undefined
-}
-
 export interface FilePi {
   readonly home?: string | undefined
   readonly sessionDir?: string | undefined
@@ -88,22 +81,10 @@ export const catalog = [
 
 export type ConfigKeyName = (typeof catalog)[number]['name']
 
-const writableKeys = [
-  'host',
-  'port',
-  'journal',
-  'pi.home',
-  'pi.sessionDir',
-  'pi.command',
-  'pi.args',
-  'pi.skills',
-  'pi.noBuiltinTools',
-] as const
-
-export type WritableKey = (typeof writableKeys)[number]
+export type WritableKey = Exclude<ConfigKeyName, 'home'>
 
 export const isWritableKey = (key: string): key is WritableKey =>
-  writableKeys.some((known) => known === key)
+  key !== 'home' && catalog.some((entry) => entry.name === key)
 
 export const configPath = (home: string): string => join(home, 'config.json')
 
@@ -147,6 +128,13 @@ const fail = (message: string): never => {
   throw new ConfigError(message)
 }
 
+const parsePortNumber = (wanted: number, label: string, shown: string): number => {
+  if (!Number.isInteger(wanted) || wanted < 0 || wanted > 65535) {
+    return fail(`${label} takes a port number, got ${shown}`)
+  }
+  return wanted
+}
+
 const rootKeySet = new Set(['host', 'port', 'journal', 'pi'])
 const piKeySet = new Set(['home', 'sessionDir', 'command', 'args', 'skills', 'noBuiltinTools'])
 
@@ -171,8 +159,13 @@ export const parseFileConfig = (text: string): FileConfig => {
     rejectUnknownKeys(Object.keys(value.pi), piKeySet, 'config.json pi')
   }
   try {
-    return compactFile(decodeFile(value))
+    const decoded = compactFile(decodeFile(value))
+    if (decoded.port !== undefined) {
+      parsePortNumber(decoded.port, 'port', String(decoded.port))
+    }
+    return decoded
   } catch (cause) {
+    if (cause instanceof ConfigError) throw cause
     return fail(cause instanceof Error ? cause.message : 'config.json is invalid')
   }
 }
@@ -204,11 +197,7 @@ const envString = (env: NodeJS.ProcessEnv, name: string): string | undefined => 
 const envPort = (env: NodeJS.ProcessEnv): number | undefined => {
   const raw = envString(env, 'ORU_PORT')
   if (raw === undefined) return undefined
-  const wanted = Number(raw)
-  if (!Number.isInteger(wanted) || wanted < 0 || wanted > 65535) {
-    return fail(`ORU_PORT takes a port number, got ${raw}`)
-  }
-  return wanted
+  return parsePortNumber(Number(raw), 'ORU_PORT', raw)
 }
 
 const envFlag = (env: NodeJS.ProcessEnv, name: string): boolean | undefined => {
@@ -374,13 +363,7 @@ export const writeFileConfig = (home: string, file: FileConfig): void => {
   chmodSync(path, 0o600)
 }
 
-const parsePortValue = (value: string): number => {
-  const wanted = Number(value)
-  if (!Number.isInteger(wanted) || wanted < 0 || wanted > 65535) {
-    return fail(`port takes a port number, got ${value}`)
-  }
-  return wanted
-}
+const parsePortValue = (value: string): number => parsePortNumber(Number(value), 'port', value)
 
 const parseBoolValue = (value: string): boolean => {
   if (value === '1' || value === 'true') return true
@@ -498,68 +481,43 @@ const formatValue = (value: string | number | boolean | readonly string[] | unde
   return String(value)
 }
 
-export const listLines = (settings: Settings): readonly string[] => {
-  const rows: ReadonlyArray<{
-    readonly name: ConfigKeyName
-    readonly value: string | number | boolean | readonly string[] | undefined
-    readonly source: Source
-    readonly lifetime: Lifetime
-  }> = [
-    { name: 'home', value: settings.home.value, source: settings.home.source, lifetime: 'startup' },
-    {
-      name: 'host',
-      value: settings.hostname.value,
-      source: settings.hostname.source,
-      lifetime: 'startup',
-    },
-    { name: 'port', value: settings.port.value, source: settings.port.source, lifetime: 'startup' },
-    {
-      name: 'journal',
-      value: settings.journal.value,
-      source: settings.journal.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.home',
-      value: settings.piHome.value,
-      source: settings.piHome.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.sessionDir',
-      value: settings.piSessionDir.value,
-      source: settings.piSessionDir.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.command',
-      value: settings.piCommand.value,
-      source: settings.piCommand.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.args',
-      value: settings.piArgs.value,
-      source: settings.piArgs.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.skills',
-      value: settings.piSkills.value,
-      source: settings.piSkills.source,
-      lifetime: 'startup',
-    },
-    {
-      name: 'pi.noBuiltinTools',
-      value: settings.piNoBuiltinTools.value,
-      source: settings.piNoBuiltinTools.source,
-      lifetime: 'startup',
-    },
-  ]
-  return rows.map(
-    (row) => `${row.name}=${formatValue(row.value)} source=${row.source} lifetime=${row.lifetime}`,
-  )
+const chosenOf = (
+  settings: Settings,
+  name: ConfigKeyName,
+): Chosen<string | number | boolean | readonly string[] | undefined> => {
+  switch (name) {
+    case 'home':
+      return settings.home
+    case 'host':
+      return settings.hostname
+    case 'port':
+      return settings.port
+    case 'journal':
+      return settings.journal
+    case 'pi.home':
+      return settings.piHome
+    case 'pi.sessionDir':
+      return settings.piSessionDir
+    case 'pi.command':
+      return settings.piCommand
+    case 'pi.args':
+      return settings.piArgs
+    case 'pi.skills':
+      return settings.piSkills
+    case 'pi.noBuiltinTools':
+      return settings.piNoBuiltinTools
+    default: {
+      const _exhaustive: never = name
+      return _exhaustive
+    }
+  }
 }
+
+export const listLines = (settings: Settings): readonly string[] =>
+  catalog.map((key) => {
+    const chosen = chosenOf(settings, key.name)
+    return `${key.name}=${formatValue(chosen.value)} source=${chosen.source} lifetime=${key.lifetime}`
+  })
 
 export const openSettings = (
   flags: ServeFlags,

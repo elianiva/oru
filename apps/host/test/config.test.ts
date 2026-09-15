@@ -4,11 +4,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   ConfigError,
-  defaultHost,
-  defaultJournalOf,
-  defaultPiHomeOf,
-  defaultPiSessionDirOf,
-  defaultPort,
   ensureLayout,
   listLines,
   parseFileConfig,
@@ -19,27 +14,65 @@ import {
 } from '../src/config.ts'
 
 const scratch = () => mkdtempSync(join(tmpdir(), 'oru-config-'))
+const osHome = '/Users/someone'
+const home = join(osHome, '.oru')
 
 describe('resolveSettings', () => {
-  const osHome = '/Users/someone'
-
-  it('defaults to loopback, port 7317, and a journal under the data directory', () => {
+  it('defaults the listen address to 127.0.0.1', () => {
     const settings = resolveSettings({}, {}, {}, osHome)
-    expect(settings.home.value).toBe(join(osHome, '.oru'))
-    expect(settings.home.source).toBe('default')
-    expect(settings.hostname).toEqual({ value: defaultHost, source: 'default' })
-    expect(settings.port).toEqual({ value: defaultPort, source: 'default' })
-    expect(settings.journal.value).toBe(defaultJournalOf(join(osHome, '.oru')))
-    expect(settings.journal.source).toBe('default')
-    expect(settings.dataDir).toBe(join(osHome, '.oru', 'data'))
-    expect(settings.piHome.value).toBe(defaultPiHomeOf(join(osHome, '.oru')))
-    expect(settings.piSessionDir.value).toBe(
-      defaultPiSessionDirOf(defaultPiHomeOf(join(osHome, '.oru'))),
-    )
+    expect(settings.hostname).toEqual({ value: '127.0.0.1', source: 'default' })
+    expect(settings.port).toEqual({ value: 7317, source: 'default' })
+    expect(settings.home).toEqual({ value: home, source: 'default' })
+    expect(settings.journal).toEqual({
+      value: join(home, 'data', 'oru.db'),
+      source: 'default',
+    })
+    expect(settings.dataDir).toBe(join(home, 'data'))
+    expect(settings.piHome.value).toBe(join(home, 'data', 'pi'))
+    expect(settings.piSessionDir.value).toBe(join(home, 'data', 'pi', 'sessions'))
+    expect(settings.piCommand).toEqual({ value: undefined, source: 'default' })
   })
 
-  it('lets a flag beat the file, the file beat the environment, and the environment beat the default', () => {
-    const stacked = resolveSettings(
+  it('lets a flag win', () => {
+    const settings = resolveSettings(
+      { hostname: 'flag.example', port: 1, journal: '/flag.db', home: '/flag-home' },
+      {},
+      {},
+      osHome,
+    )
+    expect(settings.home).toEqual({ value: '/flag-home', source: 'flag' })
+    expect(settings.hostname).toEqual({ value: 'flag.example', source: 'flag' })
+    expect(settings.port).toEqual({ value: 1, source: 'flag' })
+    expect(settings.journal).toEqual({ value: '/flag.db', source: 'flag' })
+  })
+
+  it('lets the file win over the environment', () => {
+    const settings = resolveSettings(
+      {},
+      { ORU_HOST: 'env.example', ORU_PORT: '2', ORU_JOURNAL: '/env.db' },
+      { host: 'file.example', port: 3, journal: '/file.db' },
+      osHome,
+    )
+    expect(settings.hostname).toEqual({ value: 'file.example', source: 'file' })
+    expect(settings.port).toEqual({ value: 3, source: 'file' })
+    expect(settings.journal).toEqual({ value: '/file.db', source: 'file' })
+  })
+
+  it('lets the environment win over the default', () => {
+    const settings = resolveSettings(
+      {},
+      { ORU_HOME: '/env-home', ORU_HOST: '0.0.0.0', ORU_PORT: '9', ORU_JOURNAL: '/env.db' },
+      {},
+      osHome,
+    )
+    expect(settings.home).toEqual({ value: '/env-home', source: 'env' })
+    expect(settings.hostname).toEqual({ value: '0.0.0.0', source: 'env' })
+    expect(settings.port).toEqual({ value: 9, source: 'env' })
+    expect(settings.journal).toEqual({ value: '/env.db', source: 'env' })
+  })
+
+  it('lets a flag beat stacked file, environment, and default', () => {
+    const settings = resolveSettings(
       { hostname: 'flag.example', port: 1, journal: '/flag.db', home: '/flag-home' },
       {
         ORU_HOME: '/env-home',
@@ -50,31 +83,10 @@ describe('resolveSettings', () => {
       { host: 'file.example', port: 3, journal: '/file.db' },
       osHome,
     )
-    expect(stacked.home).toEqual({ value: '/flag-home', source: 'flag' })
-    expect(stacked.hostname).toEqual({ value: 'flag.example', source: 'flag' })
-    expect(stacked.port).toEqual({ value: 1, source: 'flag' })
-    expect(stacked.journal).toEqual({ value: '/flag.db', source: 'flag' })
-
-    const fromFile = resolveSettings(
-      {},
-      { ORU_HOST: 'env.example', ORU_PORT: '2', ORU_JOURNAL: '/env.db' },
-      { host: 'file.example', port: 3, journal: '/file.db' },
-      osHome,
-    )
-    expect(fromFile.hostname).toEqual({ value: 'file.example', source: 'file' })
-    expect(fromFile.port).toEqual({ value: 3, source: 'file' })
-    expect(fromFile.journal).toEqual({ value: '/file.db', source: 'file' })
-
-    const fromEnv = resolveSettings(
-      {},
-      { ORU_HOME: '/env-home', ORU_HOST: '0.0.0.0', ORU_PORT: '9', ORU_JOURNAL: '/env.db' },
-      {},
-      osHome,
-    )
-    expect(fromEnv.home).toEqual({ value: '/env-home', source: 'env' })
-    expect(fromEnv.hostname).toEqual({ value: '0.0.0.0', source: 'env' })
-    expect(fromEnv.port).toEqual({ value: 9, source: 'env' })
-    expect(fromEnv.journal).toEqual({ value: '/env.db', source: 'env' })
+    expect(settings.home).toEqual({ value: '/flag-home', source: 'flag' })
+    expect(settings.hostname).toEqual({ value: 'flag.example', source: 'flag' })
+    expect(settings.port).toEqual({ value: 1, source: 'flag' })
+    expect(settings.journal).toEqual({ value: '/flag.db', source: 'flag' })
   })
 
   it('rejects an unknown key in the file', () => {
@@ -82,14 +94,18 @@ describe('resolveSettings', () => {
     expect(() => parseFileConfig('{"token":"secret"}')).toThrow('unknown key token')
   })
 
-  it('creates config.json with mode 0600', () => {
-    const home = scratch()
-    ensureLayout(home)
-    expect(statSync(join(home, 'config.json')).mode & 0o777).toBe(0o600)
+  it('rejects a file port that is not 0..65535', () => {
+    expect(() => parseFileConfig('{"port":70000}')).toThrow(ConfigError)
+    expect(() => parseFileConfig('{"port":1.5}')).toThrow(ConfigError)
   })
 
-  it('records set and unset against the file layer', () => {
-    const home = join(osHome, '.oru')
+  it('creates config.json with mode 0600', () => {
+    const dir = scratch()
+    ensureLayout(dir)
+    expect(statSync(join(dir, 'config.json')).mode & 0o777).toBe(0o600)
+  })
+
+  it('records set as source=file and unset as the default', () => {
     const written = setFileKey({}, 'host', '0.0.0.0')
     const settings = resolveSettings({}, {}, written, osHome)
     expect(settings.hostname).toEqual({ value: '0.0.0.0', source: 'file' })
@@ -97,11 +113,17 @@ describe('resolveSettings', () => {
       'host=0.0.0.0 source=file lifetime=startup',
     )
     const cleared = resolveSettings({}, {}, unsetFileKey(written, 'host'), osHome)
-    expect(cleared.hostname).toEqual({ value: defaultHost, source: 'default' })
-    expect(cleared.home.value).toBe(home)
+    expect(cleared.hostname).toEqual({ value: '127.0.0.1', source: 'default' })
   })
 
-  it('puts winning pi paths into the env bag the bridge reads', () => {
+  it('widens the listen address only when host is set', () => {
+    expect(resolveSettings({}, {}, {}, osHome).hostname.value).toBe('127.0.0.1')
+    expect(resolveSettings({ hostname: '0.0.0.0' }, {}, {}, osHome).hostname.value).toBe('0.0.0.0')
+    expect(resolveSettings({}, { ORU_HOST: '0.0.0.0' }, {}, osHome).hostname.value).toBe('0.0.0.0')
+    expect(resolveSettings({}, {}, { host: '0.0.0.0' }, osHome).hostname.value).toBe('0.0.0.0')
+  })
+
+  it('puts winning pi paths into the env bag and leaves unset command off it', () => {
     const settings = resolveSettings(
       { home: '/srv/oru' },
       { ORU_PI_COMMAND: 'from-env' },
@@ -113,5 +135,11 @@ describe('resolveSettings', () => {
     expect(env.ORU_PI_SESSION_DIR).toBe('/srv/oru/data/pi/sessions')
     expect(env.ORU_PI_COMMAND).toBe('from-file')
     expect(env.ORU_PI_E2E_MODEL).toBe('keep-me')
+
+    const unset = piEnvOf(
+      { PATH: '/bin', ORU_PI_COMMAND: 'ambient' },
+      resolveSettings({}, {}, {}, osHome),
+    )
+    expect(unset.ORU_PI_COMMAND).toBeUndefined()
   })
 })

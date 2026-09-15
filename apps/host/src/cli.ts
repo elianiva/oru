@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { Data, Schema } from 'effect'
-import { defaultHost, defaultPort, type ServeDraft } from './config.ts'
+import { defaultHost, defaultPort } from './config.ts'
 
 export { defaultHost, defaultPort }
 
@@ -57,6 +57,13 @@ export const packageVersion = (): string =>
 
 const needValue = (flag: string): Command => Command.Invalid({ message: `${flag} needs a value` })
 
+interface FlagDraft {
+  home?: string | undefined
+  hostname?: string | undefined
+  port?: number | undefined
+  journal?: string | undefined
+}
+
 export const parseArgs = (argv: readonly string[]): Command => {
   let home: string | undefined
   let hostname: string | undefined
@@ -98,7 +105,7 @@ export const parseArgs = (argv: readonly string[]): Command => {
     positionals.push(arg)
   }
 
-  const flags: ServeDraft = {}
+  const flags: FlagDraft = {}
   if (home !== undefined) flags.home = home
   if (hostname !== undefined) flags.hostname = hostname
   if (port !== undefined) flags.port = port
