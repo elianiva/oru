@@ -10,6 +10,7 @@ Status: active development.
 - [docs/adr](./docs/adr) — architecture decision records.
 - [PLAN.md](./PLAN.md) — build plan.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
+- [docs/release.md](./docs/release.md) — how to bump, pack, and cut a release.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
 - [LICENSE](./LICENSE) — MIT.
 
@@ -39,7 +40,9 @@ TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool
 
 ```
 pnpm --filter @oru/host start          # http://127.0.0.1:7317
-pnpm --filter @oru/host start --help   # --help, --version, --host, --port
+pnpm --filter @oru/host start -- --help
+pnpm pack:host                         # tarball of the built host
+pnpm pack:smoke                        # install that tarball, --version, start, stop
 pnpm dev                               # the host and the browser app together
 ```
 

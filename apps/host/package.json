@@ -2,6 +2,7 @@
   "name": "@oru/host",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "bin": {
     "oru-host": "./src/main.ts"
   },
@@ -11,6 +12,7 @@
     "./cli": "./src/cli.ts"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "vitest run test/e2e.test.ts",
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
+    "esbuild": "^0.25.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }
