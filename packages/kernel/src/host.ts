@@ -12,7 +12,6 @@ import {
   Semaphore,
   Stream,
 } from 'effect'
-import { EventJournal } from 'effect/unstable/eventlog'
 import {
   dataContributionsOf,
   serviceTokensOf,
@@ -37,7 +36,7 @@ import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
 import { openHostFactRecorder, recoverLifecycle } from './host-lifecycle.ts'
-import { fromJournal, SessionLog } from './session-log.ts'
+import { SessionLog } from './session-log.ts'
 
 export const Activation = Schema.Struct({
   plugin: PluginId,
@@ -82,10 +81,14 @@ interface Generation {
 
 export const makeHost = Effect.fnUntraced(function* (
   plugins: readonly AnyPlugin[],
-): Effect.fn.Return<Host, BootError, Scope.Scope | EventJournal.EventJournal> {
+): Effect.fn.Return<Host, BootError, Scope.Scope | SessionLog> {
   const hostScope = yield* Scope.Scope
   const pubsub = yield* PubSub.unbounded<HostEvent>()
-  const log = fromJournal(yield* EventJournal.EventJournal)
+  // The journal is a service rather than a second reader of it. Two `SessionLog`
+  // values over one journal serialize their writes under two locks, which is
+  // how two facts come to share a leaf (ADR-0003), and the SQL driver rejects
+  // the overlap outright.
+  const log = yield* SessionLog
   const known = new Map<PluginId, AnyPlugin>()
   for (const plugin of plugins) {
     if (!known.has(plugin.id)) known.set(plugin.id, plugin)
@@ -126,7 +129,7 @@ export const makeHost = Effect.fnUntraced(function* (
    * The host calls this once its activation pass is done and again after any
    * later activation, so a step that reads the whole graph never runs against
    * part of it, and a plugin that joins after boot still gets its step
-   * (ADR-0009).
+   * (ADR-0010).
    */
   const runBootSteps = Effect.fnUntraced(function* () {
     const done = yield* Ref.get(booted)

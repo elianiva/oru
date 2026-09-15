@@ -6,6 +6,6 @@ import { defineContributionKind } from './contribution.ts'
  *
  * Activation order follows declared needs, so a plugin can activate before the
  * plugins it uses without depending on them: the graph is whole by the time
- * these run, and never before (ADR-0009).
+ * these run, and never before (ADR-0010).
  */
 export const BootKind = defineContributionKind<Effect.Effect<void>>('oru/boot')
