@@ -3,6 +3,7 @@ import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
 import { CreateThread, Message, SetLogging, update, view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
+import { LiveSettled, LiveToolStart } from '@oru/rpc'
 import * as ThreadPanel from '../src/thread-panel.ts'
 import {
   AssistantLine,
@@ -204,6 +205,27 @@ describe('root view', () => {
         }),
       ),
       Scene.expect(Scene.selector('[data-thread-panel]')).toExist(),
+    )
+  })
+
+  it('clears the live stream when the turn settles', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given({
+        ...idle,
+        thread: {
+          ...ThreadPanel.init(),
+          threadId: 't1',
+          live: [LiveToolStart.make({ name: 'echo' })],
+        },
+      }),
+      Scene.expect(Scene.text('tool echo running')).toExist(),
+      Scene.Subscription.emit(
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.SignalArrived({ signal: LiveSettled.make({}) }),
+        }),
+      ),
+      Scene.expect(Scene.text('tool echo running')).not.toExist(),
     )
   })
 
