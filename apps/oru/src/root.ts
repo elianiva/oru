@@ -1,17 +1,18 @@
 import { Effect, HashMap, Option, Result, Schema, Stream } from 'effect'
 import * as Command from 'foldkit/command'
-import type { HtmlBuilder } from 'foldkit/html'
+import type { Html, HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { PluginId, ThreadId } from '@oru/kernel'
+import { Plus } from 'lucide'
+import { PluginId, ThreadId, TokenId } from '@oru/kernel'
 import { GraphRpc, ThreadClient, ThreadConfig, ViewGraph } from '@oru/rpc'
 import { button } from '@/components/ui/button.ts'
 import * as Sidebar from '@/components/ui/sidebar.ts'
+import { icon } from '@/lib/icons.ts'
 import { syncActivePanels } from './active-panels.ts'
-import { chatStub, initInfoSidebar, initRailSidebar } from './chat-stub.ts'
+import { chrome, initInfoSidebar, initRailSidebar } from './chrome.ts'
 import * as PluginPanel from './plugin-panel.ts'
-import { twoPane } from './shell.ts'
 import * as ThreadPanel from './thread-panel.ts'
 import { lineOf } from './transcript.ts'
 
@@ -25,6 +26,8 @@ const titledPlugins = (graph: ViewGraph): ReadonlySet<string> =>
 
 export const Model = Schema.Struct({
   panels: Schema.HashMap(PluginId, PluginPanel.Model),
+  /** The services the live graph provides, as `setLive` changes them. */
+  tokens: Schema.Array(TokenId),
   thread: Schema.UndefinedOr(ThreadPanel.Model),
   leftSidebar: Sidebar.Model,
   rightSidebar: Sidebar.Model,
@@ -33,6 +36,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GraphArrived: { graph: ViewGraph },
+  ClickedNewThread: {},
   ClickedToggleLogging: {},
   GotPluginMessage: { plugin: PluginId, message: PluginPanel.Message },
   GotThreadMessage: { message: ThreadPanel.Message },
@@ -45,6 +49,7 @@ export type Message = typeof Message.Type
 export const init = () => ({
   model: {
     panels: HashMap.empty<string, PluginPanel.Model>(),
+    tokens: [],
     thread: undefined,
     leftSidebar: initRailSidebar(),
     rightSidebar: initInfoSidebar(),
@@ -206,13 +211,20 @@ export const update = (model: Model, message: Message) =>
       const panels = syncActivePanels(model.panels, titledPlugins(graph), (id) =>
         PluginPanel.init(titles.get(id) ?? id),
       )
-      if (!graph.agent) return { model: { ...model, panels, thread: undefined } }
-      if (model.thread !== undefined) return { model: { ...model, panels, thread: model.thread } }
+      const next = { ...model, panels, tokens: graph.tokens }
+      if (!graph.agent) return { model: { ...next, thread: undefined } }
+      if (model.thread !== undefined) return { model: next }
       return {
-        model: { ...model, panels, thread: ThreadPanel.init() },
+        model: { ...next, thread: ThreadPanel.init() },
         commands: [CreateThread()],
       }
     },
+    ClickedNewThread: () => ({
+      // The pane exists before the host names the thread, because a child's
+      // message only reaches a child the model already holds.
+      model: { ...model, thread: ThreadPanel.init() },
+      commands: [CreateThread()],
+    }),
     ClickedToggleLogging: () => ({
       model,
       commands: [SetLogging({ live: !HashMap.has(model.panels, 'logging') })],
@@ -305,48 +317,95 @@ export const subscriptions = Subscription.aggregate<Model, Message, GraphRpc | T
   })),
 )
 
-export const wiredView = (model: Model, h: HtmlBuilder<Message>) => {
-  const loggingOn = HashMap.has(model.panels, 'logging')
-  return twoPane(h, {
-    rail: [
-      button(
-        {
-          onClick: Message.ClickedToggleLogging(),
-          variant: 'ghost',
-          size: 'sm',
-          className: 'w-full justify-start font-normal text-sidebar-foreground/85',
-          attributes: [h.Attribute('data-logging-toggle', '')],
-        },
-        loggingOn ? 'Turn logging off' : 'Turn logging on',
+const rail = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> => [
+  Sidebar.group(
+    {},
+    [
+      Sidebar.groupLabel({}, ['Plugins'], h),
+      Sidebar.groupContent(
+        {},
+        [
+          button(
+            {
+              onClick: Message.ClickedToggleLogging(),
+              variant: 'ghost',
+              size: 'sm',
+              className: 'w-full justify-start font-normal text-sidebar-foreground/85',
+              attributes: [h.Attribute('data-logging-toggle', '')],
+            },
+            HashMap.has(model.panels, 'logging') ? 'Turn logging off' : 'Turn logging on',
+            h,
+          ),
+          ...HashMap.toEntries(model.panels).map(([plugin, child]) =>
+            h.submodel({
+              slotId: plugin,
+              model: child,
+              view: PluginPanel.view,
+              toParentMessage: (childMessage) =>
+                Message.GotPluginMessage({ plugin, message: childMessage }),
+            }),
+          ),
+        ],
         h,
       ),
-      ...HashMap.toEntries(model.panels).map(([plugin, child]) =>
-        h.submodel({
-          slotId: plugin,
-          model: child,
-          view: PluginPanel.view,
-          toParentMessage: (childMessage) =>
-            Message.GotPluginMessage({ plugin, message: childMessage }),
-        }),
+    ],
+    h,
+  ),
+]
+
+const info = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> => [
+  Sidebar.group(
+    {},
+    [
+      Sidebar.groupLabel({}, ['Services'], h),
+      Sidebar.groupContent(
+        {},
+        model.tokens.map((token) =>
+          h.div([h.Class('truncate px-2 py-0.5 font-mono text-[11px]')], [token]),
+        ),
+        h,
       ),
     ],
-    pane:
-      model.thread === undefined
-        ? undefined
-        : h.submodel({
-            slotId: 'thread',
-            model: model.thread,
-            view: ThreadPanel.view,
-            toParentMessage: (childMessage) => Message.GotThreadMessage({ message: childMessage }),
-          }),
-  })
-}
+    h,
+  ),
+]
 
+const railHeader = (h: HtmlBuilder<Message>): ReadonlyArray<Html> => [
+  button(
+    {
+      onClick: Message.ClickedNewThread(),
+      variant: 'ghost',
+      size: 'sm',
+      className: 'w-full justify-start font-normal text-sidebar-foreground/85',
+      attributes: [h.Attribute('data-new-thread', '')],
+    },
+    [icon(h, Plus, 'size-4'), 'New thread'],
+    h,
+  ),
+]
+
+/** The shipped view: the live plugin graph on the left, the thread in the
+ *  middle, the services the host provides on the right. */
 export const view = (model: Model, h: HtmlBuilder<Message>) =>
-  chatStub(
-    model.leftSidebar,
-    model.rightSidebar,
-    (message) => Message.GotLeftSidebar({ message }),
-    (message) => Message.GotRightSidebar({ message }),
+  chrome(
+    {
+      railSidebar: model.leftSidebar,
+      infoSidebar: model.rightSidebar,
+      toRail: (message) => Message.GotLeftSidebar({ message }),
+      toInfo: (message) => Message.GotRightSidebar({ message }),
+      header: railHeader(h),
+      rail: rail(model, h),
+      info: info(model, h),
+      pane:
+        model.thread === undefined
+          ? undefined
+          : h.submodel({
+              slotId: 'thread',
+              model: model.thread,
+              view: ThreadPanel.view,
+              toParentMessage: (childMessage) =>
+                Message.GotThreadMessage({ message: childMessage }),
+            }),
+    },
     h,
   )

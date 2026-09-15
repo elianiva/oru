@@ -1,16 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { Message, update, wiredView as view, init } from '../src/root.ts'
+import { CreateThread, Message, SetLogging, update, view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import * as ThreadPanel from '../src/thread-panel.ts'
 import {
   AssistantLine,
+  FailedLine,
   ToolCompletedLine,
   ToolRequestedLine,
   TurnLine,
   UserLine,
 } from '../src/transcript.ts'
+
+const emptyOptions = (threadId: string) => ({
+  threadId,
+  options: {
+    config: { harness: undefined, model: undefined, reasoning: undefined },
+    harnesses: [],
+    models: [],
+  },
+})
 
 describe('root view', () => {
   const bothPanels = HashMap.fromIterable([
@@ -143,6 +153,78 @@ describe('root view', () => {
       Scene.expect(Scene.text('tool/requested echo')).toExist(),
       Scene.expect(Scene.text('tool/completed echo')).toExist(),
       Scene.expect(Scene.text('assistant: done')).toExist(),
+    )
+  })
+
+  it('lists the services the graph provides', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(idle),
+      Scene.Subscription.emit(
+        Message.GraphArrived({
+          graph: {
+            active: [{ plugin: 'logging', title: 'Log' }],
+            tokens: ['oru/logger', 'oru/harnesses'],
+            agent: false,
+          },
+        }),
+      ),
+      Scene.expect(Scene.text('Services')).toExist(),
+      Scene.expect(Scene.text('oru/logger')).toExist(),
+      Scene.expect(Scene.text('oru/harnesses')).toExist(),
+    )
+  })
+
+  it('drops the consumer panel and the provider token when logging goes off', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...idle, tokens: ['oru/logger'] }),
+      Scene.expect(Scene.text('Greet')).toExist(),
+      Scene.expect(Scene.text('oru/logger')).toExist(),
+      Scene.click(Scene.selector('[data-logging-toggle]')),
+      Scene.Command.resolve(
+        SetLogging,
+        Message.GraphArrived({ graph: { active: [], tokens: [], agent: false } }),
+      ),
+      Scene.expect(Scene.text('Greet')).not.toExist(),
+      Scene.expect(Scene.text('oru/logger')).not.toExist(),
+    )
+  })
+
+  it('opens a thread from the rail header', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...idle, thread: undefined }),
+      Scene.expect(Scene.text('No thread')).toExist(),
+      Scene.click(Scene.text('New thread')),
+      Scene.Command.resolve(
+        CreateThread,
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.Opened(emptyOptions('t1')),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-thread-panel]')).toExist(),
+    )
+  })
+
+  it('shows a failed turn in the transcript', () => {
+    const thread = {
+      threadId: 't1',
+      draft: '',
+      lines: [
+        UserLine.make({ body: 'hello' }),
+        TurnLine.make({}),
+        FailedLine.make({ reason: 'provider down' }),
+      ],
+      live: [],
+      config: { harness: undefined, model: undefined, reasoning: undefined },
+      harnesses: [],
+      models: [],
+    }
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...init().model, panels: bothPanels, thread }),
+      Scene.expect(Scene.text('turn/failed provider down')).toExist(),
     )
   })
 })
