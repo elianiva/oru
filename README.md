@@ -11,6 +11,8 @@ Status: active development.
 - [docs/configuration.md](./docs/configuration.md) — host settings, precedence, and keys.
 - [PLAN.md](./PLAN.md) — build plan.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
+- [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md) — reproduce a host failure, a pi bridge failure, and a stuck turn.
+- [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md) — escaped bugs and the guards that catch them.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
 - [LICENSE](./LICENSE) — MIT.
 
@@ -86,6 +88,8 @@ Open the printed URL and check these, in order. The picker defaults to `Oru (eff
 4. Type a message into the pane and click `Send`. The transcript shows `user: ...`, `turn/started`, `tool/requested echo`, `tool/completed echo`, and `assistant: done`, with no leftover live lines from the stream.
 5. Send a second message. The demo model scripts two turns, so the next turn fails and the transcript shows a `turn/failed ...` line.
 6. Click `New thread`. The transcript empties and the pane starts a fresh thread.
+
+CI runs steps 2 and 4 in a real Chromium through Playwright (`pnpm --filter ./apps/oru e2e`). A failure keeps a screenshot and the last 8000 bytes of `apps/oru/test-results/host.log`.
 
 `docs/evidence/issue-11` holds the screenshots from one run of these steps, taken with the agent-browser CLI:
 
