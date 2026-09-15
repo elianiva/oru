@@ -48,6 +48,10 @@ _Avoid_: namespace, layer, realm
 One assembled kernel instance with its resolved graph of plugins and services. A host process assembles and serves one, over a transport its clients speak; a presentation facet is a client of that process, not a co-resident.
 _Avoid_: app, server, runtime
 
+**Config**:
+The host's Effect Config stack and `config.json` under `--home` / `ORU_HOME` / `~/.oru`. Flags beat the file, the file beats the environment, the environment beats defaults. Every stored key is startup-only.
+_Avoid_: settings service, preferences
+
 **Runtime**:
 The agent execution layer: effect-uai's model and tool primitives, used by a built-in inference plugin that folds the session log. Distinct from the Kernel, which composes plugins.
 _Avoid_: engine; calling the Runtime itself a harness — a harness is what reaches it
