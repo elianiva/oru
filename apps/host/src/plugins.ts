@@ -66,6 +66,22 @@ export const echoToolPlugin = definePlugin({
 })
 
 /**
+ * The host's plugin set without the pi bridge.
+ *
+ * The bridge is the one plugin whose environment is a process, so it is the one
+ * plugin a test swaps or leaves out: this is what the transport suite composes
+ * to keep `pnpm test` hermetic.
+ */
+export const corePlugins = [
+  ...fixturePlugins,
+  harnessRegistryPlugin,
+  echoToolPlugin,
+  demoModelPlugin,
+  harnessOruPlugin,
+  inferencePlugin,
+]
+
+/**
  * The host's plugin set.
  *
  * The registry is what makes harnesses plural: any plugin that contributes
@@ -73,12 +89,4 @@ export const echoToolPlugin = definePlugin({
  * (ADR-0006). Only a node process can carry `oru/harness-pi`, because a bridge
  * spawns a process, and this is that process (ADR-0007).
  */
-export const hostPlugins = [
-  ...fixturePlugins,
-  harnessRegistryPlugin,
-  echoToolPlugin,
-  demoModelPlugin,
-  harnessOruPlugin,
-  harnessPiPlugin(),
-  inferencePlugin,
-]
+export const hostPlugins = [...corePlugins, harnessPiPlugin()]

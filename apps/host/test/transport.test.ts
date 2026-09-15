@@ -2,25 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
 import { Harnesses } from '@oru/harness'
 import { GraphRpc, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
-import type { AnyPlugin } from '@oru/kernel'
-import { harnessOruPlugin } from '@oru/harness-oru'
-import { harnessRegistryPlugin } from '@oru/harness-registry'
-import { Inference, demoModelPlugin, inferencePlugin } from '@oru/inference'
-import { echoToolPlugin, fixturePlugins, loggingPlugin, serveHost } from '../src/index.ts'
-
-/**
- * The host's plugin set without the pi bridge. This suite proves the transport,
- * and the bridge is proven end to end in `e2e.test.ts`; leaving it out is also
- * what keeps `pnpm test` hermetic.
- */
-const plugins: readonly AnyPlugin[] = [
-  ...fixturePlugins,
-  harnessRegistryPlugin,
-  echoToolPlugin,
-  demoModelPlugin,
-  harnessOruPlugin,
-  inferencePlugin,
-]
+import { Inference } from '@oru/inference'
+import { corePlugins, echoToolPlugin, loggingPlugin, serveHost } from '../src/index.ts'
 
 const idsOf = (panels: readonly Panel[]): readonly string[] =>
   panels.map((panel) => panel.plugin).sort()
@@ -32,9 +15,8 @@ const withHost = <A, E>(
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const running = yield* serveHost({ plugins, hostname: '127.0.0.1', port: 0 })
-        const clients = yield* clientsFor(running.url)
-        return yield* effect.pipe(Effect.provide(clients))
+        const running = yield* serveHost({ plugins: corePlugins, hostname: '127.0.0.1', port: 0 })
+        return yield* effect.pipe(Effect.provide(clientsFor(running.url)))
       }),
     ),
   )
