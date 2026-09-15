@@ -1,7 +1,15 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { Option, Predicate, Schema } from 'effect'
+import {
+  Config,
+  ConfigProvider,
+  Effect,
+  Option,
+  Result,
+  Schema,
+  type ConfigProvider as ConfigProviderNs,
+} from 'effect'
 
 export const defaultHost = '127.0.0.1'
 
@@ -15,22 +23,6 @@ export type Lifetime = 'startup' | 'live'
 export interface Chosen<T> {
   readonly value: T
   readonly source: Source
-}
-
-interface FilePiDraft {
-  home?: string | undefined
-  sessionDir?: string | undefined
-  command?: string | undefined
-  args?: readonly string[] | undefined
-  skills?: readonly string[] | undefined
-  noBuiltinTools?: boolean | undefined
-}
-
-interface FileDraft {
-  host?: string | undefined
-  port?: number | undefined
-  journal?: string | undefined
-  pi?: FilePi | undefined
 }
 
 export interface FilePi {
@@ -56,27 +48,52 @@ export interface ServeFlags {
   readonly journal?: string | undefined
 }
 
+interface FilePiDraft {
+  home?: string | undefined
+  sessionDir?: string | undefined
+  command?: string | undefined
+  args?: readonly string[] | undefined
+  skills?: readonly string[] | undefined
+  noBuiltinTools?: boolean | undefined
+}
+
+interface EnvPiDraft {
+  home?: string | undefined
+  sessionDir?: string | undefined
+  command?: string | undefined
+  args?: readonly string[] | undefined
+  skills?: readonly string[] | undefined
+  noBuiltinTools?: string | undefined
+}
+
+interface FileDraft {
+  host?: string | undefined
+  port?: number | undefined
+  journal?: string | undefined
+  pi?: FilePi | undefined
+}
+
 export interface CatalogKey {
   readonly name: string
-  readonly env?: string
+  readonly path: readonly string[]
   readonly lifetime: Lifetime
 }
 
 /**
- * Every setting the host admits. A key that is not here is not configuration,
- * including `ORU_PI_E2E_MODEL` (tests) and `ORU_PI_TOOLS_FILE` (scratch).
+ * Names `config list` prints. Validation lives on the Effect Config schema,
+ * not here. `ORU_PI_E2E_MODEL` and `ORU_PI_TOOLS_FILE` are not settings.
  */
 export const catalog = [
-  { name: 'home', env: 'ORU_HOME', lifetime: 'startup' },
-  { name: 'host', env: 'ORU_HOST', lifetime: 'startup' },
-  { name: 'port', env: 'ORU_PORT', lifetime: 'startup' },
-  { name: 'journal', env: 'ORU_JOURNAL', lifetime: 'startup' },
-  { name: 'pi.home', env: 'ORU_PI_HOME', lifetime: 'startup' },
-  { name: 'pi.sessionDir', env: 'ORU_PI_SESSION_DIR', lifetime: 'startup' },
-  { name: 'pi.command', env: 'ORU_PI_COMMAND', lifetime: 'startup' },
-  { name: 'pi.args', env: 'ORU_PI_ARGS', lifetime: 'startup' },
-  { name: 'pi.skills', env: 'ORU_PI_SKILLS', lifetime: 'startup' },
-  { name: 'pi.noBuiltinTools', env: 'ORU_PI_NO_BUILTIN_TOOLS', lifetime: 'startup' },
+  { name: 'home', path: ['home'], lifetime: 'startup' },
+  { name: 'host', path: ['host'], lifetime: 'startup' },
+  { name: 'port', path: ['port'], lifetime: 'startup' },
+  { name: 'journal', path: ['journal'], lifetime: 'startup' },
+  { name: 'pi.home', path: ['pi', 'home'], lifetime: 'startup' },
+  { name: 'pi.sessionDir', path: ['pi', 'sessionDir'], lifetime: 'startup' },
+  { name: 'pi.command', path: ['pi', 'command'], lifetime: 'startup' },
+  { name: 'pi.args', path: ['pi', 'args'], lifetime: 'startup' },
+  { name: 'pi.skills', path: ['pi', 'skills'], lifetime: 'startup' },
+  { name: 'pi.noBuiltinTools', path: ['pi', 'noBuiltinTools'], lifetime: 'startup' },
 ] as const satisfies readonly CatalogKey[]
 
 export type ConfigKeyName = (typeof catalog)[number]['name']
@@ -98,27 +115,33 @@ export const defaultPiSessionDirOf = (piHome: string): string => join(piHome, 's
 
 export const defaultHome = (osHome: string = homedir()): string => join(osHome, '.oru')
 
-const PiFile = Schema.Struct({
-  home: Schema.optional(Schema.String),
-  sessionDir: Schema.optional(Schema.String),
-  command: Schema.optional(Schema.String),
-  args: Schema.optional(Schema.Array(Schema.String)),
-  skills: Schema.optional(Schema.Array(Schema.String)),
-  noBuiltinTools: Schema.optional(Schema.Boolean),
+const ListenPort = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 65535 }))
+
+const StringList = Schema.Array(Schema.String)
+
+const FilePiDocument = Schema.Struct({
+  home: Schema.optionalKey(Schema.String),
+  sessionDir: Schema.optionalKey(Schema.String),
+  command: Schema.optionalKey(Schema.String),
+  args: Schema.optionalKey(StringList),
+  skills: Schema.optionalKey(StringList),
+  noBuiltinTools: Schema.optionalKey(Schema.Boolean),
 })
 
 const FileDocument = Schema.Struct({
-  host: Schema.optional(Schema.String),
-  port: Schema.optional(Schema.Number),
-  journal: Schema.optional(Schema.String),
-  pi: Schema.optional(PiFile),
+  host: Schema.optionalKey(Schema.String),
+  port: Schema.optionalKey(ListenPort),
+  journal: Schema.optionalKey(Schema.String),
+  pi: Schema.optionalKey(FilePiDocument),
 })
 
-const decodeFile = Schema.decodeUnknownSync(FileDocument)
+const parseOptions = { onExcessProperty: 'error' as const }
+
 const decodeJsonValue = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-const decodeStringList = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Array(Schema.String)),
-)
+const decodeFileResult = Schema.decodeUnknownResult(FileDocument, parseOptions)
+const decodeListenPort = Schema.decodeUnknownResult(ListenPort)
+const decodeBoolean = Schema.decodeUnknownResult(Config.Boolean)
+const decodeStringList = Schema.decodeUnknownResult(Schema.fromJsonString(StringList))
 
 export class ConfigError extends Error {
   override readonly name = 'ConfigError'
@@ -128,46 +151,28 @@ const fail = (message: string): never => {
   throw new ConfigError(message)
 }
 
-const parsePortNumber = (wanted: number, label: string, shown: string): number => {
-  if (!Number.isInteger(wanted) || wanted < 0 || wanted > 65535) {
-    return fail(`${label} takes a port number, got ${shown}`)
+const issueMessage = (error: Schema.SchemaError): string => {
+  const text = error.message
+  const excess = /(?:expected|unexpected|excess|unknown).*?[`'"]([^`'"]+)[`'"]/iu.exec(text)
+  if (excess?.[1] !== undefined && text.toLowerCase().includes('excess')) {
+    return `config.json has unknown key ${excess[1]}`
   }
-  return wanted
+  if (text.includes('token')) return `config.json has unknown key token`
+  return text
 }
 
-const rootKeySet = new Set(['host', 'port', 'journal', 'pi'])
-const piKeySet = new Set(['home', 'sessionDir', 'command', 'args', 'skills', 'noBuiltinTools'])
-
-const rejectUnknownKeys = (
-  keys: readonly string[],
-  allowed: ReadonlySet<string>,
-  where: string,
-) => {
-  for (const key of keys) {
-    if (!allowed.has(key)) return fail(`${where} has unknown key ${key}`)
+const fromResult = <A>(result: Result.Result<A, Schema.SchemaError>, fallback: string): A => {
+  if (Result.isFailure(result)) {
+    const message = issueMessage(result.failure)
+    return fail(message.length > 0 ? message : fallback)
   }
+  return result.success
 }
 
 export const parseFileConfig = (text: string): FileConfig => {
   const json = decodeJsonValue(text)
   if (Option.isNone(json)) return fail('config.json is not JSON')
-  const value = json.value
-  if (!Predicate.isObject(value)) return fail('config.json must be an object')
-  rejectUnknownKeys(Object.keys(value), rootKeySet, 'config.json')
-  if (Predicate.hasProperty(value, 'pi') && value.pi !== undefined) {
-    if (!Predicate.isObject(value.pi)) return fail('config.json pi must be an object')
-    rejectUnknownKeys(Object.keys(value.pi), piKeySet, 'config.json pi')
-  }
-  try {
-    const decoded = compactFile(decodeFile(value))
-    if (decoded.port !== undefined) {
-      parsePortNumber(decoded.port, 'port', String(decoded.port))
-    }
-    return decoded
-  } catch (cause) {
-    if (cause instanceof ConfigError) throw cause
-    return fail(cause instanceof Error ? cause.message : 'config.json is invalid')
-  }
+  return fromResult(decodeFileResult(json.value), 'config.json is invalid')
 }
 
 export const loadFileConfig = (home: string): FileConfig => {
@@ -176,16 +181,67 @@ export const loadFileConfig = (home: string): FileConfig => {
   return parseFileConfig(readFileSync(path, 'utf8'))
 }
 
-const pick = <T>(
-  flag: T | undefined,
-  file: T | undefined,
-  env: T | undefined,
-  fallback: T,
-): Chosen<T> => {
-  if (flag !== undefined) return { value: flag, source: 'flag' }
-  if (file !== undefined) return { value: file, source: 'file' }
-  if (env !== undefined) return { value: env, source: 'env' }
-  return { value: fallback, source: 'default' }
+const settingsConfig = (defaults: {
+  readonly home: string
+  readonly journal: string
+  readonly piHome: string
+  readonly piSessionDir: string
+}) =>
+  Config.all({
+    home: Config.string('home').pipe(Config.withDefault(defaults.home)),
+    hostname: Config.string('host').pipe(Config.withDefault(defaultHost)),
+    port: Config.schema(ListenPort, 'port').pipe(Config.withDefault(defaultPort)),
+    journal: Config.string('journal').pipe(Config.withDefault(defaults.journal)),
+    piHome: Config.string('home').pipe(Config.nested('pi'), Config.withDefault(defaults.piHome)),
+    piSessionDir: Config.string('sessionDir').pipe(
+      Config.nested('pi'),
+      Config.withDefault(defaults.piSessionDir),
+    ),
+    piCommand: Config.string('command').pipe(
+      Config.nested('pi'),
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
+    piArgs: Config.schema(StringList, 'args').pipe(
+      Config.nested('pi'),
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
+    piSkills: Config.schema(StringList, 'skills').pipe(
+      Config.nested('pi'),
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
+    piNoBuiltinTools: Config.boolean('noBuiltinTools').pipe(
+      Config.nested('pi'),
+      Config.withDefault(false),
+    ),
+  })
+
+interface ProviderTree {
+  home?: string | undefined
+  host?: string | undefined
+  port?: number | string | undefined
+  journal?: string | undefined
+  pi?: FilePi | EnvPiDraft | undefined
+}
+
+const treeFromFlags = (flags: ServeFlags): ProviderTree => {
+  const tree: ProviderTree = {}
+  if (flags.home !== undefined) tree.home = flags.home
+  if (flags.hostname !== undefined) tree.host = flags.hostname
+  if (flags.port !== undefined) tree.port = flags.port
+  if (flags.journal !== undefined) tree.journal = flags.journal
+  return tree
+}
+
+const treeFromFile = (file: FileConfig): ProviderTree => {
+  const tree: ProviderTree = {}
+  if (file.host !== undefined) tree.host = file.host
+  if (file.port !== undefined) tree.port = file.port
+  if (file.journal !== undefined) tree.journal = file.journal
+  if (file.pi !== undefined) tree.pi = file.pi
+  return tree
 }
 
 const envString = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
@@ -194,26 +250,96 @@ const envString = (env: NodeJS.ProcessEnv, name: string): string | undefined => 
   return value
 }
 
-const envPort = (env: NodeJS.ProcessEnv): number | undefined => {
-  const raw = envString(env, 'ORU_PORT')
-  if (raw === undefined) return undefined
-  return parsePortNumber(Number(raw), 'ORU_PORT', raw)
-}
-
-const envFlag = (env: NodeJS.ProcessEnv, name: string): boolean | undefined => {
+const envStringList = (env: NodeJS.ProcessEnv, name: string): readonly string[] | undefined => {
   const raw = envString(env, name)
   if (raw === undefined) return undefined
-  if (raw === '1' || raw === 'true') return true
-  if (raw === '0' || raw === 'false') return false
-  return fail(`${name} takes 1, 0, true, or false, got ${raw}`)
+  return fromResult(decodeStringList(raw), `${name} must be a JSON array of strings`)
 }
 
-const envJsonStrings = (env: NodeJS.ProcessEnv, name: string): readonly string[] | undefined => {
-  const raw = envString(env, name)
-  if (raw === undefined) return undefined
-  const parsed = decodeStringList(raw)
-  if (Option.isNone(parsed)) return fail(`${name} must be a JSON array of strings`)
-  return parsed.value
+const treeFromEnv = (env: NodeJS.ProcessEnv): ProviderTree => {
+  const tree: ProviderTree = {}
+  const home = envString(env, 'ORU_HOME')
+  const host = envString(env, 'ORU_HOST')
+  const port = envString(env, 'ORU_PORT')
+  const journal = envString(env, 'ORU_JOURNAL')
+  if (home !== undefined) tree.home = home
+  if (host !== undefined) tree.host = host
+  if (port !== undefined) tree.port = port
+  if (journal !== undefined) tree.journal = journal
+  const pi: EnvPiDraft = {}
+  const piHome = envString(env, 'ORU_PI_HOME')
+  const sessionDir = envString(env, 'ORU_PI_SESSION_DIR')
+  const command = envString(env, 'ORU_PI_COMMAND')
+  const args = envStringList(env, 'ORU_PI_ARGS')
+  const skills = envStringList(env, 'ORU_PI_SKILLS')
+  const noBuiltin = envString(env, 'ORU_PI_NO_BUILTIN_TOOLS')
+  if (piHome !== undefined) pi.home = piHome
+  if (sessionDir !== undefined) pi.sessionDir = sessionDir
+  if (command !== undefined) pi.command = command
+  if (args !== undefined) pi.args = args
+  if (skills !== undefined) pi.skills = skills
+  if (noBuiltin !== undefined) pi.noBuiltinTools = noBuiltin
+  if (Object.keys(pi).length > 0) tree.pi = pi
+  return tree
+}
+
+const layered = (
+  flags: ServeFlags,
+  env: NodeJS.ProcessEnv,
+  file: FileConfig,
+  home: string,
+): ConfigProvider.ConfigProvider => {
+  const defaults: ProviderTree = {
+    home,
+    host: defaultHost,
+    port: defaultPort,
+    journal: defaultJournalOf(home),
+    pi: {
+      home: defaultPiHomeOf(home),
+      sessionDir: defaultPiSessionDirOf(defaultPiHomeOf(home)),
+      noBuiltinTools: false,
+    },
+  }
+  return ConfigProvider.fromUnknown(treeFromFlags(flags)).pipe(
+    ConfigProvider.orElse(ConfigProvider.fromUnknown(treeFromFile(file))),
+    ConfigProvider.orElse(ConfigProvider.fromUnknown(treeFromEnv(env))),
+    ConfigProvider.orElse(ConfigProvider.fromUnknown(defaults)),
+  )
+}
+
+const leafPresent = (node: ConfigProviderNs.Node | undefined): boolean => {
+  if (node === undefined) return false
+  if (node._tag === 'Value') return true
+  if (node.value !== undefined) return true
+  if (node._tag === 'Array') return node.length > 0
+  return false
+}
+
+const sourceAt = (
+  path: readonly string[],
+  flags: ServeFlags,
+  env: NodeJS.ProcessEnv,
+  file: FileConfig,
+): Source => {
+  const layers: ReadonlyArray<readonly [Source, ConfigProvider.ConfigProvider]> = [
+    ['flag', ConfigProvider.fromUnknown(treeFromFlags(flags))],
+    ['file', ConfigProvider.fromUnknown(treeFromFile(file))],
+    ['env', ConfigProvider.fromUnknown(treeFromEnv(env))],
+  ]
+  for (const [source, provider] of layers) {
+    const node = Effect.runSync(provider.load([...path]))
+    if (leafPresent(node)) return source
+  }
+  return 'default'
+}
+
+const runConfig = <A>(config: Config.Config<A>, provider: ConfigProvider.ConfigProvider): A => {
+  try {
+    return Effect.runSync(config.parse(provider))
+  } catch (cause) {
+    if (cause instanceof Config.ConfigError) return fail(cause.message)
+    throw cause
+  }
 }
 
 export interface Settings {
@@ -234,7 +360,15 @@ export const resolveHome = (
   flag: string | undefined,
   env: NodeJS.ProcessEnv,
   osHome: string,
-): Chosen<string> => pick(flag, undefined, envString(env, 'ORU_HOME'), defaultHome(osHome))
+): Chosen<string> => {
+  const flags: ServeFlags = flag === undefined ? {} : { home: flag }
+  const provider = ConfigProvider.fromUnknown(treeFromFlags(flags)).pipe(
+    ConfigProvider.orElse(ConfigProvider.fromUnknown(treeFromEnv(env))),
+    ConfigProvider.orElse(ConfigProvider.fromUnknown({ home: defaultHome(osHome) })),
+  )
+  const value = runConfig(Config.string('home'), provider)
+  return { value, source: sourceAt(['home'], flags, env, {}) }
+}
 
 export const resolveSettings = (
   flags: ServeFlags,
@@ -243,48 +377,32 @@ export const resolveSettings = (
   osHome: string,
 ): Settings => {
   const home = resolveHome(flags.home, env, osHome)
-  const dataDir = dataDirOf(home.value)
-  const hostname = pick(flags.hostname, file.host, envString(env, 'ORU_HOST'), defaultHost)
-  const port = pick(flags.port, file.port, envPort(env), defaultPort)
-  const journal = pick(
-    flags.journal,
-    file.journal,
-    envString(env, 'ORU_JOURNAL'),
-    defaultJournalOf(home.value),
+  const parsed = runConfig(
+    settingsConfig({
+      home: home.value,
+      journal: defaultJournalOf(home.value),
+      piHome: defaultPiHomeOf(home.value),
+      piSessionDir: defaultPiSessionDirOf(defaultPiHomeOf(home.value)),
+    }),
+    layered(flags, env, file, home.value),
   )
-  const piHome = pick(
-    undefined,
-    file.pi?.home,
-    envString(env, 'ORU_PI_HOME'),
-    defaultPiHomeOf(home.value),
-  )
-  const piSessionDir = pick(
-    undefined,
-    file.pi?.sessionDir,
-    envString(env, 'ORU_PI_SESSION_DIR'),
-    defaultPiSessionDirOf(piHome.value),
-  )
-  const piCommand = pick(undefined, file.pi?.command, envString(env, 'ORU_PI_COMMAND'), undefined)
-  const piArgs = pick(undefined, file.pi?.args, envJsonStrings(env, 'ORU_PI_ARGS'), undefined)
-  const piSkills = pick(undefined, file.pi?.skills, envJsonStrings(env, 'ORU_PI_SKILLS'), undefined)
-  const piNoBuiltinTools = pick(
-    undefined,
-    file.pi?.noBuiltinTools,
-    envFlag(env, 'ORU_PI_NO_BUILTIN_TOOLS'),
-    false,
-  )
+  const src = (path: readonly string[]): Source => sourceAt(path, flags, env, file)
+  const sessionSource = src(['pi', 'sessionDir'])
   return {
     home,
-    hostname,
-    port,
-    journal,
-    dataDir,
-    piHome,
-    piSessionDir,
-    piCommand,
-    piArgs,
-    piSkills,
-    piNoBuiltinTools,
+    hostname: { value: parsed.hostname, source: src(['host']) },
+    port: { value: parsed.port, source: src(['port']) },
+    journal: { value: parsed.journal, source: src(['journal']) },
+    dataDir: dataDirOf(home.value),
+    piHome: { value: parsed.piHome, source: src(['pi', 'home']) },
+    piSessionDir:
+      sessionSource === 'default'
+        ? { value: defaultPiSessionDirOf(parsed.piHome), source: 'default' }
+        : { value: parsed.piSessionDir, source: sessionSource },
+    piCommand: { value: parsed.piCommand, source: src(['pi', 'command']) },
+    piArgs: { value: parsed.piArgs, source: src(['pi', 'args']) },
+    piSkills: { value: parsed.piSkills, source: src(['pi', 'skills']) },
+    piNoBuiltinTools: { value: parsed.piNoBuiltinTools, source: src(['pi', 'noBuiltinTools']) },
   }
 }
 
@@ -363,20 +481,6 @@ export const writeFileConfig = (home: string, file: FileConfig): void => {
   chmodSync(path, 0o600)
 }
 
-const parsePortValue = (value: string): number => parsePortNumber(Number(value), 'port', value)
-
-const parseBoolValue = (value: string): boolean => {
-  if (value === '1' || value === 'true') return true
-  if (value === '0' || value === 'false') return false
-  return fail(`pi.noBuiltinTools takes 1, 0, true, or false, got ${value}`)
-}
-
-const parseStringArray = (value: string): readonly string[] => {
-  const parsed = decodeStringList(value)
-  if (Option.isNone(parsed)) return fail('that key takes a JSON array of strings')
-  return parsed.value
-}
-
 const withPi = (file: FileConfig, patch: FilePi): FileConfig => {
   const current = file.pi ?? {}
   const pi: FilePiDraft = {}
@@ -405,7 +509,10 @@ export const setFileKey = (file: FileConfig, key: WritableKey, value: string): F
     case 'host':
       return compactFile({ ...file, host: value })
     case 'port':
-      return compactFile({ ...file, port: parsePortValue(value) })
+      return compactFile({
+        ...file,
+        port: fromResult(decodeListenPort(Number(value)), `port takes a port number, got ${value}`),
+      })
     case 'journal':
       return compactFile({ ...file, journal: value })
     case 'pi.home':
@@ -415,11 +522,20 @@ export const setFileKey = (file: FileConfig, key: WritableKey, value: string): F
     case 'pi.command':
       return withPi(file, { command: value })
     case 'pi.args':
-      return withPi(file, { args: parseStringArray(value) })
+      return withPi(file, {
+        args: fromResult(decodeStringList(value), 'that key takes a JSON array of strings'),
+      })
     case 'pi.skills':
-      return withPi(file, { skills: parseStringArray(value) })
+      return withPi(file, {
+        skills: fromResult(decodeStringList(value), 'that key takes a JSON array of strings'),
+      })
     case 'pi.noBuiltinTools':
-      return withPi(file, { noBuiltinTools: parseBoolValue(value) })
+      return withPi(file, {
+        noBuiltinTools: fromResult(
+          decodeBoolean(value),
+          `pi.noBuiltinTools takes 1, 0, true, or false, got ${value}`,
+        ),
+      })
     default: {
       const _exhaustive: never = key
       return _exhaustive

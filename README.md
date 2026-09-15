@@ -29,7 +29,7 @@ Status: active development.
 | [0009](./docs/adr/0009-node-host-and-transport.md)    | A node host process serves the kernel over HTTP, and the app is its client    |
 | [0010](./docs/adr/0010-durable-sessions.md)           | Durable sessions in the host: the log is opened, resumed, and reprojected     |
 | [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
-| [0012](./docs/adr/0012-config-precedence.md)          | One catalog, one file, flags then file then env then defaults                 |
+| [0012](./docs/adr/0012-config-precedence.md)          | Effect Config, one file, flags then file then env then defaults               |
 
 ## Stack
 

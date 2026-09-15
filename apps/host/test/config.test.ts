@@ -136,6 +136,13 @@ describe('resolveSettings', () => {
     expect(env.ORU_PI_COMMAND).toBe('from-file')
     expect(env.ORU_PI_E2E_MODEL).toBe('keep-me')
 
+    const fromPiHome = resolveSettings({}, {}, { pi: { home: '/custom/pi' } }, osHome)
+    expect(fromPiHome.piHome.value).toBe('/custom/pi')
+    expect(fromPiHome.piSessionDir).toEqual({
+      value: '/custom/pi/sessions',
+      source: 'default',
+    })
+
     const unset = piEnvOf(
       { PATH: '/bin', ORU_PI_COMMAND: 'ambient' },
       resolveSettings({}, {}, {}, osHome),

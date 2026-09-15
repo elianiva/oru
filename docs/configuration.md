@@ -15,7 +15,7 @@ The default journal is `data/oru.db`. The default pi session directory is `data/
 
 ## Precedence
 
-For every other key the winner is the first of: a launcher flag, the file, the environment, the built-in default. `apps/host/src/config.ts` is that rule. Tests in `apps/host/test/config.test.ts` pin it.
+For every other key the winner is the first of: a launcher flag, the file, the environment, the built-in default. Effect Config reads that stack in `apps/host/src/config.ts`. Schema validates the file and the typed keys. Tests in `apps/host/test/config.test.ts` pin it.
 
 ## Commands
 
@@ -66,9 +66,9 @@ Unknown keys are rejected.
 
 ## Environment the pi bridge sees
 
-The host copies the process environment and overwrites the catalog's `ORU_*` / `ORU_PI_*` names with the resolved values, then passes that bag to `makePiHarness`. The bridge still reads an env argument. It does not read a second copy of `process.env` for those product keys when the host started it.
+The host copies the process environment and overwrites the product `ORU_*` / `ORU_PI_*` names with the resolved values, then passes that bag to `makePiHarness`. The bridge still reads an env argument. It does not read a second copy of `process.env` for those product keys when the host started it.
 
-Two names stay outside the catalog:
+Two names stay outside this layer:
 
 - `ORU_PI_E2E_MODEL` is only for the live end-to-end test.
 - `ORU_PI_TOOLS_FILE` is a scratch path the bridge sets per child.
