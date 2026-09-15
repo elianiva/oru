@@ -23,7 +23,7 @@ export const publishManifest = (hostPkg) => ({
 })
 
 export const pack = () => {
-  const build = spawnSync(process.execPath, [join(hostRoot, 'scripts/build.mjs')], {
+  const build = spawnSync('pnpm', ['run', 'build'], {
     cwd: hostRoot,
     stdio: 'inherit',
   })
