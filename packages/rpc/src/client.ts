@@ -1,10 +1,12 @@
 import { Context, Effect, Layer, Stream } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { RpcClient, RpcClientError } from 'effect/unstable/rpc'
-import type { PluginId, SessionEvent, ThreadId } from '@oru/kernel'
+import type { PluginId, ProjectId, SessionEvent, ThreadId } from '@oru/kernel'
 import { HostRpc } from './host-rpc.ts'
+import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
-import { hostRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
+import { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
+import type { Project } from './project.ts'
 import type { ThreadConfig, ThreadOptions } from './thread-options.ts'
 import type { ThreadSignal } from './thread-signal.ts'
 import type { ViewGraph } from './view-graph.ts'
@@ -17,10 +19,21 @@ export interface GraphRpcContract {
 
 export class GraphRpc extends Context.Service<GraphRpc, GraphRpcContract>()('oru/GraphRpc') {}
 
+export interface ProjectClientContract {
+  readonly create: (name: string, cwd: string) => Effect.Effect<Project>
+  readonly list: () => Effect.Effect<readonly Project[]>
+  readonly get: (project: ProjectId) => Effect.Effect<Project>
+}
+
+export class ProjectClient extends Context.Service<ProjectClient, ProjectClientContract>()(
+  'oru/ProjectClient',
+) {}
+
 /** What a thread's pane needs from the host: facts, configuration, live signals. */
 export interface ThreadClientContract {
-  /** A real directory, because a cwd-bound harness resumes by it (ADR-0006). */
-  readonly create: (cwd?: string) => Effect.Effect<{ readonly threadId: ThreadId }>
+  readonly create: (
+    project: ProjectId,
+  ) => Effect.Effect<{ readonly threadId: ThreadId; readonly project: Project }>
   readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void>
   readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent>
   readonly options: (
@@ -59,11 +72,20 @@ export const graphRpcOf = (
     setLive: (plugin, live) => client.SetLive({ plugin, live }).pipe(Effect.orDie),
   })
 
+export const projectClientOf = (
+  client: RpcClient.FromGroup<typeof ProjectRpc, RpcClientError.RpcClientError>,
+): Layer.Layer<ProjectClient> =>
+  Layer.succeed(ProjectClient, {
+    create: (name, cwd) => client.CreateProject({ name, cwd }).pipe(Effect.orDie),
+    list: () => client.ListProjects().pipe(Effect.orDie),
+    get: (project) => client.GetProject({ project }).pipe(Effect.orDie),
+  })
+
 export const threadClientOf = (
   client: RpcClient.FromGroup<typeof ThreadRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ThreadClient> =>
   Layer.succeed(ThreadClient, {
-    create: (cwd) => client.CreateThread({ cwd }).pipe(Effect.orDie),
+    create: (project) => client.CreateThread({ project }).pipe(Effect.orDie),
     send: (threadId, text) => client.SendMessage({ threadId, text }).pipe(Effect.orDie),
     watch: (threadId) => client.WatchThread({ threadId }).pipe(Stream.orDie),
     options: (threadId, options) =>
@@ -87,24 +109,27 @@ export const threadClientOf = (
   })
 
 /**
- * Both facades, wired to a host over the real transport.
+ * The three facades, wired to a host over the real transport.
  *
- * The view asks for `GraphRpc` and `ThreadClient` and never sees the URLs, the
- * framing, or the RPC groups. It is a layer because that is what a caller
- * wants: the runtime's resources, or an `Effect.provide`.
+ * The view asks for `GraphRpc`, `ProjectClient`, and `ThreadClient` and never
+ * sees the URLs, the framing, or the RPC groups. It is a layer because that is
+ * what a caller wants: the runtime's resources, or an `Effect.provide`.
  *
  * `hostUrl` is a prefix, so `''` targets whatever origin served the app and an
  * absolute URL targets a host somewhere else.
  */
-export const clientsFor = (hostUrl: string): Layer.Layer<GraphRpc | ThreadClient> =>
+export const clientsFor = (hostUrl: string): Layer.Layer<GraphRpc | ProjectClient | ThreadClient> =>
   Layer.unwrap(
     Effect.gen(function* () {
       const host = yield* RpcClient.make(HostRpc).pipe(
         Effect.provide(protocolFor(`${hostUrl}${hostRpcPath}`)),
       )
+      const projects = yield* RpcClient.make(ProjectRpc).pipe(
+        Effect.provide(protocolFor(`${hostUrl}${projectRpcPath}`)),
+      )
       const thread = yield* RpcClient.make(ThreadRpc).pipe(
         Effect.provide(protocolFor(`${hostUrl}${threadRpcPath}`)),
       )
-      return Layer.mergeAll(graphRpcOf(host), threadClientOf(thread))
+      return Layer.mergeAll(graphRpcOf(host), projectClientOf(projects), threadClientOf(thread))
     }),
   )

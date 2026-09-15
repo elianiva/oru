@@ -30,6 +30,10 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      - name: Version lockstep
+        run: pnpm check:lockstep
+      - name: Pack smoke
+        run: pnpm pack:smoke
 
   browser:
     runs-on: ubuntu-latest
