@@ -55,6 +55,8 @@ const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
       'project/created': () => '',
       'turn/started': () => '',
       'turn/failed': () => '',
+      'turn/usage': () => '',
+      'thread/context-window': () => '',
       'message/appended': () => '',
       'tool/requested': () => '',
       'tool/completed': () => '',

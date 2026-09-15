@@ -24,6 +24,8 @@ export const laneOf = (event: SessionEvent): Lane =>
       'thread/configured': (event) => threadLane(event.thread),
       'turn/started': (event) => threadLane(event.thread),
       'turn/failed': (event) => threadLane(event.thread),
+      'turn/usage': (event) => threadLane(event.thread),
+      'thread/context-window': (event) => threadLane(event.thread),
       'message/appended': (event) => threadLane(event.thread),
       'tool/requested': (event) => threadLane(event.thread),
       'tool/completed': (event) => threadLane(event.thread),
