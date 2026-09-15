@@ -44,4 +44,4 @@ Each unit ends in a verifiable state. Do not start the next until the current on
 
 - `pnpm -r typecheck`, `pnpm -r test`.
 - Each unit ships a test that drives it the way the app does.
-- Browser check with the agent-browser skill once the presentation facet exists.
+- Browser check with the agent-browser skill once the presentation facet exists (runbook: [README > Browser check](./README.md#browser-check)).
