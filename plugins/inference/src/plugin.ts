@@ -14,7 +14,7 @@ const setup = (ctx: PluginContext) =>
     const scope = yield* Scope.Scope
     const inference = yield* openInference(log, harnesses, loadTools, scope)
     // A restarted host finishes what the journal left running, once the graph
-    // the loop reads is assembled (ADR-0009).
+    // the loop reads is assembled (ADR-0010).
     yield* ctx.contribute(BootKind.of(inference.resume()))
     return Context.make(Inference, inference)
   })

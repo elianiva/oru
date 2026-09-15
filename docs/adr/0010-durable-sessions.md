@@ -4,7 +4,13 @@ ADR-0003 promised that resume, fork, and crash recovery reproject the log. This 
 
 ## The journal is a file the host opens
 
-`sqliteJournalLayer(filename)` provides an `EventJournal` backed by a node SQLite client, and a host composes it the way the browser host composes `EventJournal.layerMemory`: `sessionLogLayer` and `makeHost` resolve the same journal, from one connection. It is the kernel's only node entry point (`@oru/kernel/sqlite`), so the browser host never pulls a filesystem driver into its bundle. Two host instances against one file are the restart case the tests drive.
+`sqliteJournalLayer(filename)` provides an `EventJournal` backed by a node SQLite client, and `serveHost` opens it when the caller names a file: `--journal`, or `ORU_JOURNAL`, or `~/.oru/oru.db`. Two host instances against one file are the restart case the tests drive.
+
+The journal belongs to the caller's scope. Building it inside `serveHost` and providing it there released it as soon as the host was assembled, which a memory journal survives and a file one does not: the first call a client made after that found its statements finalized.
+
+`makeHost` takes the `SessionLog` service instead of building its own reader over the same journal. Two of them stamp leaves under two locks, which is how two facts come to share a leaf (ADR-0003), and the SQL driver rejects the overlap outright.
+
+It is the kernel's only node entry point (`@oru/kernel/sqlite`), so the browser host never pulls a filesystem driver into its bundle. Which directory holds oru's data, and how that choice precedes the others, is issue #19's.
 
 ## Opening the journal resumes the lanes it names
 
@@ -44,7 +50,7 @@ The harness is asked to copy its own session when it has `fork`, and is not aske
 - A fork of a fork chains: a lane's memory is the path its branch names, read only over entries that already existed, and an entry already walked is skipped, so a log that names an entry twice cannot recurse forever.
 - `thread/compacted` on a fork lane may name an entry in an ancestor lane. The cut is an entry id, not a lane-local index, so that is ordinary.
 - A harness that cannot fork still forks: the new lane is correct from the log, and an `ownsHistory` harness seeds its fresh session from the fork's model-visible history.
-- The browser host has no durable journal until the node host process exists (issue #10). Until then the two-instance tests are the proof that the storage and the reprojection are real.
+- The browser host has no durable journal: it is a client of the node host now (ADR-0009), and the node host opens the file.
 - `compactionCut` narrows what a compacted thread keeps to its latest request. A thread with no request of its own, or one compacted twice with nothing in between, keeps its leaf.
 - Two fold defects surfaced while the lanes were replayed across hosts, and both are fixed here. The fold kept a turn open after the model answered, so the next request reused the answered turn's id and wrote no `turn/started` of its own. And a completed tool call was keyed by call id alone, so a bridge that reuses an id in a later turn had its new call treated as already run and never executed it.
 - A pending tool call is the last thing the log says about its turn and call, so a request that follows its own completion reopens the work. Under the earlier rule that request stayed closed, and a lane could end with an unanswered request and no failure to explain it.

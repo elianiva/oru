@@ -71,7 +71,7 @@ export interface InferenceContract {
   /**
    * Continue every lane the log names with work left. Idempotent, and meant to
    * run once the graph is whole, so a restarted host finishes the turns it
-   * inherited rather than leaving them parked (ADR-0009).
+   * inherited rather than leaving them parked (ADR-0010).
    */
   readonly resume: () => Effect.Effect<void>
   /**
@@ -461,7 +461,7 @@ export const openInference = (
 
     /**
      * Continue the lanes a restarted host finds with work left: the fold, not a
-     * snapshot, is what says which threads were running (ADR-0009).
+     * snapshot, is what says which threads were running (ADR-0010).
      */
     const resume = Effect.gen(function* () {
       const entries = yield* log.entries

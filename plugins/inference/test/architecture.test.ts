@@ -234,7 +234,7 @@ describe('inference architecture', () => {
         const entries = yield* log.entries
         // The fork is a fact on the new lane: it names the entry it continues
         // from, so a restart reprojects the branch without the bridge copying
-        // anything (ADR-0009).
+        // anything (ADR-0010).
         const branch = entries.find((event) => event._tag === 'thread/branched')
         const sourceLeaf = pathOfLane(entries, threadLane('chosen')).at(-1)
         expect(branch?._tag === 'thread/branched' ? branch.thread : '').toBe('copy')
@@ -242,7 +242,7 @@ describe('inference architecture', () => {
 
         // The compaction the bridge reported is a fact, and the view it keeps is
         // oru's: from the thread's latest request, so a summary replaces what
-        // came before it (ADR-0009).
+        // came before it (ADR-0010).
         const compaction = entries.find((event) => event._tag === 'thread/compacted')
         expect(compaction?._tag === 'thread/compacted' ? compaction.summary : '').toBe('kept')
       }),
