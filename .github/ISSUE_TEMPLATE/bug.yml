@@ -34,7 +34,7 @@ body:
       label: Log
       description: >
         If the host has written a log file, attach it. The planned path is
-        `<dataDir>/logs/oru.log` once rotating logs land (issue 20). If that
+        `<dataDir>/logs/oru.log` once rotating logs land (#20). If that
         file is not there, paste the terminal output from the host.
     validations:
       required: false
