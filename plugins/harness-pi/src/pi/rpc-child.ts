@@ -164,8 +164,10 @@ export class PiRpcChild {
   private readonly exit: Promise<PiRpcChildExitInfo>
   private readonly channelWriter: Writable | null
   private killEscalation: NodeJS.Timeout | null = null
+  private readonly args: SpawnPiRpcChildArgs
 
-  constructor(private readonly args: SpawnPiRpcChildArgs) {
+  constructor(args: SpawnPiRpcChildArgs) {
+    this.args = args
     const settled = Promise.withResolvers<PiRpcChildExitInfo>()
     this.exit = settled.promise
 
