@@ -4,6 +4,7 @@ packages:
   - 'apps/*'
 allowBuilds:
   '@google/genai': false
+  esbuild: true
   lefthook: true
   msgpackr-extract: false
   protobufjs: false
