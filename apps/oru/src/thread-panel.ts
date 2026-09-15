@@ -1,18 +1,17 @@
-import { Schema } from 'effect'
+import { Match, Schema } from 'effect'
 import { defineView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Update from 'foldkit/update'
 import type { HtmlBuilder } from 'foldkit/html'
 import { ModelInfo } from '@oru/harness'
 import { ThreadId } from '@oru/kernel'
+import { HarnessChoice, ThreadConfig, ThreadOptions, ThreadSignal } from '@oru/rpc'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
 import { Empty } from '@/components/ui/empty.ts'
 import { inputClass } from '@/components/ui/input.ts'
 import { Item } from '@/components/ui/item.ts'
 import { labelOf, TranscriptLine } from './transcript.ts'
-import { HarnessChoice, ThreadConfig, ThreadOptions } from './thread-options.ts'
-import { liveLabelOf, ThreadSignal } from './thread-signal.ts'
 
 export const Model = Schema.Struct({
   threadId: Schema.UndefinedOr(ThreadId),
@@ -148,6 +147,29 @@ export const update = (model: Model, message: Message) =>
       }),
     }),
   })
+
+/**
+ * How a live signal reads as one line. The vocabulary is the host's; only the
+ * wording is the pane's.
+ */
+const liveLabelOf = (signal: ThreadSignal): string =>
+  Match.value(signal).pipe(
+    Match.tagsExhaustive({
+      text: (signal) => signal.delta,
+      thinking: (signal) => `thinking: ${signal.delta}`,
+      'tool-start': (signal) => `tool ${signal.name} running`,
+      'tool-args': () => '',
+      'tool-end': (signal) => `tool ${signal.name} ${signal.ok ? 'done' : 'failed'}`,
+      compacting: (signal) => (signal.automatic ? 'compacting' : 'compacting (requested)'),
+      compacted: (signal) => `compacted ${signal.tokensBefore} tokens`,
+      'context-window': (signal) => `context ${signal.tokens}/${signal.contextWindow}`,
+      'session-replaced': (signal) => `session replaced: ${signal.reason}`,
+      warning: (signal) => `warning: ${signal.message}`,
+      error: (signal) => `error: ${signal.message}`,
+      unhandled: (signal) => `unhandled: ${signal.type}`,
+      settled: () => 'turn settled',
+    }),
+  )
 
 export const view = defineView<Model, Message>((model, h) => {
   const levels = levelsOf(model.models.find((choice) => choice.id === model.config.model))

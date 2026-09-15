@@ -1,68 +1,19 @@
-import { Clock, Effect, Option, Random, Result, Schema, Stream } from 'effect'
-import { Rpc, RpcGroup } from 'effect/unstable/rpc'
-import { HarnessHealth, Harnesses, ModelInfo, type HarnessService } from '@oru/harness'
+import { Clock, Effect, Option, Random, Result, Stream } from 'effect'
+import { HarnessHealth, Harnesses, type HarnessService, type ModelInfo } from '@oru/harness'
 import {
   ProjectCreated,
-  SessionEvent,
   SessionLog,
   ThreadCreated,
-  ThreadId,
   foldThreadConfig,
   foldThreadCwd,
   threadOf,
   unsignedTree,
   type Host,
   type SessionLogError,
+  type ThreadId,
 } from '@oru/kernel'
 import { Inference } from '@oru/inference'
-import { HarnessChoice, ThreadOptions } from './thread-options.ts'
-import { ThreadSignal, signalOf } from './thread-signal.ts'
-
-export const ThreadRpc = RpcGroup.make(
-  Rpc.make('CreateThread', {
-    payload: { cwd: Schema.UndefinedOr(Schema.String) },
-    success: Schema.Struct({ threadId: ThreadId }),
-  }),
-  Rpc.make('SendMessage', {
-    payload: { threadId: ThreadId, text: Schema.String },
-    success: Schema.Void,
-  }),
-  Rpc.make('WatchThread', {
-    payload: { threadId: ThreadId },
-    success: SessionEvent,
-    stream: true,
-  }),
-  /** What the pane needs to offer a choice: current configuration and the options. */
-  Rpc.make('ThreadOptions', {
-    payload: { threadId: ThreadId },
-    success: ThreadOptions,
-  }),
-  Rpc.make('ConfigureThread', {
-    payload: {
-      threadId: ThreadId,
-      harness: Schema.UndefinedOr(Schema.NonEmptyString),
-      model: Schema.UndefinedOr(Schema.NonEmptyString),
-      reasoning: Schema.UndefinedOr(Schema.NonEmptyString),
-    },
-    success: ThreadOptions,
-  }),
-  /** Live harness events for the running turn, for a pane that watches it happen. */
-  Rpc.make('WatchSignals', {
-    payload: { threadId: ThreadId },
-    success: ThreadSignal,
-    stream: true,
-  }),
-  Rpc.make('StopThread', { payload: { threadId: ThreadId }, success: Schema.Void }),
-  Rpc.make('DiscardThread', { payload: { threadId: ThreadId }, success: Schema.Void }),
-  Rpc.make('CompactThread', {
-    payload: { threadId: ThreadId, instructions: Schema.UndefinedOr(Schema.String) },
-    success: Schema.Void,
-  }),
-  Rpc.make('ForkThread', {
-    payload: { sourceThreadId: ThreadId, cwd: Schema.UndefinedOr(Schema.String) },
-    success: Schema.Struct({ threadId: ThreadId }),
-  }),
-)
+import { HarnessChoice, ThreadOptions, signalOf, type ThreadSignal } from '@oru/rpc'
 
 const newId = Effect.fnUntraced(function* () {
   const now = yield* Clock.currentTimeMillis

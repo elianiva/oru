@@ -3,7 +3,6 @@ import { defineView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
-import type { PanelUi } from './fixtures.ts'
 
 export const Model = Schema.Struct({
   title: Schema.String,
@@ -21,7 +20,7 @@ export const OutMessage = defineMessageUnion({
 })
 export type OutMessage = typeof OutMessage.Type
 
-export const init = (ui: PanelUi): Model => ({ title: ui.title, acks: 0 })
+export const init = (title: string): Model => ({ title, acks: 0 })
 
 export const update = (model: Model, message: Message) =>
   Message.match(message, {

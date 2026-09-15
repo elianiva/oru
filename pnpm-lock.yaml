@@ -106,6 +106,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@effect/platform-node-shared': 4.0.0-rc.112
   vite: 8.2.2
 
 importers:
@@ -137,17 +138,20 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
 
-  apps/oru:
+  apps/host:
     dependencies:
-      '@foldkit/ui':
-        specifier: 0.158.2
-        version: 0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(redis@6.2.1)
       '@oru/harness':
         specifier: workspace:*
         version: link:../../packages/harness
       '@oru/harness-oru':
         specifier: workspace:*
         version: link:../../plugins/harness-oru
+      '@oru/harness-pi':
+        specifier: workspace:*
+        version: link:../../plugins/harness-pi
       '@oru/harness-registry':
         specifier: workspace:*
         version: link:../../plugins/harness-registry
@@ -157,6 +161,37 @@ importers:
       '@oru/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@oru/rpc':
+        specifier: workspace:*
+        version: link:../../packages/rpc
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.2
+        version: 22.20.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  apps/oru:
+    dependencies:
+      '@foldkit/ui':
+        specifier: 0.158.2
+        version: 0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/rpc':
+        specifier: workspace:*
+        version: link:../../packages/rpc
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
@@ -179,6 +214,9 @@ importers:
       '@foldkit/vite-plugin':
         specifier: 0.20.2
         version: 0.20.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
+      '@oru/host':
+        specifier: workspace:*
+        version: link:../host
       '@types/node':
         specifier: ^22.20.2
         version: 22.20.2
@@ -215,6 +253,25 @@ importers:
       effect:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112
+
+  packages/rpc:
+    dependencies:
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      effect:
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.2)(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
 
   plugins/harness-oru:
     dependencies:
@@ -468,6 +525,19 @@ packages:
     resolution: {integrity: sha512-+HNoKiZBw7gvShygdtYj56RDNsHb1pJr4yEUQwRHgzkd4j/vUpHMqpSyJBmuSCdDPb/kRqfblyiEs26dmfW6Ew==}
     peerDependencies:
       effect: '>=4.0.0-rc.111 <5.0.0'
+
+  '@effect/platform-node-shared@4.0.0-rc.112':
+    resolution: {integrity: sha512-ttjz0xKamFN7vL8pNDYVwddJLjZvqKePc05djlz2VcdaKbLsnYbtMnL1rbOfHgEnIUSHGh7FkjaN4DM1Ov81sQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: ^4.0.0-rc.112
+
+  '@effect/platform-node@4.0.0-rc.112':
+    resolution: {integrity: sha512-/BMAcdNGQQskLmI0Zoa95KfTZkr9HV9N4NSxaSrusG6GeW6Ulp9KvZ+Rlaiw8lnOt43CXjFLdfll5/k5rxL4hQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: ^4.0.0-rc.112
+      redis: '>=5.0.0 <7.0.0'
 
   '@effect/sql-sqlite-node@4.0.0-rc.112':
     resolution: {integrity: sha512-jGRtbJsn5z7DqsMEPSbXq2Q9mYEvMy1v9DTeziTtDEnDzlxhxfrXkSeupZbYqAP5pukIM1JBa10zfAn6KnHG2Q==}
@@ -929,6 +999,42 @@ packages:
   '@protobufjs/utf8@1.1.2':
     resolution: {integrity: sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==}
 
+  '@redis/bloom@6.2.1':
+    resolution: {integrity: sha512-huQgNLaCIZfQ9SeLn4q9124uOUd8HbZDYHwwUzNcRgHqCHiHKl2dDxMqJCeWh8cMqZAoWuHR8XnWbDMIf+o7ag==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/client@6.2.1':
+    resolution: {integrity: sha512-LzxBY7SIBvvJiyCgcaJZZakE3fJrZZ++i24+EDW9fKpCl68D35uJcKFpZZwCfOoG9WZTbyZlMzMeM0gtOAMU9Q==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@node-rs/xxhash': ^1.1.0
+      '@opentelemetry/api': '>=1 <2'
+    peerDependenciesMeta:
+      '@node-rs/xxhash':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+
+  '@redis/json@6.2.1':
+    resolution: {integrity: sha512-AFIUJ8Gj0DaaSBHYuSt8+O0oYWM+50OK1c0OmodB7XERIA8+BbyV3O4v76f9iccWasd1/7qjfZTpuzexUaZtrQ==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/search@6.2.1':
+    resolution: {integrity: sha512-2vfOAOyYFE7UUw3sBBlkqqruBtOUS4HRY5MtW4hp83llrwvtrTE4r22CEqXddlV+54zkLxBE4nmsIJ/dpezQrQ==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
+  '@redis/time-series@6.2.1':
+    resolution: {integrity: sha512-kiYniph04dJOole+L359B6C9E+jYS2uDP7hca6Onj0xF38ZIpyxARO0Iq0W4ZRn1e8Q6vqW00QFZVSMRA/2Ijw==}
+    engines: {node: '>= 20.0.0'}
+    peerDependencies:
+      '@redis/client': ^6.2.1
+
   '@rolldown/binding-android-arm-eabi@1.2.8':
     resolution: {integrity: sha512-tN5aztYkKCte4i5SIrrz5yK/HMjEuCqCSCJa418jOV8tZ1cBY3YF2otxB1ktPxzsLA1BeTqwapK0bfjxNvHJVw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1213,6 +1319,9 @@ packages:
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
 
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
+
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
     engines: {node: '>=16.20.0'}
@@ -1382,6 +1491,10 @@ packages:
   chalk@5.6.2:
     resolution: {integrity: sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
+  cluster-key-slot@1.1.2:
+    resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
+    engines: {node: '>=0.10.0'}
 
   cn@0.2.6:
     resolution: {integrity: sha512-+i4L0zUGgRcEnhsxueVrP7iBGxBx5iD0WOTYg1MwFEu2ZyCmH5Ov2V1cul2Ht5UchRQQgftCf4be/RxspuW6QQ==}
@@ -1765,6 +1878,11 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
+  mime@4.1.0:
+    resolution: {integrity: sha512-X5ju04+cAzsojXKes0B/S4tcYtFAJ6tTMuSPBEn9CPGlrWr8Fiw7qYeLT0XyH80HSoAoqWCaz+MWKh22P7G1cw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   minimatch@10.2.5:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
@@ -1885,6 +2003,10 @@ packages:
   pure-rand@8.4.2:
     resolution: {integrity: sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==}
 
+  redis@6.2.1:
+    resolution: {integrity: sha512-Z9VHtgYs48PiQC77X9O2Er8Hj4T+5BtFjT91/vi5Is1D04N72cA946ZslM1ImJw8ZctFBZWAVjM7S5wJNeHMpg==}
+    engines: {node: '>= 20.0.0'}
+
   retry@0.12.0:
     resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
     engines: {node: '>= 4'}
@@ -1976,6 +2098,10 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  undici@8.10.2:
+    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
+    engines: {node: '>=22.19.0'}
 
   undici@8.9.0:
     resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
@@ -2407,6 +2533,26 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.0-rc.112
 
+  '@effect/platform-node-shared@4.0.0-rc.112(effect@4.0.0-rc.112)':
+    dependencies:
+      '@types/ws': 8.18.1
+      effect: 4.0.0-rc.112
+      ws: 8.21.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@effect/platform-node@4.0.0-rc.112(effect@4.0.0-rc.112)(redis@6.2.1)':
+    dependencies:
+      '@effect/platform-node-shared': 4.0.0-rc.112(effect@4.0.0-rc.112)
+      effect: 4.0.0-rc.112
+      mime: 4.1.0
+      redis: 6.2.1
+      undici: 8.10.2
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@effect/sql-sqlite-node@4.0.0-rc.112(effect@4.0.0-rc.112)':
     dependencies:
       effect: 4.0.0-rc.112
@@ -2687,6 +2833,26 @@ snapshots:
 
   '@protobufjs/utf8@1.1.2': {}
 
+  '@redis/bloom@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/client@6.2.1':
+    dependencies:
+      cluster-key-slot: 1.1.2
+
+  '@redis/json@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/search@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
+  '@redis/time-series@6.2.1(@redis/client@6.2.1)':
+    dependencies:
+      '@redis/client': 6.2.1
+
   '@rolldown/binding-android-arm-eabi@1.2.8':
     optional: true
 
@@ -2892,6 +3058,10 @@ snapshots:
 
   '@types/retry@0.12.0': {}
 
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.20.2
+
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
 
@@ -2984,6 +3154,8 @@ snapshots:
   chai@6.2.2: {}
 
   chalk@5.6.2: {}
+
+  cluster-key-slot@1.1.2: {}
 
   cn@0.2.6: {}
 
@@ -3298,6 +3470,8 @@ snapshots:
 
   marked@18.0.5: {}
 
+  mime@4.1.0: {}
+
   minimatch@10.2.5:
     dependencies:
       brace-expansion: 5.0.9
@@ -3449,6 +3623,17 @@ snapshots:
 
   pure-rand@8.4.2: {}
 
+  redis@6.2.1:
+    dependencies:
+      '@redis/bloom': 6.2.1(@redis/client@6.2.1)
+      '@redis/client': 6.2.1
+      '@redis/json': 6.2.1(@redis/client@6.2.1)
+      '@redis/search': 6.2.1(@redis/client@6.2.1)
+      '@redis/time-series': 6.2.1(@redis/client@6.2.1)
+    transitivePeerDependencies:
+      - '@node-rs/xxhash'
+      - '@opentelemetry/api'
+
   retry@0.12.0: {}
 
   retry@0.13.1: {}
@@ -3550,6 +3735,8 @@ snapshots:
       '@typescript/typescript-win32-x64': 7.0.2
 
   undici-types@6.21.0: {}
+
+  undici@8.10.2: {}
 
   undici@8.9.0: {}
 
