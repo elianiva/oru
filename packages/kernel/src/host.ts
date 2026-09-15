@@ -31,7 +31,7 @@ import {
 } from './errors.ts'
 import { PluginActivated, PluginDeactivated, type HostEvent } from './event.ts'
 import type { AnyPlugin, PluginContext } from './plugin.ts'
-import { PluginId, PluginScope, TokenId } from './primitives.ts'
+import { BundleAddress, PluginId, PluginScope, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
@@ -42,6 +42,7 @@ export const Activation = Schema.Struct({
   plugin: PluginId,
   scope: PluginScope,
   provides: Schema.Array(TokenId),
+  generation: Schema.optionalKey(BundleAddress),
 })
 export type Activation = typeof Activation.Type
 
@@ -55,7 +56,10 @@ export type Graph = typeof Graph.Type
 export interface Host {
   readonly activate: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
   readonly deactivate: (plugin: PluginId) => Effect.Effect<void>
-  readonly replace: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
+  readonly replace: (
+    plugin: AnyPlugin,
+    generation?: BundleAddress,
+  ) => Effect.Effect<Activation, ActivationError>
   readonly graph: Effect.Effect<Graph>
   readonly events: Stream.Stream<HostEvent>
   readonly contributions: <C>(
@@ -76,7 +80,7 @@ interface StoredContribution {
 }
 
 interface Generation {
-  readonly stamp: symbol
+  readonly address: BundleAddress | undefined
 }
 
 export const makeHost = Effect.fnUntraced(function* (
@@ -318,11 +322,20 @@ export const makeHost = Effect.fnUntraced(function* (
     pluginScope: Scope.Closeable,
     marker: Generation,
   ) {
-    const activation = Activation.make({
-      plugin: plugin.id,
-      scope: plugin.scope,
-      provides: serviceTokens(plugin).map((token) => serviceId(token)),
-    })
+    const provides = serviceTokens(plugin).map((token) => serviceId(token))
+    const activation =
+      marker.address === undefined
+        ? Activation.make({
+            plugin: plugin.id,
+            scope: plugin.scope,
+            provides,
+          })
+        : Activation.make({
+            plugin: plugin.id,
+            scope: plugin.scope,
+            provides,
+            generation: marker.address,
+          })
     yield* Ref.update(generations, (map) => new Map(map).set(plugin.id, marker))
     yield* Ref.update(active, (map) => new Map(map).set(plugin.id, activation))
     yield* Ref.update(byId, (map) => new Map(map).set(plugin.id, plugin))
@@ -342,14 +355,14 @@ export const makeHost = Effect.fnUntraced(function* (
     return activation
   })
 
-  const install = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+  const install = Effect.fnUntraced(function* (plugin: AnyPlugin, address?: BundleAddress) {
     const current = yield* Ref.get(active)
     const existing = current.get(plugin.id)
     if (existing !== undefined) return existing
 
     yield* requireNeeds(plugin)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin)
-    const marker: Generation = { stamp: Symbol() }
+    const marker: Generation = { address }
     yield* bindReverse(plugin, pluginScope, marker)
     yield* publishServices(plugin, provided)
     yield* replaceData(plugin, contributed)
@@ -358,7 +371,7 @@ export const makeHost = Effect.fnUntraced(function* (
     return activation
   })
 
-  const cutover = Effect.fnUntraced(function* (plugin: AnyPlugin) {
+  const cutover = Effect.fnUntraced(function* (plugin: AnyPlugin, address?: BundleAddress) {
     yield* requireNeeds(plugin)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin)
 
@@ -367,7 +380,7 @@ export const makeHost = Effect.fnUntraced(function* (
     const scopesNow = yield* Ref.get(scopes)
     const oldScope = scopesNow.get(plugin.id)
 
-    const marker: Generation = { stamp: Symbol() }
+    const marker: Generation = { address }
     yield* bindReverse(plugin, pluginScope, marker)
     const activation = yield* recordActivation(plugin, pluginScope, marker)
     yield* publishServices(plugin, provided)
@@ -452,14 +465,17 @@ export const makeHost = Effect.fnUntraced(function* (
       }),
     )
 
-  const replace = (plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> =>
+  const replace = (
+    plugin: AnyPlugin,
+    generation?: BundleAddress,
+  ): Effect.Effect<Activation, ActivationError> =>
     lock.withPermit(
       Effect.gen(function* () {
         yield* Ref.update(desired, (set) => new Set(set).add(plugin.id))
         const current = yield* Ref.get(active)
         const result = current.has(plugin.id)
-          ? yield* Effect.result(cutover(plugin))
-          : yield* Effect.result(install(plugin))
+          ? yield* Effect.result(cutover(plugin, generation))
+          : yield* Effect.result(install(plugin, generation))
         yield* reconcile()
         yield* runBootSteps()
         return yield* Effect.fromResult(result)

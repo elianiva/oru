@@ -33,3 +33,5 @@ export const inferencePlugin = definePlugin({
   provides: [Inference],
   server: { setup },
 })
+
+export default inferencePlugin

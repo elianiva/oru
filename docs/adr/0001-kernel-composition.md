@@ -22,7 +22,7 @@ A facet is built into a content-addressed bundle per generation behind a `FacetL
 - **jiti with module hooks** (bb): a strong TypeScript and ESM development flow on Node, uncertain under Bun.
 - **`node:vm` CommonJS generations** (pi/chord): deterministic unload with no module-cache involvement, but Node-only.
 - **Native ESM with cache eviction** (dsh/cordis): needs `--expose-internals` and cannot reach `node_modules`.
-- **Content-addressed bundles** (chosen): each generation is a unique module URL, so loading is fresh by construction on both Node and Bun, and a whole-facet bundle has no stale submodule problem.
+- **Content-addressed bundles** (chosen): each generation is a unique module URL, so loading is fresh by construction on both Node and Bun, and a whole-facet bundle has no stale submodule problem. The address is the sha256 of the emitted module bytes. The loader imports a URL whose path ends in that address, so two hosts agree on identity even when their store directories differ.
 
 ## Consequences
 
