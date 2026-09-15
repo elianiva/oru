@@ -107,13 +107,16 @@ export const ThreadCompacted = Schema.TaggedStruct('thread/compacted', {
   modifiedFiles: Schema.Array(Schema.String),
 })
 
+/**
+ * A lane that continues another thread's conversation. `fromId` is the entry
+ * its memory reaches back to, so the fork reprojects the source's path instead
+ * of copying its facts. Absent summary means the branch left nothing behind.
+ */
 export const ThreadBranched = Schema.TaggedStruct('thread/branched', {
   ...Tree,
   thread: ThreadId,
   fromId: EventId,
-  summary: Schema.String,
-  readFiles: Schema.Array(Schema.String),
-  modifiedFiles: Schema.Array(Schema.String),
+  summary: Schema.UndefinedOr(Schema.String),
 })
 
 export const InboxQueue = Schema.Literals(['next-turn', 'next-step'])
