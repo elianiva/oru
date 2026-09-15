@@ -1,4 +1,12 @@
-export { Command, defaultHost, defaultPort, packageVersion, parseArgs, usage } from './cli.ts'
+export {
+  Command,
+  defaultHost,
+  defaultJournal,
+  defaultPort,
+  packageVersion,
+  parseArgs,
+  usage,
+} from './cli.ts'
 export { decodePanelUi, PanelUi } from './panel.ts'
 export { viewGraphOf } from './graph.ts'
 export {

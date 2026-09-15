@@ -1,15 +1,37 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Command, defaultHost, defaultPort, packageVersion, parseArgs } from '../src/index.ts'
+import {
+  Command,
+  defaultHost,
+  defaultJournal,
+  defaultPort,
+  packageVersion,
+  parseArgs,
+} from '../src/index.ts'
 import { ranHost, startedHost } from './spawn-host.ts'
 
 describe('parseArgs', () => {
   it('serves on loopback by default', () => {
-    expect(parseArgs([])).toEqual(Command.Serve({ hostname: defaultHost, port: defaultPort }))
+    expect(parseArgs([])).toEqual(
+      Command.Serve({ hostname: defaultHost, port: defaultPort, journal: defaultJournal() }),
+    )
   })
 
   it('takes a host and a port, including a port of zero', () => {
     expect(parseArgs(['--host', '0.0.0.0', '--port', '0'])).toEqual(
-      Command.Serve({ hostname: '0.0.0.0', port: 0 }),
+      Command.Serve({ hostname: '0.0.0.0', port: 0, journal: defaultJournal() }),
+    )
+  })
+
+  it('takes the file the journal lives in', () => {
+    expect(parseArgs(['--journal', '/tmp/oru-elsewhere.db'])).toEqual(
+      Command.Serve({
+        hostname: defaultHost,
+        port: defaultPort,
+        journal: '/tmp/oru-elsewhere.db',
+      }),
     )
   })
 
@@ -24,6 +46,9 @@ describe('parseArgs', () => {
     expect(parseArgs(['--nope'])).toEqual(Command.Invalid({ message: 'unknown argument --nope' }))
     expect(parseArgs(['--port'])).toEqual(Command.Invalid({ message: '--port needs a value' }))
     expect(parseArgs(['--host'])).toEqual(Command.Invalid({ message: '--host needs a value' }))
+    expect(parseArgs(['--journal'])).toEqual(
+      Command.Invalid({ message: '--journal needs a value' }),
+    )
     expect(parseArgs(['--port', 'seventy'])).toEqual(
       Command.Invalid({ message: '--port takes a port number, got seventy' }),
     )
@@ -55,7 +80,11 @@ describe('the host binary', () => {
   })
 
   it('listens on a free port when asked, and stops when the process is told to', async () => {
-    const host = await startedHost(['--port', '0'], process.env)
+    const scratch = mkdtempSync(join(tmpdir(), 'oru-host-cli-'))
+    const host = await startedHost(['--port', '0'], {
+      ...process.env,
+      ORU_JOURNAL: join(scratch, 'journal.db'),
+    })
     expect(host.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u)
     expect(host.output()).toContain('listening on')
     await host.stop()
