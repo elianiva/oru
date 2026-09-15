@@ -8,13 +8,14 @@ import {
   definePlugin,
   foldActivePlugins,
   makeHost,
+  modelVisiblePath,
   pathOfLane,
   SessionLog,
   sessionLogLayer,
   threadLane,
   type SessionEvent,
 } from '@oru/kernel'
-import { HarnessKind, defaultCapabilities, defineHarness } from '@oru/harness'
+import { HarnessKind, HarnessLifecycle, defaultCapabilities, defineHarness } from '@oru/harness'
 import { Harnesses } from '@oru/harness'
 import { harnessOruPlugin } from '@oru/harness-oru'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
@@ -337,6 +338,69 @@ describe('inference architecture', () => {
         ])
         expect(workOf(foldThread(entries, 't1'))).toEqual(Idle.make({}))
         expect(workOf(foldThread([...entries], 't1'))).toEqual(Idle.make({}))
+      }),
+    )
+  })
+
+  it('records the compaction a harness reports during a turn, cut at the request', async () => {
+    const compaction = HarnessLifecycle.CompactionEnded({
+      automatic: true,
+      summary: 'summarised',
+      tokensBefore: 40,
+      readFiles: [],
+      modifiedFiles: [],
+    })
+    const reporting = defineHarness({
+      meta: { id: 'reporting', label: 'Reporting' },
+      capabilities: { ...defaultCapabilities, tools: false, ownsHistory: true },
+      listModels: () => Effect.succeed([{ id: 'reporting/one', label: 'Reporting One' }]),
+      streamTurn: () =>
+        Stream.fromIterable([
+          compaction,
+          Turn.TurnEvent.TurnComplete({
+            turn: {
+              items: [Items.assistantText('after compaction')],
+              usage: {},
+              stop_reason: 'stop',
+            },
+          }),
+        ]),
+    })
+    const reportingPlugin = definePlugin({
+      id: 'oru/harness-reporting',
+      provides: [HarnessKind.of(reporting)],
+    })
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([
+          harnessRegistryPlugin,
+          echoToolPlugin,
+          reportingPlugin,
+          inferencePlugin,
+        ])
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        yield* inference.configure('t1', { harness: 'reporting' })
+        yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
+
+        const entries = yield* log.entries
+        const recorded = entries.find((event) => event._tag === 'thread/compacted')
+        const request = pathOfLane(entries, threadLane('t1')).find(
+          (event) => event._tag === 'message/appended' && event.role === 'user',
+        )
+        // The harness supplies the summary; the entry the view keeps from is
+        // oru's, taken from the log the same way the requested path takes it.
+        expect(recorded?._tag === 'thread/compacted' ? recorded.summary : '').toBe('summarised')
+        expect(recorded?._tag === 'thread/compacted' ? recorded.firstKeptEntryId : '').toBe(
+          request?.id,
+        )
+        const visible: string[] = []
+        for (const event of modelVisiblePath(entries, 't1')) {
+          if (event._tag === 'message/appended') visible.push(`${event.role}:${event.body}`)
+        }
+        expect(visible).toEqual(['user:hello', 'assistant:after compaction'])
       }),
     )
   })
