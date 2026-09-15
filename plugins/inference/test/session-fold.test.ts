@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ApprovalDecided,
   chain,
   MessageAppended,
   ThreadCreated,
@@ -65,8 +66,8 @@ describe('session fold', () => {
       }),
     ])
     const requested = workOf(foldThread(afterRequest, 't1'))
-    expect(requested._tag).toBe('RunTool')
-    if (requested._tag === 'RunTool') expect(requested.pending.call).toBe('call_1')
+    expect(requested._tag).toBe('AwaitApproval')
+    if (requested._tag === 'AwaitApproval') expect(requested.pending.call).toBe('call_1')
 
     const afterTool = chain([
       MessageAppended.make({
@@ -247,7 +248,111 @@ describe('session fold', () => {
       }),
     ])
     const reused = workOf(foldThread(afterReuse, 't1'))
-    expect(reused._tag).toBe('RunTool')
-    if (reused._tag === 'RunTool') expect(reused.pending.turn).toBe('turn-2')
+    expect(reused._tag).toBe('AwaitApproval')
+    if (reused._tag === 'AwaitApproval') expect(reused.pending.turn).toBe('turn-2')
+  })
+
+  it('runs a tool only after approve, and records a denied call as failed work', () => {
+    const requested = [
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'e1',
+        thread: 't1',
+        role: 'user',
+        body: 'hello',
+      }),
+      TurnStarted.make({
+        ...unsignedTree,
+        id: 'e2',
+        thread: 't1',
+        turn: 'turn-1',
+      }),
+      ToolRequested.make({
+        ...unsignedTree,
+        id: 'e3',
+        thread: 't1',
+        turn: 'turn-1',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{"text":"hi"}',
+      }),
+    ]
+    const approved = chain([
+      ...requested,
+      ApprovalDecided.make({
+        ...unsignedTree,
+        id: 'e3a',
+        thread: 't1',
+        request: 'call_1',
+        decision: 'approve',
+      }),
+    ])
+    const run = workOf(foldThread(approved, 't1'))
+    expect(run._tag).toBe('RunTool')
+
+    const denied = chain([
+      ...requested,
+      ApprovalDecided.make({
+        ...unsignedTree,
+        id: 'e3d',
+        thread: 't1',
+        request: 'call_1',
+        decision: 'deny',
+      }),
+    ])
+    expect(workOf(foldThread(denied, 't1'))._tag).toBe('RecordDenied')
+
+    const duplicate = chain([
+      ...requested,
+      ToolRequested.make({
+        ...unsignedTree,
+        id: 'e3b',
+        thread: 't1',
+        turn: 'turn-1',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{"text":"hi"}',
+      }),
+    ])
+    expect(foldThread(duplicate, 't1').pending).toHaveLength(1)
+
+    const other = chain([
+      MessageAppended.make({
+        ...unsignedTree,
+        id: 'b1',
+        thread: 't2',
+        role: 'user',
+        body: 'hello',
+      }),
+      TurnStarted.make({ ...unsignedTree, id: 'b2', thread: 't2', turn: 'turn-b' }),
+      ToolRequested.make({
+        ...unsignedTree,
+        id: 'b3',
+        thread: 't2',
+        turn: 'turn-b',
+        call: 'call_1',
+        name: 'echo',
+        arguments: '{"text":"hi"}',
+      }),
+    ])
+    expect(workOf(foldThread(chain(requested), 't2'))._tag).toBe('Idle')
+    expect(workOf(foldThread(other, 't2'))._tag).toBe('AwaitApproval')
+    expect(
+      workOf(
+        foldThread(
+          chain([
+            ...requested,
+            ApprovalDecided.make({
+              ...unsignedTree,
+              id: 'e3a',
+              thread: 't1',
+              request: 'call_1',
+              decision: 'approve',
+            }),
+          ]),
+          't2',
+        ),
+      )._tag,
+    ).toBe('Idle')
   })
 })

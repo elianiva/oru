@@ -99,6 +99,16 @@ export interface HarnessTurnRequest {
   readonly instructions?: string
   /** Reasoning level for this turn, one of the chosen model's levels. */
   readonly reasoning?: string
+  /**
+   * Block a harness-run tool until the session log has a decision for this
+   * provider request id. Native tools wait in the runtime drain instead.
+   */
+  readonly awaitToolApproval?: (input: {
+    readonly request: string
+    readonly call: string
+    readonly name: string
+    readonly arguments: string
+  }) => Promise<'approve' | 'deny'>
 }
 
 /**

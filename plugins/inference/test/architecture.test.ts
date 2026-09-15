@@ -63,6 +63,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
+        'approval/decided': (event) => event.thread === thread,
         'thread/compacted': (event) => event.thread === thread,
         'thread/branched': (event) => event.thread === thread,
         'thread/configured': (event) => event.thread === thread,
@@ -79,6 +80,20 @@ const run = <A, E>(
       effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     ),
   )
+
+const approveOnRequest = (inference: Inference['Service'], thread: string) =>
+  Effect.gen(function* () {
+    const log = yield* SessionLog
+    const live = yield* log.subscribe
+    yield* live.pipe(
+      Stream.runForEach((event) =>
+        event._tag === 'tool/requested' && event.thread === thread
+          ? inference.decide(thread, event.call, 'approve').pipe(Effect.orDie)
+          : Effect.void,
+      ),
+      Effect.forkScoped,
+    )
+  })
 
 const delayedModelPlugin = (releaseSecond: Deferred.Deferred<void>) => {
   const streamTurn = () =>
@@ -205,6 +220,7 @@ describe('inference architecture', () => {
         ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
+        yield* approveOnRequest(inference, 'default')
 
         // A thread that never chose runs the registry's default, `oru`.
         yield* inference.send('default', 'hello')
@@ -323,6 +339,7 @@ describe('inference architecture', () => {
         ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
+        yield* approveOnRequest(inference, 't1')
         yield* inference.send('t1', 'hello')
         yield* inference.whenIdle('t1')
 
@@ -333,6 +350,7 @@ describe('inference architecture', () => {
           'agent/inbox/spliced',
           'turn/started',
           'tool/requested',
+          'approval/decided',
           'tool/completed',
           'message/appended',
         ])

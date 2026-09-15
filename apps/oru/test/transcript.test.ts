@@ -80,7 +80,7 @@ describe('transcript', () => {
         arguments: '{}',
       }),
     )
-    expect(requested).toEqual(ToolRequestedLine.make({ name: 'echo' }))
+    expect(requested).toEqual(ToolRequestedLine.make({ name: 'echo', call: 'call_1' }))
     if (requested === undefined) throw new Error('expected tool request line')
     expect(labelOf(requested)).toBe('tool/requested echo')
 
@@ -96,7 +96,7 @@ describe('transcript', () => {
         result: '{}',
       }),
     )
-    expect(completed).toEqual(ToolCompletedLine.make({ name: 'echo' }))
+    expect(completed).toEqual(ToolCompletedLine.make({ name: 'echo', call: 'call_1' }))
     if (completed === undefined) throw new Error('expected tool completed line')
     expect(labelOf(completed)).toBe('tool/completed echo')
   })

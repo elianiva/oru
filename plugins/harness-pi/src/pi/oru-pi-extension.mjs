@@ -256,9 +256,10 @@ export default function oruExtension(pi) {
       label: tool.name,
       description: tool.description,
       parameters: buildParameters(tool.inputSchema),
-      async execute(_toolCallId, params, signal) {
+      async execute(toolCallId, params, signal) {
         nextId += 1
-        const id = 'tc-' + String(nextId)
+        const id =
+          typeof toolCallId === 'string' && toolCallId !== '' ? toolCallId : 'tc-' + String(nextId)
         const result = new Promise((resolve, reject) => {
           pendingToolCalls.set(id, { resolve, reject })
         })

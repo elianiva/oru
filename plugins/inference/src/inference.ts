@@ -14,6 +14,7 @@ import {
   Stream,
 } from 'effect'
 import {
+  ApprovalDecided,
   InboxSpliced,
   MessageAppended,
   ThreadBranched,
@@ -23,6 +24,7 @@ import {
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  type ApprovalVerdict,
   compactionCut,
   foldNamedThreads,
   foldThreadConfig,
@@ -49,7 +51,7 @@ import {
 } from '@oru/harness'
 import { demoModelId } from './demo-model.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
-import { foldThread, workOf } from './session-fold.ts'
+import { decisionOf, foldThread, pendingCallOf, workOf } from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
 
 /** One live harness event, tagged with the thread it belongs to. */
@@ -110,6 +112,12 @@ export interface InferenceContract {
     thread: string,
     instructions?: string,
   ) => Effect.Effect<void, SessionLogError | HarnessError>
+  /** Record approve or deny for a provider request id on this thread. */
+  readonly decide: (
+    thread: string,
+    request: string,
+    decision: ApprovalVerdict,
+  ) => Effect.Effect<void, SessionLogError>
   /** Live harness events, for a view that wants to watch a turn happen. */
   readonly signals: Stream.Stream<ThreadSignal>
 }
@@ -121,6 +129,8 @@ const newId = Effect.fnUntraced(function* () {
   const n = yield* Random.next
   return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
 })
+
+const deniedResult = 'the user denied this tool call'
 
 interface CollectedTurn {
   readonly turn: Option.Option<Turn.Turn>
@@ -244,21 +254,37 @@ const persistTurn = (
       }
       if (Items.isToolCall(item)) {
         yield* flush()
-        yield* log.write(
-          ToolRequested.make({
-            ...unsignedTree,
-            id: yield* newId(),
-            thread,
-            turn,
-            call: item.call_id,
-            name: item.name,
-            arguments: item.arguments,
-          }),
+        const recorded = yield* log.entries
+        const alreadyRequested = recorded.some(
+          (event) =>
+            event._tag === 'tool/requested' &&
+            event.thread === thread &&
+            event.turn === turn &&
+            event.call === item.call_id,
         )
+        if (!alreadyRequested) {
+          yield* log.write(
+            ToolRequested.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread,
+              turn,
+              call: item.call_id,
+              name: item.name,
+              arguments: item.arguments,
+            }),
+          )
+        }
         const output = outputs.get(item.call_id)
         if (output === undefined) continue
-        // Paired in the same turn: the harness ran this tool itself, so the
-        // result is a fact rather than work left for the runtime (ADR-0007).
+        const alreadyCompleted = (yield* log.entries).some(
+          (event) =>
+            event._tag === 'tool/completed' &&
+            event.thread === thread &&
+            event.turn === turn &&
+            event.call === item.call_id,
+        )
+        if (alreadyCompleted) continue
         const reported = harnessToolResults.get(item.call_id)
         yield* log.write(
           ToolCompleted.make({
@@ -334,11 +360,98 @@ export const openInference = (
         }
       })
 
+    const waitForDecision = (
+      thread: string,
+      request: string,
+    ): Effect.Effect<ApprovalVerdict, SessionLogError> =>
+      Effect.gen(function* () {
+        const existing = decisionOf(yield* log.entries, thread, request)
+        if (existing !== undefined) return existing
+        const live = yield* log.subscribe
+        const raced = decisionOf(yield* log.entries, thread, request)
+        if (raced !== undefined) return raced
+        const decided = yield* live.pipe(
+          Stream.filter(
+            (event) =>
+              event._tag === 'approval/decided' &&
+              event.thread === thread &&
+              event.request === request,
+          ),
+          Stream.take(1),
+          Stream.runHead,
+        )
+        if (Option.isNone(decided) || decided.value._tag !== 'approval/decided') {
+          return yield* Effect.die(new Error(`approval ${request} ended without a decision`))
+        }
+        return decided.value.decision
+      }).pipe(Effect.provideService(Scope.Scope, scope))
+
+    const ensureRequested = (
+      thread: string,
+      turn: string,
+      input: {
+        readonly request: string
+        readonly call: string
+        readonly name: string
+        readonly arguments: string
+      },
+    ): Effect.Effect<void, SessionLogError> =>
+      Effect.gen(function* () {
+        if (pendingCallOf(yield* log.entries, thread, input.request) !== undefined) return
+        if (decisionOf(yield* log.entries, thread, input.request) !== undefined) return
+        yield* log.write(
+          ToolRequested.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            thread,
+            turn,
+            call: input.call,
+            name: input.name,
+            arguments: input.arguments,
+          }),
+        )
+      })
+
+    const requestApproval = (
+      thread: string,
+      turn: string,
+      input: {
+        readonly request: string
+        readonly call: string
+        readonly name: string
+        readonly arguments: string
+      },
+    ): Effect.Effect<ApprovalVerdict, SessionLogError> =>
+      Effect.gen(function* () {
+        yield* ensureRequested(thread, turn, input)
+        return yield* waitForDecision(thread, input.request)
+      })
+
     const drain = Effect.fnUntraced(function* (thread: string) {
       for (;;) {
         const events = yield* log.entries
         const work = workOf(foldThread(events, thread))
         if (work._tag === 'Idle') return
+        if (work._tag === 'AwaitApproval') {
+          yield* waitForDecision(thread, work.pending.call)
+          continue
+        }
+        if (work._tag === 'RecordDenied') {
+          const denied = work.pending
+          yield* log.write(
+            ToolCompleted.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread,
+              turn: denied.turn,
+              call: denied.call,
+              name: denied.name,
+              ok: false,
+              result: deniedResult,
+            }),
+          )
+          continue
+        }
         if (work._tag === 'RunTool') {
           const work_ = work
           const tools = yield* loadTools
@@ -392,6 +505,8 @@ export const openInference = (
         if (toolkit !== undefined) request.tools = toolkit
         if (cwd !== undefined) request.cwd = cwd
         if (configuration.reasoning !== undefined) request.reasoning = configuration.reasoning
+        request.awaitToolApproval = (input) =>
+          Effect.runPromise(Effect.scoped(requestApproval(thread, turn, input)))
         const collected = yield* harness.streamTurn(request).pipe(
           Stream.tap((event) => PubSub.publish(signals, { thread, event })),
           collectTurn,
@@ -630,6 +745,23 @@ export const openInference = (
               modifiedFiles: compaction.modifiedFiles,
             }),
           )
+        }),
+      decide: (thread, request, decision) =>
+        Effect.gen(function* () {
+          if (decisionOf(yield* log.entries, thread, request) !== undefined) {
+            yield* kick(thread)
+            return
+          }
+          yield* log.write(
+            ApprovalDecided.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread,
+              request,
+              decision,
+            }),
+          )
+          yield* kick(thread)
         }),
     }
   })

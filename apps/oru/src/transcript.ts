@@ -5,8 +5,18 @@ export const UserLine = Schema.TaggedStruct('user', { body: Schema.String })
 export const AssistantLine = Schema.TaggedStruct('assistant', { body: Schema.String })
 export const TurnLine = Schema.TaggedStruct('turn', {})
 export const FailedLine = Schema.TaggedStruct('turn/failed', { reason: Schema.String })
-export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', { name: Schema.String })
-export const ToolCompletedLine = Schema.TaggedStruct('tool/completed', { name: Schema.String })
+export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', {
+  name: Schema.String,
+  call: Schema.String,
+})
+export const ToolCompletedLine = Schema.TaggedStruct('tool/completed', {
+  name: Schema.String,
+  call: Schema.String,
+})
+export const ApprovalDecidedLine = Schema.TaggedStruct('approval/decided', {
+  request: Schema.String,
+  decision: Schema.Literals(['approve', 'deny']),
+})
 export const TranscriptLine = Schema.Union([
   UserLine,
   AssistantLine,
@@ -14,6 +24,7 @@ export const TranscriptLine = Schema.Union([
   FailedLine,
   ToolRequestedLine,
   ToolCompletedLine,
+  ApprovalDecidedLine,
 ])
 export type TranscriptLine = typeof TranscriptLine.Type
 
@@ -35,8 +46,10 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
       },
       'turn/started': () => TurnLine.make({}),
       'turn/failed': (event) => FailedLine.make({ reason: event.reason }),
-      'tool/requested': (event) => ToolRequestedLine.make({ name: event.name }),
-      'tool/completed': (event) => ToolCompletedLine.make({ name: event.name }),
+      'tool/requested': (event) => ToolRequestedLine.make({ name: event.name, call: event.call }),
+      'tool/completed': (event) => ToolCompletedLine.make({ name: event.name, call: event.call }),
+      'approval/decided': (event) =>
+        ApprovalDecidedLine.make({ request: event.request, decision: event.decision }),
     }),
   )
 
@@ -49,5 +62,6 @@ export const labelOf = (line: TranscriptLine): string =>
       'turn/failed': (line) => `turn/failed ${line.reason}`,
       'tool/requested': (line) => `tool/requested ${line.name}`,
       'tool/completed': (line) => `tool/completed ${line.name}`,
+      'approval/decided': (line) => `approval/${line.decision} ${line.request}`,
     }),
   )

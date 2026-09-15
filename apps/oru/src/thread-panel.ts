@@ -32,6 +32,8 @@ export const Message = defineMessageUnion({
   ClickedSend: {},
   ClickedStop: {},
   ClickedCompact: {},
+  ClickedApprove: { request: Schema.String },
+  ClickedDeny: { request: Schema.String },
   LineArrived: { line: TranscriptLine },
   SignalArrived: { signal: ThreadSignal },
   ChangedHarness: { value: Schema.String },
@@ -45,6 +47,7 @@ export const OutMessage = defineMessageUnion({
   RequestedConfigure: { config: ThreadConfig },
   RequestedStop: {},
   RequestedCompact: {},
+  RequestedDecide: { request: Schema.String, decision: Schema.Literals(['approve', 'deny']) },
 })
 export type OutMessage = typeof OutMessage.Type
 
@@ -115,6 +118,14 @@ export const update = (model: Model, message: Message) =>
     },
     ClickedStop: () => ({ model, outMessage: OutMessage.RequestedStop() }),
     ClickedCompact: () => ({ model, outMessage: OutMessage.RequestedCompact() }),
+    ClickedApprove: ({ request }) => ({
+      model,
+      outMessage: OutMessage.RequestedDecide({ request, decision: 'approve' }),
+    }),
+    ClickedDeny: ({ request }) => ({
+      model,
+      outMessage: OutMessage.RequestedDecide({ request, decision: 'deny' }),
+    }),
     LineArrived: ({ line }) => ({
       // The facts of a turn replace what the live stream drew while it ran.
       model:
@@ -153,10 +164,18 @@ export const update = (model: Model, message: Message) =>
     }),
   })
 
-/**
- * How a live signal reads as one line. The vocabulary is the host's; only the
- * wording is the pane's.
- */
+const awaitingApproval = (lines: readonly TranscriptLine[], index: number): boolean => {
+  const line = lines[index]
+  if (line === undefined || line._tag !== 'tool/requested') return false
+  const request = line.call
+  return !lines
+    .slice(index + 1)
+    .some(
+      (later) =>
+        (later._tag === 'approval/decided' && later.request === request) ||
+        (later._tag === 'tool/completed' && later.call === request),
+    )
+}
 const liveLabelOf = (signal: ThreadSignal): string =>
   Match.value(signal).pipe(
     Match.tagsExhaustive({
@@ -259,7 +278,7 @@ export const view = defineView<Model, Message>((model, h) => {
               Item.group(
                 { className: 'gap-2' },
                 [
-                  ...model.lines.map((line) =>
+                  ...model.lines.map((line, index) =>
                     Item(
                       { variant: 'muted', size: 'sm' },
                       [
@@ -272,6 +291,31 @@ export const view = defineView<Model, Message>((model, h) => {
                               [labelOf(line)],
                               h,
                             ),
+                            ...(awaitingApproval(model.lines, index) &&
+                            line._tag === 'tool/requested'
+                              ? [
+                                  button(
+                                    {
+                                      onClick: Message.ClickedApprove({ request: line.call }),
+                                      variant: 'outline',
+                                      size: 'sm',
+                                      attributes: [h.Attribute('data-approval-approve', line.call)],
+                                    },
+                                    'Approve',
+                                    h,
+                                  ),
+                                  button(
+                                    {
+                                      onClick: Message.ClickedDeny({ request: line.call }),
+                                      variant: 'outline',
+                                      size: 'sm',
+                                      attributes: [h.Attribute('data-approval-deny', line.call)],
+                                    },
+                                    'Deny',
+                                    h,
+                                  ),
+                                ]
+                              : []),
                           ],
                           h,
                         ),

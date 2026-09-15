@@ -58,6 +58,7 @@ const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
       'message/appended': () => '',
       'tool/requested': () => '',
       'tool/completed': () => '',
+      'approval/decided': () => '',
       'thread/compacted': () => '',
       'thread/branched': () => '',
       'agent/inbox/spliced': () => '',

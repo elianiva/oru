@@ -71,15 +71,20 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
           }
 
           const watching = yield* thread.watch(created.threadId).pipe(
-            // A turn ends with the assistant's message or with a reported
-            // failure. Collecting a count instead would hang on a failure and
-            // report a timeout instead of what the bridge said.
             Stream.takeUntil(
               (event) =>
                 event._tag === 'turn/failed' ||
                 (event._tag === 'message/appended' && event.role === 'assistant'),
             ),
             Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* thread.watch(created.threadId).pipe(
+            Stream.runForEach((event) =>
+              event._tag === 'tool/requested'
+                ? thread.decide(created.threadId, event.call, 'approve')
+                : Effect.void,
+            ),
             Effect.forkScoped,
           )
           yield* thread.send(created.threadId, PROMPT)
@@ -126,6 +131,7 @@ const TURN_FACTS = [
   'agent/inbox/spliced',
   'turn/started',
   'tool/requested',
+  'approval/decided',
   'tool/completed',
   'message/appended',
 ]

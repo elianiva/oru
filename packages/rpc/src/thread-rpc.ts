@@ -48,4 +48,12 @@ export const ThreadRpc = RpcGroup.make(
     payload: { sourceThreadId: ThreadId, cwd: Schema.UndefinedOr(Schema.String) },
     success: Schema.Struct({ threadId: ThreadId }),
   }),
+  Rpc.make('DecideApproval', {
+    payload: {
+      threadId: ThreadId,
+      request: Schema.NonEmptyString,
+      decision: Schema.Literals(['approve', 'deny']),
+    },
+    success: Schema.Void,
+  }),
 )
