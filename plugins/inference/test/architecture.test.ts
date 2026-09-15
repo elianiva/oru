@@ -7,6 +7,8 @@ import * as Turn from '@effect-uai/core/Turn'
 import {
   definePlugin,
   foldActivePlugins,
+  foldThreadContextWindow,
+  foldThreadUsage,
   makeHost,
   modelVisiblePath,
   pathOfLane,
@@ -60,6 +62,8 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'project/created': () => false,
         'turn/started': (event) => event.thread === thread,
         'turn/failed': (event) => event.thread === thread,
+        'turn/usage': (event) => event.thread === thread,
+        'thread/context-window': (event) => event.thread === thread,
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
@@ -419,6 +423,56 @@ describe('inference architecture', () => {
           if (event._tag === 'message/appended') visible.push(`${event.role}:${event.body}`)
         }
         expect(visible).toEqual(['user:hello', 'assistant:after compaction'])
+      }),
+    )
+  })
+
+  it('records turn usage and context window as facts a fold can replay', async () => {
+    const reporting = defineHarness({
+      meta: { id: 'usage', label: 'Usage' },
+      capabilities: { ...defaultCapabilities, tools: false, ownsHistory: true },
+      listModels: () => Effect.succeed([{ id: 'usage/one', label: 'Usage One' }]),
+      streamTurn: () =>
+        Stream.fromIterable([
+          HarnessLifecycle.ContextWindow({ tokens: 40, contextWindow: 128_000 }),
+          Turn.TurnEvent.TurnComplete({
+            turn: {
+              items: [Items.assistantText('ok')],
+              usage: Object.assign({ input_tokens: 11, output_tokens: 3 }, { cost: 0.04 }),
+              stop_reason: 'stop',
+            },
+          }),
+        ]),
+    })
+    const reportingPlugin = definePlugin({
+      id: 'oru/harness-usage',
+      provides: [HarnessKind.of(reporting)],
+    })
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([
+          harnessRegistryPlugin,
+          echoToolPlugin,
+          reportingPlugin,
+          inferencePlugin,
+        ])
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        yield* inference.configure('t1', { harness: 'usage' })
+        yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
+
+        const entries = yield* log.entries
+        expect(foldThreadUsage(entries, 't1')).toEqual({
+          inputTokens: 11,
+          outputTokens: 3,
+          cost: 0.04,
+        })
+        expect(foldThreadContextWindow(entries, 't1')).toEqual({
+          tokens: 40,
+          contextWindow: 128_000,
+        })
       }),
     )
   })

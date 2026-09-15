@@ -5,8 +5,8 @@ import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { Plus } from 'lucide'
-import { PluginId, ThreadId, TokenId } from '@oru/kernel'
-import { GraphRpc, ThreadClient, ThreadConfig, ViewGraph } from '@oru/rpc'
+import { PluginId, ProjectId, ThreadId, TokenId } from '@oru/kernel'
+import { GraphRpc, ProjectClient, ThreadClient, ThreadConfig, ViewGraph } from '@oru/rpc'
 import { button } from '@/components/ui/button.ts'
 import * as Sidebar from '@/components/ui/sidebar.ts'
 import { icon } from '@/lib/icons.ts'
@@ -68,24 +68,56 @@ export const SetLogging = Command.define('SetLogging', {
 })
 
 export const CreateThread = Command.define('CreateThread', {
+  args: { project: ProjectId },
   messages: [Message.GotThreadMessage],
-  execute: ThreadClient.pipe(
-    Effect.flatMap((rpc) =>
-      rpc.create(undefined).pipe(
-        // A new thread opens with the choices it has, so the pane never shows an
-        // empty picker and then fills it in.
-        Effect.flatMap((created) =>
-          rpc
-            .options(created.threadId)
-            .pipe(Effect.map((options) => ({ threadId: created.threadId, options }))),
+  execute: ({ project }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((rpc) =>
+        rpc.create(project).pipe(
+          Effect.flatMap((created) =>
+            rpc.options(created.threadId).pipe(
+              Effect.map((options) => ({
+                threadId: created.threadId,
+                options,
+                project: created.project,
+              })),
+            ),
+          ),
         ),
       ),
+      Effect.map((opened) =>
+        Message.GotThreadMessage({ message: ThreadPanel.Message.Opened(opened) }),
+      ),
+      Effect.orDie,
     ),
-    Effect.map((opened) =>
-      Message.GotThreadMessage({ message: ThreadPanel.Message.Opened(opened) }),
+})
+
+export const ListProjects = Command.define('ListProjects', {
+  messages: [Message.GotThreadMessage],
+  execute: ProjectClient.pipe(
+    Effect.flatMap((rpc) => rpc.list()),
+    Effect.map((projects) =>
+      Message.GotThreadMessage({
+        message: ThreadPanel.Message.ProjectsArrived({ projects }),
+      }),
     ),
     Effect.orDie,
   ),
+})
+
+export const CreateProject = Command.define('CreateProject', {
+  args: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
+  messages: [Message.GotThreadMessage],
+  execute: ({ name, cwd }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((rpc) => rpc.create(name, cwd)),
+      Effect.map((project) =>
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.ProjectRecorded({ project }),
+        }),
+      ),
+      Effect.orDie,
+    ),
 })
 
 export const SendMessage = Command.define('SendMessage', {
@@ -179,48 +211,57 @@ const foldPluginOutMessage = (outMessage: PluginPanel.OutMessage): Update.Step<M
 
 const foldThreadOutMessage = (
   outMessage: ThreadPanel.OutMessage,
-): Update.Step<Model, Message, ThreadClient> =>
-  ThreadPanel.OutMessage.match<Update.Step<Model, Message, ThreadClient>>(outMessage, {
-    RequestedSend:
-      ({ text }) =>
-      (model) => {
+): Update.Step<Model, Message, ThreadClient | ProjectClient> =>
+  ThreadPanel.OutMessage.match<Update.Step<Model, Message, ThreadClient | ProjectClient>>(
+    outMessage,
+    {
+      RequestedSend:
+        ({ text }) =>
+        (model) => {
+          const threadId = model.thread?.threadId
+          if (threadId === undefined) return { model }
+          return { model, commands: [SendMessage({ threadId, text })] }
+        },
+      RequestedConfigure:
+        ({ config }) =>
+        (model) => {
+          const threadId = model.thread?.threadId
+          if (threadId === undefined) return { model }
+          return { model, commands: [ConfigureThread({ threadId, config })] }
+        },
+      RequestedStop: () => (model) => {
         const threadId = model.thread?.threadId
         if (threadId === undefined) return { model }
-        return { model, commands: [SendMessage({ threadId, text })] }
+        return { model, commands: [StopThread({ threadId })] }
       },
-    RequestedConfigure:
-      ({ config }) =>
-      (model) => {
+      RequestedCompact: () => (model) => {
         const threadId = model.thread?.threadId
         if (threadId === undefined) return { model }
-        return { model, commands: [ConfigureThread({ threadId, config })] }
+        return { model, commands: [CompactThread({ threadId })] }
       },
-    RequestedStop: () => (model) => {
-      const threadId = model.thread?.threadId
-      if (threadId === undefined) return { model }
-      return { model, commands: [StopThread({ threadId })] }
-    },
-    RequestedCompact: () => (model) => {
-      const threadId = model.thread?.threadId
-      if (threadId === undefined) return { model }
-      return { model, commands: [CompactThread({ threadId })] }
-    },
-    RequestedDecide:
-      ({ request, decision }) =>
-      (model) => {
+      RequestedDecide:
+        ({ request, decision }) =>
+        (model) => {
+          const threadId = model.thread?.threadId
+          if (threadId === undefined) return { model }
+          return { model, commands: [DecideApproval({ threadId, request, decision })] }
+        },
+      RequestedCreateThread:
+        ({ project }) =>
+        (model) => ({ model, commands: [CreateThread({ project })] }),
+      RequestedCreateProject:
+        ({ name, cwd }) =>
+        (model) => ({ model, commands: [CreateProject({ name, cwd })] }),
+      RequestedRefresh: () => (model) => {
         const threadId = model.thread?.threadId
         if (threadId === undefined) return { model }
-        return { model, commands: [DecideApproval({ threadId, request, decision })] }
+        return { model, commands: [RefreshThreadOptions({ threadId })] }
       },
-    RequestedRefresh: () => (model) => {
-      const threadId = model.thread?.threadId
-      if (threadId === undefined) return { model }
-      return { model, commands: [RefreshThreadOptions({ threadId })] }
+      RequestedCopy:
+        ({ text }) =>
+        (model) => ({ model, commands: [CopyInstallCommand({ text })] }),
     },
-    RequestedCopy:
-      ({ text }) =>
-      (model) => ({ model, commands: [CopyInstallCommand({ text })] }),
-  })
+  )
 
 const foldPlugin = (plugin: string) =>
   Update.foldChild({
@@ -269,15 +310,18 @@ export const update = (model: Model, message: Message) =>
       if (model.thread !== undefined) return { model: next }
       return {
         model: { ...next, thread: ThreadPanel.init() },
-        commands: [CreateThread()],
+        commands: [ListProjects()],
       }
     },
-    ClickedNewThread: () => ({
-      // The pane exists before the host names the thread, because a child's
-      // message only reaches a child the model already holds.
-      model: { ...model, thread: ThreadPanel.init() },
-      commands: [CreateThread()],
-    }),
+    ClickedNewThread: () => {
+      const selected = model.thread?.selected
+      const projects = model.thread?.projects ?? []
+      const thread = { ...ThreadPanel.init(), projects, selected }
+      if (selected === undefined) {
+        return { model: { ...model, thread }, commands: [ListProjects()] }
+      }
+      return { model: { ...model, thread }, commands: [CreateThread({ project: selected })] }
+    },
     ClickedToggleLogging: () => ({
       model,
       commands: [SetLogging({ live: !HashMap.has(model.panels, 'logging') })],
@@ -300,7 +344,11 @@ const infoSubs = Subscription.lift(Sidebar.subscriptions)({
   toParentMessage: (message: Sidebar.Message): Message => Message.GotRightSidebar({ message }),
 })
 
-export const subscriptions = Subscription.aggregate<Model, Message, GraphRpc | ThreadClient>()(
+export const subscriptions = Subscription.aggregate<
+  Model,
+  Message,
+  GraphRpc | ThreadClient | ProjectClient
+>()(
   {
     railCookie: railSubs.cookie,
     railKeyboard: railSubs.keyboardShortcut,

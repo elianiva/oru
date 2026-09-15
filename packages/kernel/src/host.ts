@@ -31,7 +31,7 @@ import {
 } from './errors.ts'
 import { PluginActivated, PluginDeactivated, type HostEvent } from './event.ts'
 import type { AnyPlugin, PluginContext } from './plugin.ts'
-import { PluginId, PluginScope, ThreadId, TokenId } from './primitives.ts'
+import { BundleAddress, PluginId, PluginScope, ThreadId, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade, type Registry } from './registry.ts'
 import { resolve } from './resolve.ts'
 import { serviceId, type AnyServiceToken, type ServiceToken } from './service.ts'
@@ -42,6 +42,7 @@ export const Activation = Schema.Struct({
   plugin: PluginId,
   scope: PluginScope,
   provides: Schema.Array(TokenId),
+  generation: Schema.optionalKey(BundleAddress),
 })
 export type Activation = typeof Activation.Type
 
@@ -58,7 +59,10 @@ export interface Host {
     thread?: ThreadId,
   ) => Effect.Effect<Activation, ActivationError>
   readonly deactivate: (plugin: PluginId) => Effect.Effect<void>
-  readonly replace: (plugin: AnyPlugin) => Effect.Effect<Activation, ActivationError>
+  readonly replace: (
+    plugin: AnyPlugin,
+    generation?: BundleAddress,
+  ) => Effect.Effect<Activation, ActivationError>
   readonly openThread: (thread: ThreadId) => Effect.Effect<void, ActivationError>
   readonly closeThread: (thread: ThreadId) => Effect.Effect<void>
   readonly graph: Effect.Effect<Graph>
@@ -87,7 +91,7 @@ const layerKey = (plugin: PluginId, thread?: ThreadId): string =>
   thread === undefined ? `\0${plugin}` : `${thread}\0${plugin}`
 
 interface Generation {
-  readonly stamp: symbol
+  readonly address: BundleAddress | undefined
 }
 
 export const makeHost = Effect.fnUntraced(function* (
@@ -394,11 +398,20 @@ export const makeHost = Effect.fnUntraced(function* (
     marker: Generation,
     thread?: ThreadId,
   ) {
-    const activation = Activation.make({
-      plugin: plugin.id,
-      scope: plugin.scope,
-      provides: serviceTokens(plugin).map((token) => serviceId(token)),
-    })
+    const provides = serviceTokens(plugin).map((token) => serviceId(token))
+    const activation =
+      marker.address === undefined
+        ? Activation.make({
+            plugin: plugin.id,
+            scope: plugin.scope,
+            provides,
+          })
+        : Activation.make({
+            plugin: plugin.id,
+            scope: plugin.scope,
+            provides,
+            generation: marker.address,
+          })
     const key = layerKey(plugin.id, thread)
     yield* Ref.update(generations, (map) => new Map(map).set(key, marker))
     if (thread === undefined) {
@@ -429,7 +442,11 @@ export const makeHost = Effect.fnUntraced(function* (
     return activation
   })
 
-  const install = Effect.fnUntraced(function* (plugin: AnyPlugin, thread?: ThreadId) {
+  const install = Effect.fnUntraced(function* (
+    plugin: AnyPlugin,
+    thread?: ThreadId,
+    address?: BundleAddress,
+  ) {
     if (plugin.scope === 'thread' && thread === undefined) {
       return Activation.make({
         plugin: plugin.id,
@@ -446,7 +463,7 @@ export const makeHost = Effect.fnUntraced(function* (
 
     yield* requireNeeds(plugin, thread)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin, thread)
-    const marker: Generation = { stamp: Symbol() }
+    const marker: Generation = { address }
     yield* bindReverse(plugin, pluginScope, marker, thread)
     yield* publishServices(plugin, provided, thread)
     yield* replaceData(plugin, contributed, thread)
@@ -455,7 +472,11 @@ export const makeHost = Effect.fnUntraced(function* (
     return activation
   })
 
-  const cutover = Effect.fnUntraced(function* (plugin: AnyPlugin, thread?: ThreadId) {
+  const cutover = Effect.fnUntraced(function* (
+    plugin: AnyPlugin,
+    thread?: ThreadId,
+    address?: BundleAddress,
+  ) {
     yield* requireNeeds(plugin, thread)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin, thread)
 
@@ -464,7 +485,7 @@ export const makeHost = Effect.fnUntraced(function* (
     const scopesNow = yield* Ref.get(scopes)
     const oldScope = scopesNow.get(layerKey(plugin.id, thread))
 
-    const marker: Generation = { stamp: Symbol() }
+    const marker: Generation = { address }
     yield* bindReverse(plugin, pluginScope, marker, thread)
     const activation = yield* recordActivation(plugin, pluginScope, marker, thread)
     yield* publishServices(plugin, provided, thread)
@@ -648,7 +669,10 @@ export const makeHost = Effect.fnUntraced(function* (
       }),
     )
 
-  const replace = (plugin: AnyPlugin): Effect.Effect<Activation, ActivationError> =>
+  const replace = (
+    plugin: AnyPlugin,
+    generation?: BundleAddress,
+  ): Effect.Effect<Activation, ActivationError> =>
     lock.withPermit(
       Effect.gen(function* () {
         yield* Ref.update(desired, (set) =>
@@ -663,7 +687,7 @@ export const makeHost = Effect.fnUntraced(function* (
           for (const thread of (yield* Ref.get(threadRoots)).keys()) {
             const lane = (yield* Ref.get(threadActive)).get(thread)
             if (lane === undefined || !lane.has(plugin.id)) continue
-            const result = yield* Effect.result(cutover(plugin, thread))
+            const result = yield* Effect.result(cutover(plugin, thread, generation))
             if (Result.isSuccess(result)) last = result.success
             else return yield* Effect.fromResult(result)
           }
@@ -673,8 +697,8 @@ export const makeHost = Effect.fnUntraced(function* (
         }
         const current = yield* Ref.get(active)
         const result = current.has(plugin.id)
-          ? yield* Effect.result(cutover(plugin))
-          : yield* Effect.result(install(plugin))
+          ? yield* Effect.result(cutover(plugin, undefined, generation))
+          : yield* Effect.result(install(plugin, undefined, generation))
         yield* reconcile()
         yield* runBootSteps()
         return yield* Effect.fromResult(result)

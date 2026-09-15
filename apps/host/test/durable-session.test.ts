@@ -30,7 +30,7 @@ import {
   ToolKind,
   workOf,
 } from '@oru/inference'
-import { ThreadClient, clientsFor, type ThreadClientContract } from '@oru/rpc'
+import { ThreadClient, ProjectClient, clientsFor, type ThreadClientContract } from '@oru/rpc'
 import { serveHost } from '../src/index.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -111,7 +111,7 @@ const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-durable-'
 const withHost = <A, E>(
   file: string,
   plugins: readonly AnyPlugin[],
-  effect: Effect.Effect<A, E, ThreadClient | Scope.Scope>,
+  effect: Effect.Effect<A, E, ThreadClient | ProjectClient | Scope.Scope>,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -218,6 +218,14 @@ const request = (
     yield* Fiber.join(watching)
   })
 
+const openThread = (cwd: string) =>
+  Effect.gen(function* () {
+    const projects = yield* ProjectClient
+    const client = yield* ThreadClient
+    const project = yield* projects.create('durable', cwd)
+    return yield* client.create(project.id)
+  })
+
 describe('one journal, two hosts', () => {
   it('reconstructs the plugin graph from the facts the first host wrote', async () => {
     const file = sessionFile()
@@ -264,7 +272,7 @@ describe('one journal, two hosts', () => {
         plugins,
         Effect.gen(function* () {
           const client = yield* ThreadClient
-          const created = yield* client.create('/tmp')
+          const created = yield* openThread('/tmp')
           thread = created.threadId
           const watching = yield* factsUntil(
             client,
@@ -332,7 +340,7 @@ describe('one journal, two hosts', () => {
         plugins,
         Effect.gen(function* () {
           const client = yield* ThreadClient
-          const created = yield* client.create('/tmp')
+          const created = yield* openThread('/tmp')
           thread = created.threadId
           yield* request(client, thread, 1, 'first request')
         }),
@@ -417,7 +425,7 @@ describe('one journal, two hosts', () => {
         plugins,
         Effect.gen(function* () {
           const client = yield* ThreadClient
-          const created = yield* client.create('/tmp')
+          const created = yield* openThread('/tmp')
           thread = created.threadId
           // The compacting bridge joins the picker but not this thread's turns.
           yield* client.configure(thread, {

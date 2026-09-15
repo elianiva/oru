@@ -20,6 +20,7 @@ export {
   ThreadBranched,
   ThreadCompacted,
   ThreadConfigured,
+  ThreadContextWindow,
   ThreadCreated,
   ApprovalDecided,
   ApprovalVerdict,
@@ -27,15 +28,23 @@ export {
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  TurnUsage,
 } from './session-event.ts'
 export {
   foldActivePlugins,
   foldNamedProjects,
   foldNamedThreads,
+  foldProject,
+  foldProjects,
   foldThreadConfig,
+  foldThreadContextWindow,
   foldThreadCwd,
   foldThreadPath,
+  foldThreadUsage,
+  type NamedProject,
   type ThreadConfig,
+  type ThreadContextWindowState,
+  type ThreadUsage,
 } from './session-fold.ts'
 export {
   chain,

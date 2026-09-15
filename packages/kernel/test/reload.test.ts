@@ -1,12 +1,18 @@
 /// <reference lib="dom" />
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { Context, Effect, Result } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
+import { buildFacet, locateIn } from '@oru/plugin-build'
 import {
   DeclarationMismatch,
   ServiceMissing,
   definePlugin,
   defineService,
+  loadFacet,
   makeFacetLoader,
   makeHost,
   sessionLogLayer,
@@ -35,24 +41,39 @@ const readerPlugin = definePlugin({
   },
 })
 
-const fixtureUrl = (file: string): string =>
-  new URL(`./fixtures/reload/${file}`, import.meta.url).href
+const fixturePath = (file: string): string =>
+  fileURLToPath(new URL(`./fixtures/reload/${file}`, import.meta.url))
+
+const reloadExternals = ['./events.ts']
+
+const withMemoryLog = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.scoped(effect).pipe(
+    Effect.provide(sessionLogLayer),
+    Effect.provide(EventJournal.layerMemory),
+  )
 
 describe('FacetLoader', () => {
   it('reloads a fixture generation, drops old contributions, and keeps captured facades live', async () => {
     facetEvents.length = 0
+    const store = await mkdtemp(join(tmpdir(), 'oru-facet-'))
+    const genA = await buildFacet(fixturePath('gen-a.ts'), store, reloadExternals)
+    const genB = await buildFacet(fixturePath('gen-b.ts'), store, reloadExternals)
+    const genBad = await buildFacet(fixturePath('gen-bad.ts'), store, reloadExternals)
+    const urlOf = locateIn(store)
+
     await Effect.runPromise(
-      Effect.scoped(
+      withMemoryLog(
         Effect.gen(function* () {
           const host = yield* makeHost([readerPlugin])
-          const loader = makeFacetLoader(host)
+          const loader = makeFacetLoader(host, urlOf)
           const echo = host.facade(Echo)
 
-          yield* loader.reload(fixtureUrl('gen-a.ts'))
+          yield* loader.reload(genA.address)
 
           const afterA = yield* host.graph
           expect(afterA.active.has('facet-echo')).toBe(true)
           expect(afterA.active.has('facet-reader')).toBe(true)
+          expect(afterA.active.get('facet-echo')?.generation).toBe(genA.address)
           expect(yield* echo.echo('x')).toBe('a:x')
           expect((yield* host.contributions(Banner)).map((entry) => entry.value.text)).toEqual([
             'gen-a',
@@ -60,17 +81,18 @@ describe('FacetLoader', () => {
           expect(yield* (yield* host.service(Reader)).ping).toBe('a:live')
           expect(facetEvents).toEqual(['a:open'])
 
-          yield* loader.reload(fixtureUrl('gen-b.ts'))
+          yield* loader.reload(genB.address)
 
           const afterB = yield* host.graph
           expect(afterB.active.has('facet-echo')).toBe(true)
           expect(afterB.active.has('facet-reader')).toBe(true)
+          expect(afterB.active.get('facet-echo')?.generation).toBe(genB.address)
           expect(yield* echo.echo('x')).toBe('b:x')
           expect(yield* (yield* host.service(Reader)).ping).toBe('b:live')
           expect(yield* host.contributions(Banner)).toEqual([])
           expect(facetEvents).toEqual(['a:open', 'b:open', 'a:close'])
 
-          const failed = yield* Effect.result(loader.reload(fixtureUrl('gen-bad.ts')))
+          const failed = yield* Effect.result(loader.reload(genBad.address))
           expect(failed).toEqual(
             Result.fail(
               new DeclarationMismatch({
@@ -80,9 +102,33 @@ describe('FacetLoader', () => {
             ),
           )
           expect(yield* echo.echo('x')).toBe('b:x')
+          expect((yield* host.graph).active.get('facet-echo')?.generation).toBe(genB.address)
           expect(facetEvents).toEqual(['a:open', 'b:open', 'a:close'])
         }),
-      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+      ),
+    )
+  })
+
+  it('derives the same generation identity on two hosts for one bundle', async () => {
+    const store = await mkdtemp(join(tmpdir(), 'oru-facet-'))
+    const built = await buildFacet(fixturePath('gen-b.ts'), store, reloadExternals)
+    const urlOf = locateIn(store)
+
+    await Effect.runPromise(
+      withMemoryLog(
+        Effect.gen(function* () {
+          const first = yield* makeHost([])
+          const second = yield* makeHost([])
+          const pluginA = yield* loadFacet(built.address, urlOf)
+          const pluginB = yield* loadFacet(built.address, urlOf)
+          const activationA = yield* first.replace(pluginA, built.address)
+          const activationB = yield* second.replace(pluginB, built.address)
+          expect(activationA.generation).toBe(built.address)
+          expect(activationB.generation).toBe(built.address)
+          expect((yield* first.graph).active.get('facet-echo')?.generation).toBe(built.address)
+          expect((yield* second.graph).active.get('facet-echo')?.generation).toBe(built.address)
+        }),
+      ),
     )
   })
 })

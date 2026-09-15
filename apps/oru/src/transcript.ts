@@ -5,6 +5,15 @@ export const UserLine = Schema.TaggedStruct('user', { body: Schema.String })
 export const AssistantLine = Schema.TaggedStruct('assistant', { body: Schema.String })
 export const TurnLine = Schema.TaggedStruct('turn', {})
 export const FailedLine = Schema.TaggedStruct('turn/failed', { reason: Schema.String })
+export const UsageLine = Schema.TaggedStruct('turn/usage', {
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  cost: Schema.UndefinedOr(Schema.Number),
+})
+export const ContextWindowLine = Schema.TaggedStruct('context-window', {
+  tokens: Schema.Number,
+  contextWindow: Schema.Number,
+})
 export const ToolRequestedLine = Schema.TaggedStruct('tool/requested', {
   name: Schema.String,
   call: Schema.String,
@@ -22,6 +31,8 @@ export const TranscriptLine = Schema.Union([
   AssistantLine,
   TurnLine,
   FailedLine,
+  UsageLine,
+  ContextWindowLine,
   ToolRequestedLine,
   ToolCompletedLine,
   ApprovalDecidedLine,
@@ -46,6 +57,14 @@ export const lineOf = (event: SessionEvent): TranscriptLine | undefined =>
       },
       'turn/started': () => TurnLine.make({}),
       'turn/failed': (event) => FailedLine.make({ reason: event.reason }),
+      'turn/usage': (event) =>
+        UsageLine.make({
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cost: event.cost,
+        }),
+      'thread/context-window': (event) =>
+        ContextWindowLine.make({ tokens: event.tokens, contextWindow: event.contextWindow }),
       'tool/requested': (event) => ToolRequestedLine.make({ name: event.name, call: event.call }),
       'tool/completed': (event) => ToolCompletedLine.make({ name: event.name, call: event.call }),
       'approval/decided': (event) =>
@@ -60,6 +79,11 @@ export const labelOf = (line: TranscriptLine): string =>
       assistant: (line) => `assistant: ${line.body}`,
       turn: () => 'turn/started',
       'turn/failed': (line) => `turn/failed ${line.reason}`,
+      'turn/usage': (line) =>
+        line.cost === undefined
+          ? `tokens ${line.inputTokens} in / ${line.outputTokens} out`
+          : `tokens ${line.inputTokens} in / ${line.outputTokens} out · cost ${line.cost}`,
+      'context-window': (line) => `context ${line.tokens}/${line.contextWindow}`,
       'tool/requested': (line) => `tool/requested ${line.name}`,
       'tool/completed': (line) => `tool/completed ${line.name}`,
       'approval/decided': (line) => `approval/${line.decision} ${line.request}`,

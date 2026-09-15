@@ -8,7 +8,7 @@ import {
   startScriptedProvider,
   type ScriptedProvider,
 } from '@oru/harness-pi/testing'
-import { ThreadClient, clientsFor } from '@oru/rpc'
+import { ThreadClient, ProjectClient, clientsFor } from '@oru/rpc'
 import { startedHost } from './spawn-host.ts'
 
 /**
@@ -59,8 +59,10 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
     Effect.scoped(
       Effect.gen(function* () {
         return yield* Effect.gen(function* () {
+          const projects = yield* ProjectClient
           const thread = yield* ThreadClient
-          const created = yield* thread.create(cwd)
+          const project = yield* projects.create('e2e', cwd)
+          const created = yield* thread.create(project.id)
           const options = yield* thread.configure(created.threadId, {
             harness: 'pi',
             model,
@@ -71,10 +73,10 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
           }
 
           const watching = yield* thread.watch(created.threadId).pipe(
+            // A turn ends with usage when the harness reported tokens, or with
+            // a failure. Collecting a count instead would hang on a failure.
             Stream.takeUntil(
-              (event) =>
-                event._tag === 'turn/failed' ||
-                (event._tag === 'message/appended' && event.role === 'assistant'),
+              (event) => event._tag === 'turn/failed' || event._tag === 'turn/usage',
             ),
             Stream.runCollect,
             Effect.forkScoped,
@@ -114,8 +116,10 @@ const piHealth = (url: string): Promise<string> =>
     Effect.scoped(
       Effect.gen(function* () {
         return yield* Effect.gen(function* () {
+          const projects = yield* ProjectClient
           const thread = yield* ThreadClient
-          const created = yield* thread.create(process.cwd())
+          const project = yield* projects.create('e2e', process.cwd())
+          const created = yield* thread.create(project.id)
           const options = yield* thread.options(created.threadId)
           const pi = options.harnesses.find((choice) => choice.id === 'pi')
           return pi === undefined ? 'missing' : pi.health.status
@@ -134,6 +138,7 @@ const TURN_FACTS = [
   'approval/decided',
   'tool/completed',
   'message/appended',
+  'turn/usage',
 ]
 
 describe('a running host', () => {

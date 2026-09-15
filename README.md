@@ -11,6 +11,7 @@ Status: active development.
 - [docs/configuration.md](./docs/configuration.md) — host settings, precedence, and keys.
 - [PLAN.md](./PLAN.md) — build plan.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
+- [docs/release.md](./docs/release.md) — how to bump, pack, and cut a release.
 - [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md) — reproduce a host failure, a pi bridge failure, and a stuck turn.
 - [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md) — escaped bugs and the guards that catch them.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
@@ -43,8 +44,10 @@ TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool
 
 ```
 pnpm --filter @oru/host start          # http://127.0.0.1:7317
-pnpm --filter @oru/host start --help   # flags, config list/set/unset, --version
+pnpm --filter @oru/host start -- --help
 pnpm --filter @oru/host start -- config list
+pnpm pack:host                         # tarball of the built host
+pnpm pack:smoke                        # install that tarball, --version, start, stop
 pnpm dev                               # the host and the browser app together
 ```
 

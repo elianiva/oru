@@ -3,10 +3,9 @@ import { Effect, Layer, Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { HttpRouter } from 'effect/unstable/http'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
-import type { SqlError } from 'effect/unstable/sql/SqlError'
 import * as NodeHttpServer from '@effect/platform-node/NodeHttpServer'
 import { makeHost, sessionLogLayer, type AnyPlugin, type BootError, type Host } from '@oru/kernel'
-import { sqliteJournalLayer } from '@oru/kernel/sqlite'
+import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
 import { rpcRoutes } from './routes.ts'
 
 export interface HostOptions {
@@ -40,10 +39,10 @@ export interface RunningHost {
  */
 export const serveHost = (
   options: HostOptions,
-): Effect.Effect<RunningHost, BootError | ServeError | SqlError, Scope.Scope> =>
+): Effect.Effect<RunningHost, BootError | ServeError | JournalOpenError, Scope.Scope> =>
   Effect.gen(function* () {
     const scope = yield* Scope.Scope
-    const record: Layer.Layer<EventJournal.EventJournal, SqlError> =
+    const record: Layer.Layer<EventJournal.EventJournal, JournalOpenError> =
       options.journal === undefined ? EventJournal.layerMemory : sqliteJournalLayer(options.journal)
     // The journal belongs to the caller's scope, not to this function's. A
     // `provide` here would release it as soon as the host is assembled, which a

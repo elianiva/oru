@@ -1,13 +1,14 @@
 import { Schema } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
-import { SessionEvent, ThreadId } from '@oru/kernel'
+import { ProjectId, SessionEvent, ThreadId } from '@oru/kernel'
+import { Project } from './project.ts'
 import { ThreadOptions } from './thread-options.ts'
 import { ThreadSignal } from './thread-signal.ts'
 
 export const ThreadRpc = RpcGroup.make(
   Rpc.make('CreateThread', {
-    payload: { cwd: Schema.UndefinedOr(Schema.String) },
-    success: Schema.Struct({ threadId: ThreadId }),
+    payload: { project: ProjectId },
+    success: Schema.Struct({ threadId: ThreadId, project: Project }),
   }),
   Rpc.make('SendMessage', {
     payload: { threadId: ThreadId, text: Schema.String },

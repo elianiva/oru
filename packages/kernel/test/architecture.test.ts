@@ -56,6 +56,8 @@ const sessionTags = (events: readonly SessionEvent[]): readonly string[] =>
         'project/created': (event) => event._tag,
         'turn/started': (event) => event._tag,
         'turn/failed': (event) => event._tag,
+        'turn/usage': (event) => event._tag,
+        'thread/context-window': (event) => event._tag,
         'message/appended': (event) => event._tag,
         'tool/requested': (event) => event._tag,
         'tool/completed': (event) => event._tag,

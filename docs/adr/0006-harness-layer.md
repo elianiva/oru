@@ -6,7 +6,7 @@ The harness contract carries two session patterns, declared by `HarnessCapabilit
 
 Which harness a thread runs, which model it uses, and how much it thinks are thread facts, appended as a `thread/configured` event and folded into thread state. `ThreadRpc` gains `ConfigureThread`, the harness request carries the result, and the thread pane offers the three choices as dependent selects.
 
-`HarnessEvent` is `TurnEvent | HarnessLifecycle`. `HarnessLifecycle` is what a turn-scoped union cannot express: `CompactionStarted`, `CompactionEnded`, `ContextWindow`, `SessionReplaced`, `ProviderWarning`, `ProviderError`, `RawUnhandled`. The harness reports and the runtime records. Where the log has a home for a fact (`thread/compacted`), the runtime appends it. Where it does not yet (context window, warnings), the event streams to the presentation facet and stops there.
+`HarnessEvent` is `TurnEvent | HarnessLifecycle`. `HarnessLifecycle` is what a turn-scoped union cannot express: `CompactionStarted`, `CompactionEnded`, `ContextWindow`, `SessionReplaced`, `ProviderWarning`, `ProviderError`, `RawUnhandled`. The harness reports and the runtime records. Where the log has a home for a fact (`thread/compacted`, `turn/usage`, `thread/context-window`), the runtime appends it. Where it does not yet (warnings), the event streams to the presentation facet and stops there.
 
 ## Considered options
 
@@ -39,4 +39,4 @@ Which harness a thread runs, which model it uses, and how much it thinks are thr
 - `thread/compacted` needs a summary, and pi's `compaction_end` event carries none. The bridge reads pi's own session entries to fill the fact honestly rather than appending an empty one. If pi's session format makes that unreliable, the fallback is to surface compaction as a lifecycle event only, reported to the user, not silently hollowed out.
 - `SessionReplaced` is how a harness tells the runtime that the model's memory changed underneath a live thread: a model or thinking level change rebuilt the session, or the thread was forked.
 - Unmapped provider events are kept as `RawUnhandled` instead of dropped, so the trace stays honest about what the bridge did not understand.
-- Context window and provider warnings have no session-log home yet. When they earn one, the change is in the runtime, not in every harness.
+- Context window is a `thread/context-window` fact, written by the runtime from `HarnessLifecycle.ContextWindow`. The pane folds the latest one on the lane. A turn's reported tokens and cost are a `turn/usage` fact. `foldThreadUsage` sums the lane. Provider warnings still have no session-log home.

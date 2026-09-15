@@ -74,6 +74,8 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           awaitingModel = false
           openTurn = undefined
         },
+        'turn/usage': () => {},
+        'thread/context-window': () => {},
         'tool/requested': (event) => {
           awaitingModel = false
           pending.set(
