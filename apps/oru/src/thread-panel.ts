@@ -123,7 +123,12 @@ export const update = (model: Model, message: Message) =>
           : { ...model, lines: [...model.lines, line] },
     }),
     SignalArrived: ({ signal }) => ({
-      model: signal._tag === 'settled' ? model : { ...model, live: [...model.live, signal] },
+      // The live stream ends before that turn's facts are written, so settling
+      // is what clears it. A turn that fails clears it on its failed line.
+      model:
+        signal._tag === 'settled'
+          ? { ...model, live: [] }
+          : { ...model, live: [...model.live, signal] },
     }),
     ChangedHarness: ({ value }) => ({
       model,
