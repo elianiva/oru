@@ -30,9 +30,12 @@ export {
   foldActivePlugins,
   foldNamedProjects,
   foldNamedThreads,
+  foldProject,
+  foldProjects,
   foldThreadConfig,
   foldThreadCwd,
   foldThreadPath,
+  type NamedProject,
   type ThreadConfig,
 } from './session-fold.ts'
 export {

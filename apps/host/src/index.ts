@@ -20,6 +20,7 @@ export {
   loggingPlugin,
 } from './plugins.ts'
 export { hostRpcHandlers } from './handlers/host.ts'
+export { projectRpcHandlers } from './handlers/project.ts'
 export { threadRpcHandlers } from './handlers/thread.ts'
 export { rpcRoutes } from './routes.ts'
 export { serveHost, type HostOptions, type RunningHost } from './server.ts'

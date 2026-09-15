@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
 import { Harnesses } from '@oru/harness'
-import { GraphRpc, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
+import { GraphRpc, ProjectClient, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
 import { Inference } from '@oru/inference'
 import { corePlugins, echoToolPlugin, loggingPlugin, serveHost } from '../src/index.ts'
 
@@ -10,7 +10,7 @@ const idsOf = (panels: readonly Panel[]): readonly string[] =>
 
 /** Run an effect against a freshly listening host, over the real transport. */
 const withHost = <A, E>(
-  effect: Effect.Effect<A, E, GraphRpc | ThreadClient | Scope.Scope>,
+  effect: Effect.Effect<A, E, GraphRpc | ProjectClient | ThreadClient | Scope.Scope>,
 ): Promise<A> =>
   Effect.runPromise(
     Effect.scoped(
@@ -20,6 +20,14 @@ const withHost = <A, E>(
       }),
     ),
   )
+
+const openThread = (cwd: string) =>
+  Effect.gen(function* () {
+    const projects = yield* ProjectClient
+    const thread = yield* ThreadClient
+    const project = yield* projects.create('transport', cwd)
+    return yield* thread.create(project.id)
+  })
 
 describe('the RPC transport', () => {
   it('serves the host graph: the plugins that carry a panel, and the live tokens', async () => {
@@ -82,7 +90,7 @@ describe('the RPC transport', () => {
     const turn = await withHost(
       Effect.gen(function* () {
         const thread = yield* ThreadClient
-        const created = yield* thread.create(process.cwd())
+        const created = yield* openThread(process.cwd())
         const facts = yield* thread
           .watch(created.threadId)
           .pipe(Stream.take(7), Stream.runCollect, Effect.forkScoped)
@@ -119,7 +127,7 @@ describe('the RPC transport', () => {
     const options = await withHost(
       Effect.gen(function* () {
         const thread = yield* ThreadClient
-        const created = yield* thread.create(process.cwd())
+        const created = yield* openThread(process.cwd())
         return yield* thread.options(created.threadId)
       }),
     )
@@ -131,5 +139,23 @@ describe('the RPC transport', () => {
       reasoning: undefined,
     })
     expect(options.models.map((model) => model.id)).toContain('mock')
+  })
+
+  it('creates, lists, and reads a project', async () => {
+    const cwd = process.cwd()
+    const seen = await withHost(
+      Effect.gen(function* () {
+        const projects = yield* ProjectClient
+        const created = yield* projects.create('oru', cwd)
+        const listed = yield* projects.list()
+        const read = yield* projects.get(created.id)
+        return { created, listed, read }
+      }),
+    )
+
+    expect(seen.created.name).toBe('oru')
+    expect(seen.created.cwd).toBe(cwd)
+    expect(seen.listed).toEqual([seen.created])
+    expect(seen.read).toEqual(seen.created)
   })
 })

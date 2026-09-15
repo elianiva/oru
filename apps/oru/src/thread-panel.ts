@@ -4,8 +4,8 @@ import { defineMessageUnion } from 'foldkit/message'
 import * as Update from 'foldkit/update'
 import type { HtmlBuilder } from 'foldkit/html'
 import { ModelInfo } from '@oru/harness'
-import { ThreadId } from '@oru/kernel'
-import { HarnessChoice, ThreadConfig, ThreadOptions, ThreadSignal } from '@oru/rpc'
+import { ProjectId, ThreadId } from '@oru/kernel'
+import { HarnessChoice, Project, ThreadConfig, ThreadOptions, ThreadSignal } from '@oru/rpc'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
 import { Empty } from '@/components/ui/empty.ts'
@@ -22,18 +22,29 @@ export const Model = Schema.Struct({
   config: ThreadConfig,
   harnesses: Schema.Array(HarnessChoice),
   models: Schema.Array(ModelInfo),
+  projects: Schema.Array(Project),
+  selected: Schema.UndefinedOr(ProjectId),
+  project: Schema.UndefinedOr(Project),
+  newName: Schema.String,
+  newCwd: Schema.String,
 })
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
-  Opened: { threadId: ThreadId, options: ThreadOptions },
+  Opened: { threadId: ThreadId, options: ThreadOptions, project: Project },
   OptionsArrived: ThreadOptions.fields,
+  ProjectsArrived: { projects: Schema.Array(Project) },
+  ProjectRecorded: { project: Project },
   ChangedDraft: { value: Schema.String },
+  ChangedNewName: { value: Schema.String },
+  ChangedNewCwd: { value: Schema.String },
+  ClickedCreateProject: {},
   ClickedSend: {},
   ClickedStop: {},
   ClickedCompact: {},
   LineArrived: { line: TranscriptLine },
   SignalArrived: { signal: ThreadSignal },
+  ChangedProject: { value: Schema.String },
   ChangedHarness: { value: Schema.String },
   ChangedModel: { value: Schema.String },
   ChangedReasoning: { value: Schema.String },
@@ -45,6 +56,8 @@ export const OutMessage = defineMessageUnion({
   RequestedConfigure: { config: ThreadConfig },
   RequestedStop: {},
   RequestedCompact: {},
+  RequestedCreateThread: { project: ProjectId },
+  RequestedCreateProject: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
 })
 export type OutMessage = typeof OutMessage.Type
 
@@ -59,6 +72,11 @@ export const init = (): Model => ({
   config: { harness: undefined, model: undefined, reasoning: undefined },
   harnesses: [],
   models: [],
+  projects: [],
+  selected: undefined,
+  project: undefined,
+  newName: '',
+  newCwd: '',
 })
 
 /**
@@ -97,15 +115,46 @@ const optionsFor = (
 
 export const update = (model: Model, message: Message) =>
   Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage>>(message, {
-    Opened: ({ threadId, options }) => ({
+    Opened: ({ threadId, options, project }) => ({
       model: {
         ...applied(model, options),
         threadId,
         live: [],
+        project,
+        selected: project.id,
+        projects: model.projects.some((entry) => entry.id === project.id)
+          ? model.projects
+          : [...model.projects, project],
       },
     }),
     OptionsArrived: (options) => ({ model: applied(model, options) }),
+    ProjectsArrived: ({ projects }) => ({ model: { ...model, projects } }),
+    ProjectRecorded: ({ project }) => ({
+      model: {
+        ...model,
+        project,
+        selected: project.id,
+        newName: '',
+        newCwd: '',
+        projects: model.projects.some((entry) => entry.id === project.id)
+          ? model.projects
+          : [...model.projects, project],
+      },
+      outMessage: OutMessage.RequestedCreateThread({ project: project.id }),
+    }),
     ChangedDraft: ({ value }) => ({ model: { ...model, draft: value } }),
+    ChangedNewName: ({ value }) => ({ model: { ...model, newName: value } }),
+    ChangedNewCwd: ({ value }) => ({ model: { ...model, newCwd: value } }),
+    ClickedCreateProject: () => {
+      if (model.newName.length === 0 || model.newCwd.length === 0) return { model }
+      return {
+        model,
+        outMessage: OutMessage.RequestedCreateProject({
+          name: model.newName,
+          cwd: model.newCwd,
+        }),
+      }
+    },
     ClickedSend: () => {
       if (model.threadId === undefined || model.draft.length === 0) return { model }
       return {
@@ -130,6 +179,15 @@ export const update = (model: Model, message: Message) =>
           ? { ...model, live: [] }
           : { ...model, live: [...model.live, signal] },
     }),
+    ChangedProject: ({ value }) => {
+      const selected = value.length === 0 ? undefined : value
+      if (selected === undefined) return { model: { ...model, selected } }
+      if (model.threadId !== undefined) return { model: { ...model, selected } }
+      return {
+        model: { ...model, selected },
+        outMessage: OutMessage.RequestedCreateThread({ project: selected }),
+      }
+    },
     ChangedHarness: ({ value }) => ({
       model,
       outMessage: OutMessage.RequestedConfigure({
@@ -184,6 +242,55 @@ export const view = defineView<Model, Message>((model, h) => {
       h.div(
         [h.Class('flex shrink-0 flex-wrap gap-2 border-b border-border-seam p-3')],
         [
+          h.select(
+            [
+              h.Attribute('data-project-select', ''),
+              h.Class(inputClass),
+              h.OnChange((value) => Message.ChangedProject({ value })),
+            ],
+            [
+              h.option([h.Value(''), h.Selected(model.selected === undefined)], ['Choose project']),
+              ...optionsFor(
+                h,
+                model.projects.map((choice) => ({
+                  value: choice.id,
+                  label: `${choice.name} (${choice.cwd})`,
+                })),
+                model.selected,
+              ),
+            ],
+          ),
+          h.span(
+            [
+              h.Attribute('data-thread-project', ''),
+              h.Class('self-center text-sm text-muted-foreground'),
+            ],
+            [model.project === undefined ? 'No project' : model.project.name],
+          ),
+          h.input([
+            h.Attribute('data-project-name', ''),
+            h.Class(inputClass),
+            h.Value(model.newName),
+            h.Placeholder('Project name'),
+            h.OnInput((value) => Message.ChangedNewName({ value })),
+          ]),
+          h.input([
+            h.Attribute('data-project-cwd', ''),
+            h.Class(inputClass),
+            h.Value(model.newCwd),
+            h.Placeholder('Absolute path'),
+            h.OnInput((value) => Message.ChangedNewCwd({ value })),
+          ]),
+          button(
+            {
+              onClick: Message.ClickedCreateProject(),
+              variant: 'outline',
+              size: 'sm',
+              attributes: [h.Attribute('data-create-project', '')],
+            },
+            'Create project',
+            h,
+          ),
           h.select(
             [
               h.Attribute('data-harness-select', ''),

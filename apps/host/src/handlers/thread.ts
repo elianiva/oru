@@ -1,14 +1,15 @@
 import { Clock, Effect, Option, Random, Result, Stream } from 'effect'
 import { HarnessHealth, Harnesses, type HarnessService, type ModelInfo } from '@oru/harness'
 import {
-  ProjectCreated,
   SessionLog,
   ThreadCreated,
+  foldProject,
   foldThreadConfig,
-  foldThreadCwd,
   threadOf,
   unsignedTree,
   type Host,
+  type NamedProject,
+  type ProjectId,
   type SessionLogError,
   type ThreadId,
 } from '@oru/kernel'
@@ -71,32 +72,17 @@ const optionsOf = (
   })
 
 const createThread = (
-  host: Host,
-  cwd: string | undefined,
-): Effect.Effect<{ readonly threadId: ThreadId }, SessionLogError, SessionLog> =>
+  project: ProjectId,
+): Effect.Effect<
+  { readonly threadId: ThreadId; readonly project: NamedProject },
+  SessionLogError,
+  SessionLog
+> =>
   Effect.gen(function* () {
     const log = yield* SessionLog
-    const entries = yield* log.entries
-    let project: string | undefined
-    let projectCwd: string | undefined
-    for (const event of entries) {
-      if (event._tag === 'project/created') {
-        project = event.project
-        projectCwd = event.cwd
-      }
-    }
-    const directory = cwd ?? projectCwd ?? '.'
-    if (project === undefined) {
-      project = yield* newId()
-      yield* log.write(
-        ProjectCreated.make({
-          ...unsignedTree,
-          id: yield* newId(),
-          project,
-          name: 'default',
-          cwd: directory,
-        }),
-      )
+    const named = foldProject(yield* log.entries, project)
+    if (named === undefined) {
+      return yield* Effect.die(new Error(`unknown project ${project}`))
     }
     const threadId = yield* newId()
     yield* log.write(
@@ -104,15 +90,15 @@ const createThread = (
         ...unsignedTree,
         id: yield* newId(),
         thread: threadId,
-        project,
+        project: named.id,
       }),
     )
-    return { threadId }
+    return { threadId, project: named }
   })
 
 export const threadRpcHandlers = (host: Host) => ({
-  CreateThread: (payload: { readonly cwd: string | undefined }) =>
-    createThread(host, payload.cwd).pipe(Effect.orDie),
+  CreateThread: (payload: { readonly project: ProjectId }) =>
+    createThread(payload.project).pipe(Effect.orDie),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.send(payload.threadId, payload.text)),
@@ -189,12 +175,17 @@ export const threadRpcHandlers = (host: Host) => ({
     Effect.gen(function* () {
       const inference = yield* host.service(Inference)
       const log = yield* SessionLog
-      // Without a cwd the fork inherits its source's, which is where the session
-      // it resumes was written. `Inference.fork` carries the configuration.
-      const created = yield* createThread(
-        host,
-        payload.cwd ?? foldThreadCwd(yield* log.entries, payload.sourceThreadId),
-      )
+      const entries = yield* log.entries
+      let project: ProjectId | undefined
+      for (const event of entries) {
+        if (event._tag === 'thread/created' && event.thread === payload.sourceThreadId) {
+          project = event.project
+        }
+      }
+      if (project === undefined) {
+        return yield* Effect.die(new Error(`unknown source thread ${payload.sourceThreadId}`))
+      }
+      const created = yield* createThread(project)
       yield* inference.fork(
         payload.cwd === undefined
           ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }
@@ -204,6 +195,6 @@ export const threadRpcHandlers = (host: Host) => ({
               cwd: payload.cwd,
             },
       )
-      return created
+      return { threadId: created.threadId }
     }).pipe(Effect.orDie),
 })

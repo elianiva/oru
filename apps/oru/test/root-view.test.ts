@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { CreateThread, Message, SetLogging, update, view, init } from '../src/root.ts'
+import { CreateThread, ListProjects, Message, SetLogging, update, view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import { LiveSettled, LiveToolStart } from '@oru/rpc'
 import * as ThreadPanel from '../src/thread-panel.ts'
@@ -14,13 +14,23 @@ import {
   UserLine,
 } from '../src/transcript.ts'
 
+const demoProject = { id: 'p1', name: 'demo', cwd: '/tmp/demo' }
+
 const emptyOptions = (threadId: string) => ({
   threadId,
+  project: demoProject,
   options: {
     config: { harness: undefined, model: undefined, reasoning: undefined },
     harnesses: [],
     models: [],
   },
+})
+
+const idleThread = () => ({
+  ...ThreadPanel.init(),
+  projects: [demoProject],
+  selected: demoProject.id,
+  project: demoProject,
 })
 
 describe('root view', () => {
@@ -132,6 +142,7 @@ describe('root view', () => {
 
   it('shows a turn and a tool call on the thread panel', () => {
     const thread = {
+      ...idleThread(),
       threadId: 't1',
       draft: '',
       lines: [
@@ -195,8 +206,8 @@ describe('root view', () => {
   it('opens a thread from the rail header', () => {
     Scene.scene(
       { update, view },
-      Scene.given({ ...idle, thread: undefined }),
-      Scene.expect(Scene.text('No thread')).toExist(),
+      Scene.given({ ...idle, thread: idleThread() }),
+      Scene.expect(Scene.selector('[data-thread-panel]')).toExist(),
       Scene.click(Scene.text('New thread')),
       Scene.Command.resolve(
         CreateThread,
@@ -205,6 +216,24 @@ describe('root view', () => {
         }),
       ),
       Scene.expect(Scene.selector('[data-thread-panel]')).toExist(),
+      Scene.expect(Scene.selector('[data-thread-project]')).toExist(),
+      Scene.expect(Scene.text('demo')).toExist(),
+    )
+  })
+
+  it('lists projects in the thread pane', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...idle, thread: undefined }),
+      Scene.click(Scene.text('New thread')),
+      Scene.Command.resolve(
+        ListProjects,
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.ProjectsArrived({ projects: [demoProject] }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-project-select]')).toExist(),
+      Scene.expect(Scene.text('demo (/tmp/demo)')).toExist(),
     )
   })
 
@@ -242,6 +271,11 @@ describe('root view', () => {
       config: { harness: undefined, model: undefined, reasoning: undefined },
       harnesses: [],
       models: [],
+      projects: [demoProject],
+      selected: demoProject.id,
+      project: demoProject,
+      newName: '',
+      newCwd: '',
     }
     Scene.scene(
       { update, view },

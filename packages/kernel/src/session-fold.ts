@@ -76,6 +76,28 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
     new Set<ProjectId>(),
   )
 
+/** A named workspace as `project/created` recorded it. */
+export interface NamedProject {
+  readonly id: ProjectId
+  readonly name: string
+  readonly cwd: string
+}
+
+export const foldProjects = (events: readonly SessionEvent[]): readonly NamedProject[] => {
+  const projects = new Map<ProjectId, NamedProject>()
+  for (const event of events) {
+    if (event._tag === 'project/created' && !projects.has(event.project)) {
+      projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
+    }
+  }
+  return [...projects.values()]
+}
+
+export const foldProject = (
+  events: readonly SessionEvent[],
+  project: ProjectId,
+): NamedProject | undefined => foldProjects(events).find((entry) => entry.id === project)
+
 export const foldThreadPath = (
   events: readonly SessionEvent[],
   thread: ThreadId,
