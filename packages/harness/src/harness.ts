@@ -158,7 +158,6 @@ export const HarnessHealth = Schema.Struct({
 })
 export type HarnessHealth = typeof HarnessHealth.Type
 
-/** The words a thread shows when this health is not ready. */
 export const explanationOfHealth = (health: HarnessHealth): string => {
   const message = health.message ?? health.status
   return health.installCommand === undefined ? message : `${message}. Run: ${health.installCommand}`
@@ -233,8 +232,7 @@ export interface HarnessService {
     request: HarnessCompactRequest,
   ) => Effect.Effect<HarnessCompaction, HarnessError>
   readonly health?: () => Effect.Effect<HarnessHealth, HarnessError>
-  /** Drop memoized health so the next probe sees the machine as it is now. */
-  readonly refreshHealth?: () => Effect.Effect<void>
+  readonly invalidateHealth?: () => Effect.Effect<void>
 }
 
 /**
@@ -291,7 +289,7 @@ export const defineHarness = (spec: {
     request: HarnessCompactRequest,
   ) => Effect.Effect<HarnessCompaction, HarnessError>
   readonly health?: () => Effect.Effect<HarnessHealth, HarnessError>
-  readonly refreshHealth?: () => Effect.Effect<void>
+  readonly invalidateHealth?: () => Effect.Effect<void>
 }): HarnessService => {
   const streamTurn = spec.streamTurn
   const service: Mutable<HarnessService> = {
@@ -310,6 +308,6 @@ export const defineHarness = (spec: {
   if (spec.fork !== undefined) service.fork = spec.fork
   if (spec.compact !== undefined) service.compact = spec.compact
   if (spec.health !== undefined) service.health = spec.health
-  if (spec.refreshHealth !== undefined) service.refreshHealth = spec.refreshHealth
+  if (spec.invalidateHealth !== undefined) service.invalidateHealth = spec.invalidateHealth
   return service
 }

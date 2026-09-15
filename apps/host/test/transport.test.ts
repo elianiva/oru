@@ -135,7 +135,7 @@ describe('the RPC transport', () => {
   })
 
   it('re-probes harness health when ThreadOptions refresh is set', async () => {
-    let refreshes = 0
+    let invalidations = 0
     const sick = defineHarness({
       meta: { id: 'sick', label: 'Sick' },
       health: () =>
@@ -144,9 +144,9 @@ describe('the RPC transport', () => {
           message: 'pi is not on PATH',
           installCommand: 'npm install -g @earendil-works/pi-coding-agent@latest',
         }),
-      refreshHealth: () =>
+      invalidateHealth: () =>
         Effect.sync(() => {
-          refreshes += 1
+          invalidations += 1
         }),
       streamTurn: () => Stream.empty,
     })
@@ -167,12 +167,12 @@ describe('the RPC transport', () => {
             const thread = yield* ThreadClient
             const created = yield* thread.create(process.cwd())
             const first = yield* thread.options(created.threadId)
-            expect(refreshes).toBe(0)
+            expect(invalidations).toBe(0)
             expect(
               first.harnesses.find((choice) => choice.id === 'sick')?.health.installCommand,
             ).toBe('npm install -g @earendil-works/pi-coding-agent@latest')
             yield* thread.options(created.threadId, { refresh: true })
-            expect(refreshes).toBe(1)
+            expect(invalidations).toBe(1)
           }).pipe(Effect.provide(clientsFor(running.url)))
         }),
       ),

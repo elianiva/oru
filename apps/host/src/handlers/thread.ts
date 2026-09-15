@@ -32,12 +32,12 @@ const healthOf = (harness: HarnessService): Effect.Effect<HarnessChoice['health'
           ),
         )
 
-const refreshHealthOf = (host: Host): Effect.Effect<void> =>
+const invalidateHealthOf = (host: Host): Effect.Effect<void> =>
   Effect.gen(function* () {
     const registry = yield* host.service(Harnesses)
     for (const entry of yield* registry.list()) {
-      if (entry.harness.refreshHealth !== undefined) {
-        yield* entry.harness.refreshHealth()
+      if (entry.harness.invalidateHealth !== undefined) {
+        yield* entry.harness.invalidateHealth()
       }
     }
   })
@@ -147,7 +147,7 @@ export const threadRpcHandlers = (host: Host) => ({
     ),
   ThreadOptions: (payload: { readonly threadId: ThreadId; readonly refresh?: boolean }) =>
     Effect.gen(function* () {
-      if (payload.refresh === true) yield* refreshHealthOf(host)
+      if (payload.refresh === true) yield* invalidateHealthOf(host)
       return yield* optionsOf(host, payload.threadId)
     }).pipe(Effect.orDie),
   ConfigureThread: (payload: {
