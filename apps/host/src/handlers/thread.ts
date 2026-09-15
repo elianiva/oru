@@ -107,6 +107,7 @@ const createThread = (
         project,
       }),
     )
+    yield* host.openThread(threadId).pipe(Effect.orDie)
     return { threadId }
   })
 
@@ -175,6 +176,7 @@ export const threadRpcHandlers = (host: Host) => ({
   DiscardThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.discard(payload.threadId)),
+      Effect.andThen(host.closeThread(payload.threadId)),
       Effect.orDie,
     ),
   CompactThread: (payload: {
