@@ -59,3 +59,29 @@ ORU_PI_E2E_MODEL=<provider>/<model> pnpm --filter @oru/host test
 ```
 
 `pi --list-models` names the candidates. The test skips without one, because only you know which account to spend. `plugins/harness-pi/src/index.ts` is the bridge it drives.
+
+## Browser check
+
+Unit tests assert the view tree; only a browser shows the composed app, and the app is a client of a running host, so start both:
+
+```
+pnpm dev
+```
+
+Open the printed URL and check these, in order. The picker defaults to `Oru (effect-uai)` with `Demo (mock)`, whose script is what the turn steps below rely on.
+
+1. The rail lists one row per plugin that carries a panel (`Log`, `Greet`), and the info pane lists the services the host provides (`oru/logger`, `oru/harnesses`, `oru/inference`, `oru/greeter`).
+2. Click `Turn logging off`. `Log`, `Greet`, `oru/logger`, and `oru/greeter` all disappear, because `greeter` is a consumer of `Logger`.
+3. Click `Turn logging on`. All four come back.
+4. Type a message into the pane and click `Send`. The transcript shows `user: ...`, `turn/started`, `tool/requested echo`, `tool/completed echo`, and `assistant: done`, with no leftover live lines from the stream.
+5. Send a second message. The demo model scripts two turns, so the next turn fails and the transcript shows a `turn/failed ...` line.
+6. Click `New thread`. The transcript empties and the pane starts a fresh thread.
+
+`docs/evidence/issue-11` holds the screenshots from one run of these steps, taken with the agent-browser CLI:
+
+```
+agent-browser open <url>
+agent-browser snapshot -i
+agent-browser click @e13
+agent-browser screenshot shot.png
+```
