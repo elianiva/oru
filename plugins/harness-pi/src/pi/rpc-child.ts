@@ -41,19 +41,27 @@ export interface PiRpcChildExitInfo {
   readonly beforeFirstResponse: boolean
 }
 
-export class PiRpcChildExited extends Error {
-  readonly info: PiRpcChildExitInfo
+export class PiRpcError extends Schema.TaggedError<PiRpcError>()('PiRpcError', {
+  message: Schema.String,
+}) {}
 
-  constructor(info: PiRpcChildExitInfo) {
-    super(
-      `pi exited (code ${info.code ?? 'null'}, signal ${info.signal ?? 'null'})${
-        info.stderrTail === '' ? '' : `: ${info.stderrTail.trim()}`
-      }`,
-    )
-    this.name = 'PiRpcChildExited'
-    this.info = info
-  }
-}
+export class PiRpcChildExited extends Schema.TaggedError<PiRpcChildExited>()('PiRpcChildExited', {
+  message: Schema.String,
+  info: Schema.Struct({
+    code: Schema.NullOr(Schema.Number),
+    signal: Schema.NullOr(Schema.String),
+    stderrTail: Schema.String,
+    beforeFirstResponse: Schema.Boolean,
+  }),
+}) {}
+
+const childExited = (info: PiRpcChildExitInfo) =>
+  new PiRpcChildExited({
+    info,
+    message: `pi exited (code ${info.code ?? 'null'}, signal ${info.signal ?? 'null'})${
+      info.stderrTail === '' ? '' : `: ${info.stderrTail.trim()}`
+    }`,
+  })
 
 /** The RPC commands this bridge sends. pi's own list is wider; this is the used set. */
 export type PiCommand =
@@ -126,7 +134,7 @@ export const resolvePiLaunch = (env: NodeJS.ProcessEnv): PiLaunch => {
   if (rawArgs === undefined || rawArgs === '') return { command, args: [] }
   const parsed = decodeOption(PiArgsEnv)(rawArgs)
   if (Option.isNone(parsed)) {
-    throw new Error(`${PI_ARGS_ENV} must be a JSON array of strings`)
+    throw new PiRpcError({ message: `${PI_ARGS_ENV} must be a JSON array of strings` })
   }
   return { command, args: parsed.value }
 }
@@ -225,12 +233,12 @@ export class PiRpcChild {
       settled.resolve(info)
       for (const request of this.pending.values()) {
         if (request.timer !== null) clearTimeout(request.timer)
-        request.reject(new PiRpcChildExited(info))
+        request.reject(childExited(info))
       }
       this.pending.clear()
       for (const reply of this.replies.values()) {
         if (reply.timer !== null) clearTimeout(reply.timer)
-        reply.resolve({ kind: 'reply', id: '', error: new PiRpcChildExited(info).message })
+        reply.resolve({ kind: 'reply', id: '', error: childExited(info).message })
       }
       this.replies.clear()
       args.onExit(info)
@@ -264,7 +272,7 @@ export class PiRpcChild {
     timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<PiResponseEnvelope> {
     const info = this.exitInfo
-    if (info !== null) return Promise.reject(new PiRpcChildExited(info))
+    if (info !== null) return Promise.reject(childExited(info))
     this.nextRequestId += 1
     const id = `oru-${this.nextRequestId}`
     const deferred = Promise.withResolvers<PiResponseEnvelope>()
@@ -273,7 +281,9 @@ export class PiRpcChild {
         ? null
         : setTimeout(() => {
             this.pending.delete(id)
-            deferred.reject(new Error(`pi did not answer ${command.type} in time`))
+            deferred.reject(
+              new PiRpcError({ message: `pi did not answer ${command.type} in time` }),
+            )
           }, timeoutMs)
     timer?.unref?.()
     this.pending.set(id, { resolve: deferred.resolve, reject: deferred.reject, timer })
@@ -289,14 +299,16 @@ export class PiRpcChild {
   ): Promise<A> {
     const response = await this.request(command, timeoutMs)
     if (!response.success) {
-      throw new Error(response.error ?? `pi rejected ${command.type}`)
+      throw new PiRpcError({ message: response.error ?? `pi rejected ${command.type}` })
     }
     if (response.data === undefined) {
-      throw new Error(`pi answered ${command.type} without a payload`)
+      throw new PiRpcError({ message: `pi answered ${command.type} without a payload` })
     }
     const decoded = decodeOption(schema)(response.data)
     if (Option.isNone(decoded)) {
-      throw new Error(`pi answered ${command.type} with a payload oru cannot read`)
+      throw new PiRpcError({
+        message: `pi answered ${command.type} with a payload oru cannot read`,
+      })
     }
     return decoded.value
   }
@@ -316,14 +328,16 @@ export class PiRpcChild {
     timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<PiChannelReply> {
     const info = this.exitInfo
-    if (info !== null) return Promise.reject(new PiRpcChildExited(info))
+    if (info !== null) return Promise.reject(childExited(info))
     const deferred = Promise.withResolvers<PiChannelReply>()
     const timer =
       timeoutMs === NO_REQUEST_TIMEOUT
         ? null
         : setTimeout(() => {
             this.replies.delete(id)
-            deferred.reject(new Error(`pi did not answer the channel message ${id} in time`))
+            deferred.reject(
+              new PiRpcError({ message: `pi did not answer the channel message ${id} in time` }),
+            )
           }, timeoutMs)
     timer?.unref?.()
     this.replies.set(id, { resolve: deferred.resolve, timer })

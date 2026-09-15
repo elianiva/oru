@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, type Scope } from 'effect'
+import { Predicate, Context, Effect, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
   definePlugin,
@@ -48,7 +48,10 @@ const greeterPlugin = definePlugin({
 const pluginFacts = (events: readonly SessionEvent[]) => {
   const facts: Array<readonly [string, string]> = []
   for (const event of events) {
-    if (event._tag === 'plugin/activated' || event._tag === 'plugin/deactivated') {
+    if (
+      Predicate.isTagged(event, 'plugin/activated') ||
+      Predicate.isTagged(event, 'plugin/deactivated')
+    ) {
       facts.push([event._tag, event.plugin])
     }
   }

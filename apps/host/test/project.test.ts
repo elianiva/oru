@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Effect, type Scope } from 'effect'
+import { Predicate, Effect, type Scope } from 'effect'
 import {
   foldThreadCwd,
   SessionLog,
@@ -66,16 +66,19 @@ describe('project cwd on a thread', () => {
 
     const entries = await readJournal(file, (log) => log.entries)
     expect(foldThreadCwd(entries, threadId)).toBe(cwd)
-    expect(entries.some((event) => event._tag === 'project/created' && event.cwd === '.')).toBe(
-      false,
-    )
+    expect(
+      entries.some((event) => Predicate.isTagged(event, 'project/created') && event.cwd === '.'),
+    ).toBe(false)
     const created = entries.find(
-      (event) => event._tag === 'thread/created' && event.thread === threadId,
+      (event) => Predicate.isTagged(event, 'thread/created') && event.thread === threadId,
     )
     expect(created?._tag).toBe('thread/created')
-    const project = entries.find((event) => event._tag === 'project/created')
+    const project = entries.find((event) => Predicate.isTagged(event, 'project/created'))
     expect(project?._tag).toBe('project/created')
-    if (created?._tag === 'thread/created' && project?._tag === 'project/created') {
+    if (
+      Predicate.isTagged(created, 'thread/created') &&
+      Predicate.isTagged(project, 'project/created')
+    ) {
       expect(created.project).toBe(project.project)
       expect(project.cwd).toBe(cwd)
     }

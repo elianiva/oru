@@ -4,7 +4,12 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Option, Schema } from 'effect'
+import { Data, Option, Schema } from 'effect'
+
+class ScriptedRequestTimeout extends Data.TaggedError('ScriptedRequestTimeout')<{
+  readonly seen: number
+  readonly wanted: number
+}> {}
 
 /**
  * A scripted model provider for hermetic bridge tests.
@@ -486,9 +491,7 @@ export const startScriptedProvider = async (
     const settled = Promise.withResolvers<void>()
     const timer = setTimeout(() => {
       remove()
-      settled.reject(
-        new Error(`the scripted provider saw ${requests.length} request(s), not ${count}`),
-      )
+      settled.reject(new ScriptedRequestTimeout({ seen: requests.length, wanted: count }))
     }, 10_000)
     const check = (): void => {
       if (requests.length >= count) {

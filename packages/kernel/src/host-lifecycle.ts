@@ -1,7 +1,11 @@
 import { Effect, Match, Ref, Schema, Semaphore } from 'effect'
 import type { HostEvent } from './event.ts'
 import { PluginId } from './primitives.ts'
-import type { SessionEvent } from './session-event.ts'
+import {
+  PluginActivated as SessionActivated,
+  PluginDeactivated as SessionDeactivated,
+  type SessionEvent,
+} from './session-event.ts'
 import { foldActivePlugins } from './session-fold.ts'
 import { appendHostEvent, type SessionLogContract, type SessionLogError } from './session-log.ts'
 
@@ -27,7 +31,7 @@ export const recoverLifecycle = (
 ): LifecycleState => {
   const journalActive = foldActivePlugins(entries)
   const replaying = entries.some(
-    (event) => event._tag === 'plugin/activated' || event._tag === 'plugin/deactivated',
+    (event) => Schema.is(SessionActivated)(event) || Schema.is(SessionDeactivated)(event),
   )
   if (replaying) return { desired: journalActive, journalActive }
   return { desired: known, journalActive }
@@ -71,7 +75,7 @@ export const openHostFactRecorder = Effect.fnUntraced(function* (
         Effect.gen(function* () {
           const current = yield* Ref.get(active)
           const decision = decideHostFact(current, event)
-          if (decision._tag === 'Append') yield* appendHostEvent(log, event)
+          if (Schema.is(Append)(decision)) yield* appendHostEvent(log, event)
           yield* Ref.set(active, decision.next)
         }),
       ),

@@ -5,6 +5,7 @@ import {
   Config,
   ConfigProvider,
   Effect,
+  Match,
   Option,
   Result,
   Schema,
@@ -23,22 +24,6 @@ export type Lifetime = 'startup' | 'live'
 export interface Chosen<T> {
   readonly value: T
   readonly source: Source
-}
-
-export interface FilePi {
-  readonly home?: string | undefined
-  readonly sessionDir?: string | undefined
-  readonly command?: string | undefined
-  readonly args?: readonly string[] | undefined
-  readonly skills?: readonly string[] | undefined
-  readonly noBuiltinTools?: boolean | undefined
-}
-
-export interface FileConfig {
-  readonly host?: string | undefined
-  readonly port?: number | undefined
-  readonly journal?: string | undefined
-  readonly pi?: FilePi | undefined
 }
 
 export interface ServeFlags {
@@ -120,20 +105,22 @@ const ListenPort = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6553
 const StringList = Schema.Array(Schema.String)
 
 const FilePiDocument = Schema.Struct({
-  home: Schema.optionalKey(Schema.String),
-  sessionDir: Schema.optionalKey(Schema.String),
-  command: Schema.optionalKey(Schema.String),
-  args: Schema.optionalKey(StringList),
-  skills: Schema.optionalKey(StringList),
-  noBuiltinTools: Schema.optionalKey(Schema.Boolean),
+  home: Schema.optional(Schema.String),
+  sessionDir: Schema.optional(Schema.String),
+  command: Schema.optional(Schema.String),
+  args: Schema.optional(StringList),
+  skills: Schema.optional(StringList),
+  noBuiltinTools: Schema.optional(Schema.Boolean),
 })
 
 const FileDocument = Schema.Struct({
-  host: Schema.optionalKey(Schema.String),
-  port: Schema.optionalKey(ListenPort),
-  journal: Schema.optionalKey(Schema.String),
-  pi: Schema.optionalKey(FilePiDocument),
+  host: Schema.optional(Schema.String),
+  port: Schema.optional(ListenPort),
+  journal: Schema.optional(Schema.String),
+  pi: Schema.optional(FilePiDocument),
 })
+export type FilePi = typeof FilePiDocument.Type
+export type FileConfig = typeof FileDocument.Type
 
 const parseOptions = { onExcessProperty: 'error' as const }
 
@@ -143,12 +130,12 @@ const decodeListenPort = Schema.decodeUnknownResult(ListenPort)
 const decodeBoolean = Schema.decodeUnknownResult(Config.Boolean)
 const decodeStringList = Schema.decodeUnknownResult(Schema.fromJsonString(StringList))
 
-export class ConfigError extends Error {
-  override readonly name = 'ConfigError'
-}
+export class ConfigError extends Schema.TaggedError<ConfigError>()('ConfigError', {
+  message: Schema.String,
+}) {}
 
 const fail = (message: string): never => {
-  throw new ConfigError(message)
+  throw new ConfigError({ message })
 }
 
 const issueMessage = (error: Schema.SchemaError): string => {
@@ -309,10 +296,11 @@ const layered = (
 
 const leafPresent = (node: ConfigProviderNs.Node | undefined): boolean => {
   if (node === undefined) return false
-  if (node._tag === 'Value') return true
-  if (node.value !== undefined) return true
-  if (node._tag === 'Array') return node.length > 0
-  return false
+  return Match.value(node).pipe(
+    Match.tag('Value', () => true),
+    Match.tag('Array', (node) => node.length > 0),
+    Match.orElse((node) => node.value !== undefined),
+  )
 }
 
 const sourceAt = (

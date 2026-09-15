@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Effect, Match, Option, Schema, Stream, type Scope } from 'effect'
+import { Predicate, Effect, Match, Option, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { Harnesses } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
@@ -141,7 +141,7 @@ const approveAll = (inference: Inference['Service']) =>
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
-        event._tag === 'tool/requested'
+        Predicate.isTagged(event, 'tool/requested')
           ? inference.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
@@ -189,7 +189,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
 
 const transcriptOf = (events: readonly SessionEvent[]): readonly string[] =>
   events.flatMap((event) =>
-    event._tag === 'message/appended' ? [`${event.role}: ${event.body}`] : [],
+    Predicate.isTagged(event, 'message/appended') ? [`${event.role}: ${event.body}`] : [],
   )
 
 describe.runIf(readiness.run)('oru driving pi, for real', () => {
@@ -212,7 +212,8 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         ])
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
-        if (entry.harness.health === undefined) throw new Error('pi reports no health')
+        expect(entry.harness.health).toBeDefined()
+        if (entry.harness.health === undefined) return
         // The guard already proved this; the turn is only worth running on it.
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
@@ -229,13 +230,16 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         const events = threadFacts(yield* log.entries, thread)
         process.stdout.write(`${events.map((event) => event._tag).join(' ')}\n`)
         process.stdout.write(`${transcriptOf(events).join('\n')}\n`)
-        const failed = events.find((event) => event._tag === 'turn/failed')
-        if (failed?._tag === 'turn/failed') process.stdout.write(`turn failed: ${failed.reason}\n`)
+        const failed = events.find((event) => Predicate.isTagged(event, 'turn/failed'))
+        if (Predicate.isTagged(failed, 'turn/failed'))
+          process.stdout.write(`turn failed: ${failed.reason}\n`)
 
         // The model answered through pi, and its answer is oru's fact.
         expect(failed).toBeUndefined()
         expect(
-          events.some((event) => event._tag === 'message/appended' && event.role === 'assistant'),
+          events.some(
+            (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
+          ),
         ).toBe(true)
         expect(
           transcriptOf(events).some(
@@ -245,11 +249,17 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
 
         // It was told to call oru's tool, so pi called it, oru ran it, and the
         // outcome is a fact rather than work left pending.
-        const requested = events.find((event) => event._tag === 'tool/requested')
-        const completed = events.find((event) => event._tag === 'tool/completed')
-        expect(requested?._tag === 'tool/requested' ? requested.name : undefined).toBe('echo')
-        expect(completed?._tag === 'tool/completed' ? completed.ok : undefined).toBe(true)
-        expect(completed?._tag === 'tool/completed' ? completed.result : '').toContain('oru e2e')
+        const requested = events.find((event) => Predicate.isTagged(event, 'tool/requested'))
+        const completed = events.find((event) => Predicate.isTagged(event, 'tool/completed'))
+        expect(Predicate.isTagged(requested, 'tool/requested') ? requested.name : undefined).toBe(
+          'echo',
+        )
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.ok : undefined).toBe(
+          true,
+        )
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.result : '').toContain(
+          'oru e2e',
+        )
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
 
         // pi keeps its own session for the thread, where the bridge told it to.

@@ -24,7 +24,7 @@ describe('syncActivePanels', () => {
       ['greeter', greeter],
     ])
     const next = syncActivePanels(current, new Set(['logging', 'greeter']), (id) => {
-      throw new Error(`must not create ${id}`)
+      expect.fail(`must not create ${id}`)
     })
     expect(HashMap.getUnsafe(next, 'logging')).toBe(logging)
     expect(HashMap.getUnsafe(next, 'greeter')).toBe(greeter)

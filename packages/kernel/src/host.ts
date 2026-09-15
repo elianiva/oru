@@ -29,7 +29,7 @@ import {
   type ActivationError,
   type BootError,
 } from './errors.ts'
-import { PluginActivated, PluginDeactivated, type HostEvent } from './event.ts'
+import { PluginActivated, PluginDeactivated, ProviderRemoved, type HostEvent } from './event.ts'
 import type { AnyPlugin, PluginContext } from './plugin.ts'
 import { BundleAddress, PluginId, PluginScope, ThreadId, TokenId } from './primitives.ts'
 import { openRegistry, serviceFacade, type Registry } from './registry.ts'
@@ -119,7 +119,7 @@ export const makeHost = Effect.fnUntraced(function* (
         .pipe(
           Effect.orDie,
           Effect.andThen(
-            event._tag === 'ProviderRemoved' ? Effect.void : Queue.offer(recorded, true),
+            Schema.is(ProviderRemoved)(event) ? Effect.void : Queue.offer(recorded, true),
           ),
         ),
     ),

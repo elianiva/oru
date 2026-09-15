@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Cause, Context, Effect, Queue, Stream } from 'effect'
+import { Cause, Context, Effect, Queue, Schema, Stream } from 'effect'
 import { definePlugin } from '@oru/kernel'
 import {
   HarnessKind,
@@ -14,7 +14,7 @@ import {
 import { ORU_PI_EXTENSION_SOURCE } from './pi/extension.ts'
 import { resolvePiPaths, type PiPaths } from './pi/paths.ts'
 import { resolvePiLaunch } from './pi/rpc-child.ts'
-import { PiSession, PiBridgeError, type PiRunInput } from './pi/session.ts'
+import { PiBridgeError, PiSession, type PiRunInput } from './pi/session.ts'
 import { toolBridgeOf, type PiToolBridge } from './pi/tools.ts'
 import { PiCatalog } from './pi/catalog.ts'
 
@@ -34,7 +34,7 @@ export interface PiHarnessOptions {
 }
 
 const toHarnessError = (cause: unknown): HarnessError => {
-  if (cause instanceof PiBridgeError) {
+  if (Schema.is(PiBridgeError)(cause)) {
     return new HarnessError({
       message: cause.message,
       code: cause.code,

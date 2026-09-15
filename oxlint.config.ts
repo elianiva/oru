@@ -15,6 +15,8 @@ export default defineConfig({
     '.windsurf/**',
     'dist/**',
     '.turbo/**',
+    'scripts/**',
+    'plugins/harness-pi/src/pi/oru-pi-extension.mjs',
     'tools/oxlint/anti-slop/**',
     'apps/oru/src/components/**',
     'apps/oru/src/lib/icons.ts',
@@ -50,6 +52,9 @@ export default defineConfig({
     'anti-slop/no-unsafe-dictionary-type': 'error',
     'anti-slop/no-widen-then-assert': 'error',
     'anti-slop/require-safety-comment-for-type-assertion': 'error',
+    'anti-slop-effect/no-effect-internal-tags': 'error',
+    'anti-slop-effect/no-error-constructor': 'error',
+    'anti-slop-effect/no-manual-tag-equality': 'error',
     'anti-slop-effect/no-manual-tagged-object': 'error',
     'anti-slop-effect/no-service-constructor-imports': 'error',
     'no-unused-vars': [

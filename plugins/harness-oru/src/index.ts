@@ -1,4 +1,4 @@
-import { Context, Effect, Stream } from 'effect'
+import { Context, Effect, Match, Stream } from 'effect'
 import * as AiError from '@effect-uai/core/AiError'
 import {
   LanguageModel,
@@ -57,7 +57,12 @@ const catalogue: readonly ModelInfo[] = [
  * structural probing of an `unknown` cause.
  */
 const isRetryable = (cause: AiError.AiError): boolean =>
-  cause._tag === 'RateLimited' || cause._tag === 'Unavailable' || cause._tag === 'Timeout'
+  Match.value(cause).pipe(
+    Match.tag('RateLimited', () => true),
+    Match.tag('Unavailable', () => true),
+    Match.tag('Timeout', () => true),
+    Match.orElse(() => false),
+  )
 
 const toHarnessError = (cause: AiError.AiError): HarnessError =>
   new HarnessError({

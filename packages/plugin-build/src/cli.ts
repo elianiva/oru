@@ -1,7 +1,12 @@
 #!/usr/bin/env node
+import { Schema } from 'effect'
 import { buildFacet } from './build.ts'
 
 const usage = 'usage: oru-build-facet <entry> [--store dir] [--external spec]'
+
+export class UsageError extends Schema.TaggedError<UsageError>()('UsageError', {
+  message: Schema.String,
+}) {}
 
 interface CliFlags {
   readonly entry: string
@@ -17,23 +22,23 @@ const parse = (args: readonly string[]): CliFlags => {
     const arg = args[i]
     if (arg === '--store') {
       const value = args[i + 1]
-      if (value === undefined) throw new Error(usage)
+      if (value === undefined) throw new UsageError({ message: usage })
       store = value
       i += 1
       continue
     }
     if (arg === '--external') {
       const value = args[i + 1]
-      if (value === undefined) throw new Error(usage)
+      if (value === undefined) throw new UsageError({ message: usage })
       externals.push(value)
       i += 1
       continue
     }
-    if (arg !== undefined && arg.startsWith('-')) throw new Error(usage)
-    if (entry !== undefined) throw new Error(usage)
+    if (arg !== undefined && arg.startsWith('-')) throw new UsageError({ message: usage })
+    if (entry !== undefined) throw new UsageError({ message: usage })
     entry = arg
   }
-  if (entry === undefined) throw new Error(usage)
+  if (entry === undefined) throw new UsageError({ message: usage })
   return { entry, store, externals }
 }
 

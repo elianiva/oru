@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
+import { Predicate, Effect, Fiber, Option, Stream, type Scope } from 'effect'
 import { definePlugin } from '@oru/kernel'
 import { HarnessKind, Harnesses, defineHarness } from '@oru/harness'
 import { GraphRpc, ProjectClient, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
@@ -94,19 +94,19 @@ describe('the RPC transport', () => {
         const created = yield* openThread(process.cwd())
         const facts = yield* thread.watch(created.threadId).pipe(
           Stream.takeUntil(
-            (event) => event._tag === 'message/appended' && event.role === 'assistant',
+            (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
           ),
           Stream.runCollect,
           Effect.forkScoped,
         )
         const signals = yield* thread.watchSignals(created.threadId).pipe(
-          Stream.takeUntil((signal) => signal._tag === 'settled'),
+          Stream.takeUntil((signal) => Predicate.isTagged(signal, 'settled')),
           Stream.runCollect,
           Effect.forkScoped,
         )
         yield* thread.watch(created.threadId).pipe(
           Stream.runForEach((event) =>
-            event._tag === 'tool/requested'
+            Predicate.isTagged(event, 'tool/requested')
               ? thread.decide(created.threadId, event.call, 'approve')
               : Effect.void,
           ),

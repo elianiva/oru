@@ -45,7 +45,7 @@ describe('transcript', () => {
       }),
     )
     expect(user).toEqual(UserLine.make({ body: 'hello' }))
-    if (user === undefined) throw new Error('expected user line')
+    if (user === undefined) return
     expect(labelOf(user)).toBe('user: hello')
 
     const turn = lineOf(
@@ -57,7 +57,7 @@ describe('transcript', () => {
       }),
     )
     expect(turn).toEqual(TurnLine.make({}))
-    if (turn === undefined) throw new Error('expected turn line')
+    if (turn === undefined) return
     expect(labelOf(turn)).toBe('turn/started')
 
     const failed = lineOf(
@@ -70,7 +70,7 @@ describe('transcript', () => {
       }),
     )
     expect(failed).toEqual(FailedLine.make({ reason: 'provider down' }))
-    if (failed === undefined) throw new Error('expected failed line')
+    if (failed === undefined) return
     expect(labelOf(failed)).toBe('turn/failed provider down')
 
     const requested = lineOf(
@@ -85,7 +85,7 @@ describe('transcript', () => {
       }),
     )
     expect(requested).toEqual(ToolRequestedLine.make({ name: 'echo', call: 'call_1' }))
-    if (requested === undefined) throw new Error('expected tool request line')
+    if (requested === undefined) return
     expect(labelOf(requested)).toBe('tool/requested echo')
 
     const completed = lineOf(
@@ -101,7 +101,7 @@ describe('transcript', () => {
       }),
     )
     expect(completed).toEqual(ToolCompletedLine.make({ name: 'echo', call: 'call_1' }))
-    if (completed === undefined) throw new Error('expected tool completed line')
+    if (completed === undefined) return
     expect(labelOf(completed)).toBe('tool/completed echo')
   })
 
@@ -118,7 +118,7 @@ describe('transcript', () => {
       }),
     )
     expect(usage).toEqual(UsageLine.make({ inputTokens: 11, outputTokens: 3, cost: 0.04 }))
-    if (usage === undefined) throw new Error('expected usage line')
+    if (usage === undefined) return
     expect(labelOf(usage)).toBe('tokens 11 in / 3 out · cost 0.04')
 
     const context = lineOf(
@@ -131,7 +131,7 @@ describe('transcript', () => {
       }),
     )
     expect(context).toEqual(ContextWindowLine.make({ tokens: 40, contextWindow: 128_000 }))
-    if (context === undefined) throw new Error('expected context line')
+    if (context === undefined) return
     expect(labelOf(context)).toBe('context 40/128000')
   })
 })

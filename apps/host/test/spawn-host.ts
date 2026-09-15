@@ -1,5 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { Data } from 'effect'
+
+class HostHasNoStreams extends Data.TaggedError('HostHasNoStreams') {}
+
+class HostExitedEarly extends Data.TaggedError('HostExitedEarly')<{
+  readonly code: number | null
+  readonly output: string
+}> {}
 
 const main = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
@@ -12,7 +20,7 @@ export interface Ran {
 const collect = (child: ChildProcess) => {
   const out = child.stdout
   const err = child.stderr
-  if (out === null || err === null) throw new Error('the host reported no streams')
+  if (out === null || err === null) throw new HostHasNoStreams()
   out.setEncoding('utf8')
   err.setEncoding('utf8')
   return { out, err }
@@ -98,9 +106,7 @@ export const startedHost = (
     settled.reject(cause)
   })
   child.on('close', (code) => {
-    settled.reject(
-      new Error(`the host exited with ${String(code)} before listening:\n${stderr}${output}`),
-    )
+    settled.reject(new HostExitedEarly({ code, output: `${stderr}${output}` }))
   })
   return settled.promise
 }

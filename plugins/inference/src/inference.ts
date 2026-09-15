@@ -1,20 +1,20 @@
 import {
-  Clock,
   Context,
   Deferred,
   Effect,
   Match,
   Option,
   PubSub,
-  Random,
   Ref,
   Result,
+  Schema,
   Scope,
   Semaphore,
   Stream,
 } from 'effect'
 import {
   ApprovalDecided,
+  ApprovalUndecided,
   InboxSpliced,
   MessageAppended,
   ThreadBranched,
@@ -31,6 +31,7 @@ import {
   foldNamedThreads,
   foldThreadConfig,
   foldThreadCwd,
+  newId,
   pathOfLane,
   threadLane,
   unsignedTree,
@@ -56,7 +57,16 @@ import {
 import { demoModelId } from './demo-model.ts'
 import { decodeReportedUsage, recordedUsageOf } from './reported-usage.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
-import { decisionOf, foldThread, pendingCallOf, workOf } from './session-fold.ts'
+import {
+  AwaitApproval,
+  decisionOf,
+  foldThread,
+  Idle,
+  pendingCallOf,
+  RecordDenied,
+  RunTool,
+  workOf,
+} from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
 
 /** One live harness event, tagged with the thread it belongs to. */
@@ -128,12 +138,6 @@ export interface InferenceContract {
 }
 
 export class Inference extends Context.Service<Inference, InferenceContract>()('oru/inference') {}
-
-const newId = Effect.fnUntraced(function* () {
-  const now = yield* Clock.currentTimeMillis
-  const n = yield* Random.next
-  return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
-})
 
 const deniedResult = 'the user denied this tool call'
 
@@ -270,7 +274,7 @@ const persistTurn = (
         const recorded = yield* log.entries
         const alreadyRequested = recorded.some(
           (event) =>
-            event._tag === 'tool/requested' &&
+            Schema.is(ToolRequested)(event) &&
             event.thread === thread &&
             event.turn === turn &&
             event.call === item.call_id,
@@ -292,7 +296,7 @@ const persistTurn = (
         if (output === undefined) continue
         const alreadyCompleted = (yield* log.entries).some(
           (event) =>
-            event._tag === 'tool/completed' &&
+            Schema.is(ToolCompleted)(event) &&
             event.thread === thread &&
             event.turn === turn &&
             event.call === item.call_id,
@@ -321,7 +325,7 @@ const persistTurn = (
     }
     yield* flush()
     const parsed = decodeReportedUsage(assembled.usage)
-    if (parsed._tag === 'None') return
+    if (Option.isNone(parsed)) return
     const usage = recordedUsageOf(parsed.value)
     if (usage === undefined) return
     yield* log.write(
@@ -391,7 +395,7 @@ export const openInference = (
     const waitForDecision = (
       thread: string,
       request: string,
-    ): Effect.Effect<ApprovalVerdict, SessionLogError> =>
+    ): Effect.Effect<ApprovalVerdict, SessionLogError | ApprovalUndecided> =>
       Effect.gen(function* () {
         const existing = decisionOf(yield* log.entries, thread, request)
         if (existing !== undefined) return existing
@@ -401,15 +405,15 @@ export const openInference = (
         const decided = yield* live.pipe(
           Stream.filter(
             (event) =>
-              event._tag === 'approval/decided' &&
+              Schema.is(ApprovalDecided)(event) &&
               event.thread === thread &&
               event.request === request,
           ),
           Stream.take(1),
           Stream.runHead,
         )
-        if (Option.isNone(decided) || decided.value._tag !== 'approval/decided') {
-          return yield* Effect.die(new Error(`approval ${request} ended without a decision`))
+        if (Option.isNone(decided) || !Schema.is(ApprovalDecided)(decided.value)) {
+          return yield* new ApprovalUndecided({ request })
         }
         return decided.value.decision
       }).pipe(Effect.provideService(Scope.Scope, scope))
@@ -449,7 +453,7 @@ export const openInference = (
         readonly name: string
         readonly arguments: string
       },
-    ): Effect.Effect<ApprovalVerdict, SessionLogError> =>
+    ): Effect.Effect<ApprovalVerdict, SessionLogError | ApprovalUndecided> =>
       Effect.gen(function* () {
         yield* ensureRequested(thread, turn, input)
         return yield* waitForDecision(thread, input.request)
@@ -459,12 +463,12 @@ export const openInference = (
       for (;;) {
         const events = yield* log.entries
         const work = workOf(foldThread(events, thread))
-        if (work._tag === 'Idle') return
-        if (work._tag === 'AwaitApproval') {
+        if (Schema.is(Idle)(work)) return
+        if (Schema.is(AwaitApproval)(work)) {
           yield* waitForDecision(thread, work.pending.call)
           continue
         }
-        if (work._tag === 'RecordDenied') {
+        if (Schema.is(RecordDenied)(work)) {
           const denied = work.pending
           yield* log.write(
             ToolCompleted.make({
@@ -480,7 +484,7 @@ export const openInference = (
           )
           continue
         }
-        if (work._tag === 'RunTool') {
+        if (Schema.is(RunTool)(work)) {
           const work_ = work
           const tools = yield* loadTools
           const result = yield* runTool(tools, work_.pending)
@@ -645,7 +649,7 @@ export const openInference = (
     const resume = Effect.gen(function* () {
       const entries = yield* log.entries
       for (const thread of foldNamedThreads(entries)) {
-        if (workOf(foldThread(entries, thread))._tag === 'Idle') continue
+        if (Schema.is(Idle)(workOf(foldThread(entries, thread)))) continue
         yield* kick(thread)
       }
     })

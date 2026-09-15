@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Effect, Result, Schema, Stream } from 'effect'
+import { Predicate, Effect, Result, Schema, Stream } from 'effect'
 import * as Items from '@effect-uai/core/Items'
 import * as Tool from '@effect-uai/core/Tool'
 import * as Toolkit from '@effect-uai/core/Toolkit'
@@ -49,7 +49,7 @@ const PiOfferedTool = Schema.Struct({
  */
 const harnessErrorOf = <A, E>(result: Result.Result<A, E>): HarnessError => {
   if (Result.isFailure(result) && result.failure instanceof HarnessError) return result.failure
-  throw new Error(`expected a harness failure, got ${String(result)}`)
+  expect.fail(`expected a harness failure, got ${String(result)}`)
 }
 
 interface Bridge {
@@ -88,8 +88,8 @@ afterEach(async () => {
  * forwards this, it does not invent it.
  */
 const toolResultOf = (collected: readonly HarnessEvent[]) => {
-  const found = collected.find((event) => event._tag === 'ToolResult')
-  if (found?._tag !== 'ToolResult') throw new Error('the bridge reported no tool result')
+  const found = collected.find((event) => Predicate.isTagged(event, 'ToolResult'))
+  if (!Predicate.isTagged(found, 'ToolResult')) expect.fail('the bridge reported no tool result')
   return {
     call_id: found.call_id,
     name: found.name,
@@ -129,9 +129,9 @@ const tagOf = (event: HarnessEvent): string => event._tag
 
 const turnOf = (collected: readonly HarnessEvent[]): Turn.Turn => {
   for (const event of collected) {
-    if (event._tag === 'TurnComplete') return event.turn
+    if (Predicate.isTagged(event, 'TurnComplete')) return event.turn
   }
-  throw new Error('the bridge reported no turn')
+  expect.fail('the bridge reported no turn')
 }
 
 /** What the model saw for a tool: pi forwards oru's JSON Schema, as declared. */
@@ -140,7 +140,7 @@ const offeredTool = (
   name: string,
 ): { readonly name: string; readonly description: unknown; readonly parameters: unknown } => {
   const found = offered.find((tool) => tool.name === name)
-  if (found === undefined) throw new Error(`pi offered no tool ${name}`)
+  if (found === undefined) expect.fail(`pi offered no tool ${name}`)
   return found
 }
 

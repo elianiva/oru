@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Effect, Match, Option, Schema, Stream, type Scope } from 'effect'
+import { Predicate, Effect, Match, Option, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { Harnesses } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
@@ -85,7 +85,7 @@ const approveAll = (inference: Inference['Service']) =>
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
-        event._tag === 'tool/requested'
+        Predicate.isTagged(event, 'tool/requested')
           ? inference.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
@@ -145,7 +145,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
 
 const bodiesOf = (events: readonly SessionEvent[]): readonly string[] =>
   events.flatMap((event) =>
-    event._tag === 'message/appended' ? [`${event.role}:${event.body}`] : [],
+    Predicate.isTagged(event, 'message/appended') ? [`${event.role}:${event.body}`] : [],
   )
 
 const hostsOf = (harness: PiHarness) => [
@@ -224,9 +224,9 @@ describe('harness-pi in a host', () => {
         yield* inference.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
-        const completed = events.find((event) => event._tag === 'tool/completed')
-        expect(completed?._tag === 'tool/completed' ? completed.ok : null).toBe(false)
-        expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe(
+        const completed = events.find((event) => Predicate.isTagged(event, 'tool/completed'))
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.ok : null).toBe(false)
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.result : '').toBe(
           'Tool missing not found',
         )
         // A reported outcome is a fact, so nothing is left pending for the
@@ -251,8 +251,8 @@ describe('harness-pi in a host', () => {
         yield* inference.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
-        const failed = events.find((event) => event._tag === 'turn/failed')
-        expect(failed?._tag === 'turn/failed' ? failed.reason : '').toContain(
+        const failed = events.find((event) => Predicate.isTagged(event, 'turn/failed'))
+        expect(Predicate.isTagged(failed, 'turn/failed') ? failed.reason : '').toContain(
           'scripted run failure',
         )
         // A failed turn leaves the thread idle, ready for the next prompt.
@@ -269,7 +269,8 @@ describe('harness-pi in a host', () => {
         const host = yield* makeHost(hostsOf(harness))
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
-        if (entry.harness.health === undefined) throw new Error('pi reports no health')
+        expect(entry.harness.health).toBeDefined()
+        if (entry.harness.health === undefined) return
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
         expect(health.installedVersion).toBe('0.84.0')

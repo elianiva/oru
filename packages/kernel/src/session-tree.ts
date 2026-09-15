@@ -1,6 +1,6 @@
 import { Match, Schema } from 'effect'
 import { ThreadId, type EventId } from './primitives.ts'
-import { SessionEvent } from './session-event.ts'
+import { MessageAppended, SessionEvent, ThreadBranched, ThreadCompacted } from './session-event.ts'
 
 export const HostLane = Schema.TaggedStruct('host', {})
 export const ThreadLane = Schema.TaggedStruct('thread', { id: ThreadId })
@@ -9,10 +9,13 @@ export type Lane = typeof Lane.Type
 
 export const threadLane = (thread: ThreadId): Lane => ThreadLane.make({ id: thread })
 
-const sameLane = (left: Lane, right: Lane): boolean => {
-  if (left._tag === 'host') return right._tag === 'host'
-  return right._tag === 'thread' && left.id === right.id
-}
+const sameLane = (left: Lane, right: Lane): boolean =>
+  Match.value(left).pipe(
+    Match.tagsExhaustive({
+      host: () => Schema.is(HostLane)(right),
+      thread: (lane) => Schema.is(ThreadLane)(right) && lane.id === right.id,
+    }),
+  )
 
 export const laneOf = (event: SessionEvent): Lane =>
   Match.value(event).pipe(
@@ -38,7 +41,7 @@ export const laneOf = (event: SessionEvent): Lane =>
 
 export const threadOf = (event: SessionEvent): ThreadId | undefined => {
   const lane = laneOf(event)
-  if (lane._tag === 'host') return undefined
+  if (Schema.is(HostLane)(lane)) return undefined
   return lane.id
 }
 
@@ -89,7 +92,7 @@ const compactedView = (path: readonly SessionEvent[]): readonly SessionEvent[] =
   let compacted: Extract<SessionEvent, { _tag: 'thread/compacted' }> | undefined
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'thread/compacted') {
+    if (Schema.is(ThreadCompacted)(event)) {
       compacted = event
       break
     }
@@ -119,7 +122,7 @@ const ancestorsOf = (
   const chain = pathIn(byId, fromId)
   const inherited: SessionEvent[] = []
   for (const event of chain) {
-    if (event._tag !== 'thread/branched') continue
+    if (!Schema.is(ThreadBranched)(event)) continue
     inherited.push(...ancestorsOf(byId, event.fromId, next))
   }
   return compactedView([...inherited, ...chain])
@@ -139,7 +142,7 @@ const memoryOf = (events: readonly SessionEvent[], thread: ThreadId): readonly S
   const path = leaf === null ? [] : pathIn(byId, leaf)
   const inherited: SessionEvent[] = []
   for (const event of path) {
-    if (event._tag !== 'thread/branched') continue
+    if (!Schema.is(ThreadBranched)(event)) continue
     inherited.push(...ancestorsOf(byId, event.fromId, new Set()))
   }
   return compactedView([...inherited, ...path])
@@ -162,7 +165,7 @@ export const compactionCut = (
   const path = modelVisiblePath(events, thread)
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'message/appended' && event.role === 'user') return event.id
+    if (Schema.is(MessageAppended)(event) && event.role === 'user') return event.id
   }
   return path.at(-1)?.id
 }

@@ -2,7 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as esbuild from 'esbuild'
+import { Schema } from 'effect'
 import { addressOf } from './address.ts'
+
+export class FacetBuildError extends Schema.TaggedError<FacetBuildError>()('FacetBuildError', {
+  message: Schema.String,
+}) {}
 
 export interface BuiltFacet {
   readonly address: string
@@ -60,7 +65,7 @@ export const buildFacet = async (
   })
   const file = result.outputFiles[0]
   if (file === undefined) {
-    throw new Error(`esbuild emitted no file for ${entry}`)
+    throw new FacetBuildError({ message: `esbuild emitted no file for ${entry}` })
   }
   const address = addressOf(file.contents)
   const path = join(store, `${address}.js`)

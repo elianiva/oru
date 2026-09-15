@@ -1,3 +1,4 @@
+import { Predicate } from 'effect'
 import { describe, expect, it } from 'vitest'
 import {
   ApprovalDecided,
@@ -67,7 +68,8 @@ describe('session fold', () => {
     ])
     const requested = workOf(foldThread(afterRequest, 't1'))
     expect(requested._tag).toBe('AwaitApproval')
-    if (requested._tag === 'AwaitApproval') expect(requested.pending.call).toBe('call_1')
+    if (Predicate.isTagged(requested, 'AwaitApproval'))
+      expect(requested.pending.call).toBe('call_1')
 
     const afterTool = chain([
       MessageAppended.make({
@@ -249,7 +251,7 @@ describe('session fold', () => {
     ])
     const reused = workOf(foldThread(afterReuse, 't1'))
     expect(reused._tag).toBe('AwaitApproval')
-    if (reused._tag === 'AwaitApproval') expect(reused.pending.turn).toBe('turn-2')
+    if (Predicate.isTagged(reused, 'AwaitApproval')) expect(reused.pending.turn).toBe('turn-2')
   })
 
   it('runs a tool only after approve, and records a denied call as failed work', () => {
