@@ -48,7 +48,7 @@ export const plan = (applied: readonly string[], chain: readonly Migration[]): O
   return { kind: 'pending', rest: chain.slice(applied.length) }
 }
 
-const readApplied = (filename: string): readonly string[] => {
+const readAppliedTagsReadonly = (filename: string): readonly string[] => {
   if (!existsSync(filename)) return []
   const db = new DatabaseSync(filename, { readOnly: true })
   try {
@@ -67,10 +67,10 @@ const readApplied = (filename: string): readonly string[] => {
   }
 }
 
-export const refuseIfAhead = (
+export const inspectReadonlyLedger = (
   filename: string,
 ): Effect.Effect<void, SchemaTooNew | SchemaDiverged> =>
-  Match.value(plan(readApplied(filename), migrations)).pipe(
+  Match.value(plan(readAppliedTagsReadonly(filename), migrations)).pipe(
     Match.when({ kind: 'ready' }, () => Effect.void),
     Match.when({ kind: 'pending' }, () => Effect.void),
     Match.when({ kind: 'ahead' }, (ahead) =>
