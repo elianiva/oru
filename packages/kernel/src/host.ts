@@ -20,6 +20,7 @@ import {
   type ContributionKind,
   type DataContribution,
 } from './contribution.ts'
+import { BootKind } from './boot.ts'
 import {
   CoeffectsUnmet,
   DeclarationMismatch,
@@ -449,6 +450,11 @@ export const makeHost = Effect.fnUntraced(function* (
     yield* install(plugin).pipe(Effect.ignore)
   }
   yield* refreshBlocked()
+  // The graph is whole here, so work that reads the whole graph runs now rather
+  // than from whichever plugin happened to activate first (ADR-0009).
+  for (const step of yield* readContributions(BootKind)) {
+    yield* step.value
+  }
 
   return {
     activate,
