@@ -45,7 +45,7 @@ The level at which a plugin activates and its contributions apply: host-global o
 _Avoid_: namespace, layer, realm
 
 **Host**:
-One assembled kernel instance with its resolved graph of plugins and services.
+One assembled kernel instance with its resolved graph of plugins and services. A host process assembles and serves one, over a transport its clients speak; a presentation facet is a client of that process, not a co-resident.
 _Avoid_: app, server, runtime
 
 **Runtime**:
