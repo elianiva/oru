@@ -52,7 +52,7 @@ Hermetic proof without the UI lives in `plugins/harness-pi/test/pi-bridge.test.t
 3. Type a message and click **Send**.
 4. While the live lines still show a running tool or streamed text, click **Stop**.
 
-The pane's Stop control is `[data-thread-stop]`. A pi request that never answers hits the bridge's 30 second request timeout in `plugins/harness-pi/src/pi/rpc-child.ts`. To hold a turn open against a fake pi, point `ORU_PI_COMMAND` at a process that accepts the spawn and never replies.
+The pane's Stop control is `[data-thread-stop]`. A prompt is sent with `NO_REQUEST_TIMEOUT` (`plugins/harness-pi/src/pi/session.ts`), so a pi that accepts the spawn and never replies stays open until Stop or SIGTERM. The ready gate still waits 30 seconds for the channel `ready` line. Other `PiRpcChild.request` calls default to 30 seconds. To hold a turn open against a fake pi, point `ORU_PI_COMMAND` at a process that accepts the spawn and never replies.
 
 If the whole host is wedged, send SIGTERM to `oru-host`. The process closes its scope, the kernel deactivates the pi bridge, and the bridge stops every pi child.
 
