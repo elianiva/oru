@@ -76,7 +76,6 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
     new Set<ProjectId>(),
   )
 
-/** A named workspace as `project/created` recorded it. */
 export interface NamedProject {
   readonly id: ProjectId
   readonly name: string

@@ -14,12 +14,6 @@ import { hostRpcHandlers } from './handlers/host.ts'
 import { projectRpcHandlers } from './handlers/project.ts'
 import { threadRpcHandlers } from './handlers/thread.ts'
 
-/**
- * The RPC groups, mounted where a client expects them.
- *
- * One server per group, on its own path: the view holds independent clients,
- * and a group that stops answering cannot take the others down with it.
- */
 export const rpcRoutes = (host: Host, plugins: readonly AnyPlugin[]) =>
   Layer.mergeAll(
     RpcServer.layerHttp({ group: HostRpc, path: hostRpcPath, protocol: 'http' }).pipe(

@@ -19,7 +19,6 @@ export interface GraphRpcContract {
 
 export class GraphRpc extends Context.Service<GraphRpc, GraphRpcContract>()('oru/GraphRpc') {}
 
-/** The named workspaces this host has recorded. */
 export interface ProjectClientContract {
   readonly create: (name: string, cwd: string) => Effect.Effect<Project>
   readonly list: () => Effect.Effect<readonly Project[]>
@@ -32,7 +31,6 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientC
 
 /** What a thread's pane needs from the host: facts, configuration, live signals. */
 export interface ThreadClientContract {
-  /** Open a thread under a recorded project. Its cwd is that project's. */
   readonly create: (
     project: ProjectId,
   ) => Effect.Effect<{ readonly threadId: ThreadId; readonly project: Project }>
