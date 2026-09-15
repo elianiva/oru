@@ -34,11 +34,42 @@ Status: active development.
 | [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
 | [0012](./docs/adr/0012-config-precedence.md)          | Effect Config, one file, flags then file then env then defaults               |
 
-## Stack
+## Development
+
+### Prerequisites
+
+Node 26 or newer, and the pnpm pinned in the root `package.json` `packageManager` field (`corepack enable` gets you that pnpm). Then:
+
+```
+pnpm install
+```
+
+`pnpm install` also runs `lefthook install` via the `prepare` script, so the pre-commit (format, lint) and pre-push (typecheck, test) hooks are active. CI installs with `pnpm install --frozen-lockfile` on Node 26.
+
+Optional, only for the live model test: the `pi` binary on `PATH` and a signed-in account. Everything else is hermetic — the pi bridge runs against a scripted pi and models are scripted, so no account is touched by default.
+
+### Layout
+
+```
+apps/host        # the process: composes the kernel, serves HostRpc/ThreadRpc on loopback, owns harness-pi
+apps/oru         # the browser client of a running host (Foldkit view)
+packages/kernel  # @oru/kernel: contexts, services, activation, contributions
+packages/rpc     # @oru/rpc: RPC groups, wire schemas, client facades, route paths
+packages/harness # shared harness seams
+packages/plugin-build # facet bundling via oru-build-facet (esbuild)
+plugins/*        # harness-oru, harness-pi, harness-registry, inference
+scripts/         # bump-version, version lockstep, pack-host, pack-smoke
+turbo.json       # typecheck / test / build / dev / e2e task graph
+pnpm-workspace.yaml # workspace globs (packages/*, plugins/*, apps/*)
+```
+
+Decisions live in [docs/adr](./docs/adr) and vocabulary in [CONTEXT.md](./CONTEXT.md).
+
+### Stack
 
 TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool layer, Tardigrade's log-driven component model as prior art.
 
-## Running
+### Running
 
 `apps/host` is the process. It composes the kernel, serves `HostRpc` and `ThreadRpc` on loopback, and carries the one plugin a browser cannot: `oru/harness-pi` spawns `pi`.
 
@@ -57,7 +88,7 @@ Settings are flags, then `~/.oru/config.json`, then `ORU_*` / `ORU_PI_*` environ
 
 The seam between them is `packages/rpc` (`@oru/rpc`): the RPC groups, the wire schemas, the client facades, and the two route paths.
 
-## Verifying
+### Verifying
 
 `typecheck` / `test` / `build` run through Turborepo (`turbo.json`):
 
@@ -75,7 +106,7 @@ ORU_PI_E2E_MODEL=<provider>/<model> pnpm --filter @oru/host test
 
 `pi --list-models` names the candidates. The test skips without one, because only you know which account to spend. `plugins/harness-pi/src/index.ts` is the bridge it drives.
 
-## Browser check
+### Browser check
 
 Unit tests assert the view tree; only a browser shows the composed app, and the app is a client of a running host, so start both:
 
@@ -102,6 +133,15 @@ agent-browser snapshot -i
 agent-browser click @e13
 agent-browser screenshot shot.png
 ```
+
+### Conventions
+
+- Use [CONTEXT.md](./CONTEXT.md) vocabulary in new code and docs.
+- Record architecture choices in [docs/adr](./docs/adr).
+- How to bump the host and pack a tarball is in [docs/release.md](./docs/release.md).
+- When a bug escapes, add a row to [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md).
+- How to reproduce a host failure, a pi bridge failure, and a stuck turn is in [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md).
+- The full gate a change must pass, including the browser job CI runs on pull requests, is in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
