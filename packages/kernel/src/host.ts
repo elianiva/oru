@@ -118,6 +118,24 @@ export const makeHost = Effect.fnUntraced(function* (
   const scopes = yield* Ref.make<ReadonlyMap<PluginId, Scope.Closeable>>(new Map())
   const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
   const generations = yield* Ref.make<ReadonlyMap<PluginId, Generation>>(new Map())
+  const booted = yield* Ref.make<ReadonlySet<PluginId>>(new Set())
+
+  /**
+   * Run the boot steps the current plugin set has not run yet.
+   *
+   * The host calls this once its activation pass is done and again after any
+   * later activation, so a step that reads the whole graph never runs against
+   * part of it, and a plugin that joins after boot still gets its step
+   * (ADR-0009).
+   */
+  const runBootSteps = Effect.fnUntraced(function* () {
+    const done = yield* Ref.get(booted)
+    for (const step of yield* readContributions(BootKind)) {
+      if (done.has(step.plugin)) continue
+      yield* Ref.update(booted, (set) => new Set(set).add(step.plugin))
+      yield* step.value
+    }
+  })
 
   const readContributions = <C>(
     kind: ContributionKind<C>,
@@ -311,6 +329,13 @@ export const makeHost = Effect.fnUntraced(function* (
       next.delete(plugin.id)
       return next
     })
+    // A fresh generation has not run its boot step yet, so one that activates
+    // after boot still gets it.
+    yield* Ref.update(booted, (set) => {
+      const next = new Set(set)
+      next.delete(plugin.id)
+      return next
+    })
     return activation
   })
 
@@ -383,6 +408,7 @@ export const makeHost = Effect.fnUntraced(function* (
         yield* remember(plugin)
         const result = yield* Effect.result(install(plugin))
         yield* reconcile()
+        yield* runBootSteps()
         return yield* Effect.fromResult(result)
       }),
     )
@@ -432,6 +458,7 @@ export const makeHost = Effect.fnUntraced(function* (
           ? yield* Effect.result(cutover(plugin))
           : yield* Effect.result(install(plugin))
         yield* reconcile()
+        yield* runBootSteps()
         return yield* Effect.fromResult(result)
       }),
     )
@@ -450,11 +477,7 @@ export const makeHost = Effect.fnUntraced(function* (
     yield* install(plugin).pipe(Effect.ignore)
   }
   yield* refreshBlocked()
-  // The graph is whole here, so work that reads the whole graph runs now rather
-  // than from whichever plugin happened to activate first (ADR-0009).
-  for (const step of yield* readContributions(BootKind)) {
-    yield* step.value
-  }
+  yield* runBootSteps()
 
   return {
     activate,
