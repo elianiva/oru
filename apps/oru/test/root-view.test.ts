@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { CreateThread, Message, SetLogging, update, view, init } from '../src/root.ts'
+import {
+  CreateThread,
+  Message,
+  RefreshThreadOptions,
+  SetLogging,
+  update,
+  view,
+  init,
+} from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import { LiveSettled, LiveToolStart } from '@oru/rpc'
 import * as ThreadPanel from '../src/thread-panel.ts'
@@ -284,6 +292,55 @@ describe('root view', () => {
         }),
       ),
       Scene.expect(Scene.text('tokens 11 in / 3 out · cost 0.04')).toExist(),
+    )
+  })
+
+  it('shows a not-ready harness status, message, and install command', () => {
+    const installCommand = 'npm install -g @earendil-works/pi-coding-agent@latest'
+    Scene.scene(
+      { update, view },
+      Scene.given({
+        ...idle,
+        thread: {
+          ...ThreadPanel.init(),
+          threadId: 't1',
+          config: { harness: 'pi', model: undefined, reasoning: undefined },
+          harnesses: [
+            {
+              id: 'pi',
+              label: 'Pi',
+              health: {
+                status: 'not_installed',
+                message: 'pi is not on PATH',
+                installCommand,
+              },
+            },
+          ],
+        },
+      }),
+      Scene.expect(Scene.text('not_installed')).toExist(),
+      Scene.expect(Scene.text('pi is not on PATH')).toExist(),
+      Scene.expect(Scene.text(installCommand)).toExist(),
+      Scene.expect(Scene.selector('[data-harness-install-command]')).toExist(),
+      Scene.click(Scene.selector('[data-harness-recheck]')),
+      Scene.Command.resolve(
+        RefreshThreadOptions,
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.OptionsArrived({
+            config: { harness: 'pi', model: undefined, reasoning: undefined },
+            harnesses: [
+              {
+                id: 'pi',
+                label: 'Pi',
+                health: { status: 'ready' },
+              },
+            ],
+            models: [],
+          }),
+        }),
+      ),
+      Scene.expect(Scene.text(installCommand)).not.toExist(),
+      Scene.expect(Scene.selector('[data-harness-health]')).not.toExist(),
     )
   })
 })
