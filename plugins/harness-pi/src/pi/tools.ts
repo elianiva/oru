@@ -1,4 +1,4 @@
-import { Effect, Result } from 'effect'
+import { Effect, Match, Result } from 'effect'
 import * as Tool from '@effect-uai/core/Tool'
 import * as ToolEvent from '@effect-uai/core/ToolEvent'
 import * as Toolkit from '@effect-uai/core/Toolkit'
@@ -44,55 +44,66 @@ const failure = (kind: string, message: string): PiToolOutcome => ({
  * harness ran the tool.
  */
 export const runDynamicToolCall = async (
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; a bridge accepts any toolkit
-  toolkit: Toolkit.Toolkit<any>,
+  toolkit: Toolkit.Toolkit,
   name: string,
   argumentsJson: string,
   onProgress: (callId: string, delta: string) => void,
 ): Promise<PiToolOutcome> => {
   const tool = Object.hasOwn(toolkit, name) ? toolkit[name] : undefined
   if (tool === undefined) return unknownTool(name)
-  if (tool._tag !== 'LocalTool') {
-    return failure('non_local_tool', `Tool "${name}" is model-visible but has no local executor`)
-  }
-
-  const call = {
-    type: 'function_call' as const,
-    call_id: `pi-${name}`,
-    name,
-    arguments: argumentsJson,
-  }
-  const decoded = await Effect.runPromise(Tool.decodeCallInput(tool, call))
-  if (decoded._tag === 'parseError') {
-    return failure('input_parse_error', `Arguments for "${name}" were not valid JSON`)
-  }
-  if (decoded._tag === 'invalid') {
-    const issues = decoded.issues
-      .map((issue) => issue.message)
-      .join('; ')
-      .slice(0, 500)
-    return failure('input_validation_error', issues === '' ? 'Input failed validation' : issues)
-  }
-
-  const ran = await Effect.runPromise(
-    Effect.result(
-      tool.run(decoded.input, (event: ToolEvent.ToolEvent) =>
-        Effect.sync(() => {
-          if (ToolEvent.isProgress(event)) onProgress(event.call_id, serializeValue(event.data))
+  return Match.value(tool).pipe(
+    Match.tag('LocalTool', async (tool) => {
+      const call = {
+        type: 'function_call' as const,
+        call_id: `pi-${name}`,
+        name,
+        arguments: argumentsJson,
+      }
+      const decoded = await Effect.runPromise(Tool.decodeCallInput(tool, call))
+      return Match.value(decoded).pipe(
+        Match.tag('parseError', () =>
+          Promise.resolve(
+            failure('input_parse_error', `Arguments for "${name}" were not valid JSON`),
+          ),
+        ),
+        Match.tag('invalid', (decoded) => {
+          const issues = decoded.issues
+            .map((issue) => issue.message)
+            .join('; ')
+            .slice(0, 500)
+          return Promise.resolve(
+            failure('input_validation_error', issues === '' ? 'Input failed validation' : issues),
+          )
         }),
+        Match.tag('ok', async (decoded) => {
+          const executed = tool.run(decoded.input, (event: ToolEvent.ToolEvent) =>
+            Effect.sync(() => {
+              if (ToolEvent.isProgress(event)) {
+                onProgress(event.call_id, serializeValue(event.data))
+              }
+            }),
+          )
+          // SAFETY: the bridge runs oru tools as a host with no leftover services
+          const ran = await Effect.runPromise(
+            Effect.result(executed as Effect.Effect<unknown, unknown>),
+          )
+          return Result.isSuccess(ran)
+            ? { text: serializeValue(ran.success), isError: false }
+            : failure('execution_error', String(ran.failure))
+        }),
+        Match.exhaustive,
+      )
+    }),
+    Match.orElse(() =>
+      Promise.resolve(
+        failure('non_local_tool', `Tool "${name}" is model-visible but has no local executor`),
       ),
     ),
   )
-  return Result.isSuccess(ran)
-    ? { text: serializeValue(ran.success), isError: false }
-    : failure('execution_error', String(ran.failure))
 }
 
 /** Bind one request's toolkit to the bridge that runs its tool calls. */
-export const toolBridgeOf = (
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; a bridge accepts any toolkit
-  toolkit: Toolkit.Toolkit<any>,
-): PiToolBridge => ({
+export const toolBridgeOf = (toolkit: Toolkit.Toolkit): PiToolBridge => ({
   tools: Toolkit.descriptors(toolkit),
   run: (name, argumentsJson, onProgress) =>
     runDynamicToolCall(toolkit, name, argumentsJson, onProgress),

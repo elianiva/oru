@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
-import { ProjectId, SessionEvent, ThreadId } from '@oru/kernel'
+import { ProjectId, SessionEvent, ThreadId, UnknownProject, UnknownThread } from '@oru/kernel'
 import { Project } from './project.ts'
 import { ThreadOptions } from './thread-options.ts'
 import { ThreadSignal } from './thread-signal.ts'
@@ -9,6 +9,7 @@ export const ThreadRpc = RpcGroup.make(
   Rpc.make('CreateThread', {
     payload: { project: ProjectId },
     success: Schema.Struct({ threadId: ThreadId, project: Project }),
+    error: UnknownProject,
   }),
   Rpc.make('SendMessage', {
     payload: { threadId: ThreadId, text: Schema.String },
@@ -51,6 +52,7 @@ export const ThreadRpc = RpcGroup.make(
   Rpc.make('ForkThread', {
     payload: { sourceThreadId: ThreadId, cwd: Schema.UndefinedOr(Schema.String) },
     success: Schema.Struct({ threadId: ThreadId }),
+    error: Schema.Union([UnknownThread, UnknownProject]),
   }),
   Rpc.make('DecideApproval', {
     payload: {

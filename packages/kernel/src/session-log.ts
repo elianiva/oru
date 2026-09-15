@@ -1,15 +1,4 @@
-import {
-  Clock,
-  Context,
-  Effect,
-  Layer,
-  Match,
-  Random,
-  Schema,
-  Semaphore,
-  Stream,
-  type Scope,
-} from 'effect'
+import { Clock, Context, Effect, Layer, Match, Schema, Semaphore, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { Msgpack } from 'effect/unstable/encoding'
 import type { HostEvent } from './event.ts'
@@ -19,6 +8,7 @@ import {
   SessionEvent,
 } from './session-event.ts'
 import { laneOf, leafOf } from './session-tree.ts'
+import { newId } from './id.ts'
 
 export type SessionLogError = EventJournal.EventJournalError | Schema.SchemaError
 
@@ -86,12 +76,6 @@ export const fromJournal = (journal: EventJournal.EventJournal['Service']): Sess
     changes: Stream.unwrap(subscribe),
   }
 }
-
-const newId = Effect.fnUntraced(function* () {
-  const now = yield* Clock.currentTimeMillis
-  const n = yield* Random.next
-  return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
-})
 
 export const appendHostEvent = (log: SessionLogContract, event: HostEvent) =>
   Match.value(event).pipe(

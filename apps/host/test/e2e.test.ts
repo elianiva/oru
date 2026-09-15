@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Effect, Fiber, Stream } from 'effect'
+import { Predicate, Effect, Fiber, Stream } from 'effect'
 import {
   SCRIPTED_MODEL,
   startScriptedProvider,
@@ -76,14 +76,15 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
             // A turn ends with usage when the harness reported tokens, or with
             // a failure. Collecting a count instead would hang on a failure.
             Stream.takeUntil(
-              (event) => event._tag === 'turn/failed' || event._tag === 'turn/usage',
+              (event) =>
+                Predicate.isTagged(event, 'turn/failed') || Predicate.isTagged(event, 'turn/usage'),
             ),
             Stream.runCollect,
             Effect.forkScoped,
           )
           yield* thread.watch(created.threadId).pipe(
             Stream.runForEach((event) =>
-              event._tag === 'tool/requested'
+              Predicate.isTagged(event, 'tool/requested')
                 ? thread.decide(created.threadId, event.call, 'approve')
                 : Effect.void,
             ),
@@ -92,18 +93,20 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
           yield* thread.send(created.threadId, PROMPT)
           const events = yield* Fiber.join(watching)
 
-          const completed = events.find((event) => event._tag === 'tool/completed')
-          const failed = events.find((event) => event._tag === 'turn/failed')
+          const completed = events.find((event) => Predicate.isTagged(event, 'tool/completed'))
+          const failed = events.find((event) => Predicate.isTagged(event, 'turn/failed'))
           return {
             offered: true,
             threadId: created.threadId,
             tags: events.map((event) => event._tag),
             assistant: events.flatMap((event) =>
-              event._tag === 'message/appended' && event.role === 'assistant' ? [event.body] : [],
+              Predicate.isTagged(event, 'message/appended') && event.role === 'assistant'
+                ? [event.body]
+                : [],
             ),
-            toolOk: completed?._tag === 'tool/completed' ? completed.ok : undefined,
-            toolResult: completed?._tag === 'tool/completed' ? completed.result : '',
-            failed: failed?._tag === 'turn/failed' ? failed.reason : undefined,
+            toolOk: Predicate.isTagged(completed, 'tool/completed') ? completed.ok : undefined,
+            toolResult: Predicate.isTagged(completed, 'tool/completed') ? completed.result : '',
+            failed: Predicate.isTagged(failed, 'turn/failed') ? failed.reason : undefined,
           } satisfies TurnResult
         }).pipe(Effect.provide(clientsFor(url)))
       }),
@@ -157,7 +160,8 @@ describe('a running host', () => {
     cleanups.push(() => host.stop())
 
     const sessions = scripted.env.ORU_PI_SESSION_DIR
-    if (sessions === undefined) throw new Error('the scripted provider named no session directory')
+    expect(sessions).toBeDefined()
+    if (sessions === undefined) return
 
     const turn = await runTurn(host.url, cwd, SCRIPTED_MODEL)
     expect(turn.offered).toBe(true)

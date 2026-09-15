@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { Deferred, Effect, Match, Option, Queue, Schema, Stream, type Scope } from 'effect'
+import {
+  Predicate,
+  Deferred,
+  Effect,
+  Match,
+  Option,
+  Queue,
+  Schema,
+  Stream,
+  type Scope,
+} from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { LanguageModel, turnFromStream } from '@effect-uai/core/LanguageModel'
 import * as Items from '@effect-uai/core/Items'
@@ -91,7 +101,7 @@ const approveOnRequest = (inference: Inference['Service'], thread: string) =>
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
-        event._tag === 'tool/requested' && event.thread === thread
+        Predicate.isTagged(event, 'tool/requested') && event.thread === thread
           ? inference.decide(thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
@@ -238,8 +248,12 @@ describe('inference architecture', () => {
         yield* inference.send('chosen', 'hello')
         yield* inference.whenIdle('chosen')
         const bodies = (yield* log.entries)
-          .filter((event) => event._tag === 'message/appended' && event.thread === 'chosen')
-          .map((event) => (event._tag === 'message/appended' ? `${event.role}:${event.body}` : ''))
+          .filter(
+            (event) => Predicate.isTagged(event, 'message/appended') && event.thread === 'chosen',
+          )
+          .map((event) =>
+            Predicate.isTagged(event, 'message/appended') ? `${event.role}:${event.body}` : '',
+          )
         expect(bodies).toEqual([
           'user:hello',
           'assistant:answered by scripted/one with high thinking',
@@ -255,16 +269,20 @@ describe('inference architecture', () => {
         // The fork is a fact on the new lane: it names the entry it continues
         // from, so a restart reprojects the branch without the bridge copying
         // anything (ADR-0010).
-        const branch = entries.find((event) => event._tag === 'thread/branched')
+        const branch = entries.find((event) => Predicate.isTagged(event, 'thread/branched'))
         const sourceLeaf = pathOfLane(entries, threadLane('chosen')).at(-1)
-        expect(branch?._tag === 'thread/branched' ? branch.thread : '').toBe('copy')
-        expect(branch?._tag === 'thread/branched' ? branch.fromId : '').toBe(sourceLeaf?.id)
+        expect(Predicate.isTagged(branch, 'thread/branched') ? branch.thread : '').toBe('copy')
+        expect(Predicate.isTagged(branch, 'thread/branched') ? branch.fromId : '').toBe(
+          sourceLeaf?.id,
+        )
 
         // The compaction the bridge reported is a fact, and the view it keeps is
         // oru's: from the thread's latest request, so a summary replaces what
         // came before it (ADR-0010).
-        const compaction = entries.find((event) => event._tag === 'thread/compacted')
-        expect(compaction?._tag === 'thread/compacted' ? compaction.summary : '').toBe('kept')
+        const compaction = entries.find((event) => Predicate.isTagged(event, 'thread/compacted'))
+        expect(Predicate.isTagged(compaction, 'thread/compacted') ? compaction.summary : '').toBe(
+          'kept',
+        )
       }),
     )
   })
@@ -302,12 +320,12 @@ describe('inference architecture', () => {
         yield* Effect.gen(function* () {
           for (;;) {
             const event = yield* Queue.take(changeQueue)
-            if (event._tag === 'turn/started') return event
+            if (Predicate.isTagged(event, 'turn/started')) return event
           }
         })
         expect(
           threadFacts(yield* log.entries, 't1').some(
-            (event) => event._tag === 'message/appended' && event.role === 'assistant',
+            (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
           ),
         ).toBe(false)
 
@@ -323,7 +341,8 @@ describe('inference architecture', () => {
         ])
         const bodies: string[] = []
         for (const event of facts) {
-          if (event._tag === 'message/appended') bodies.push(`${event.role}:${event.body}`)
+          if (Predicate.isTagged(event, 'message/appended'))
+            bodies.push(`${event.role}:${event.body}`)
         }
         expect(bodies).toEqual(['user:hello', 'assistant:hello world'])
         expect(workOf(foldThread(yield* log.entries, 't1'))).toEqual(Idle.make({}))
@@ -408,19 +427,22 @@ describe('inference architecture', () => {
         yield* inference.whenIdle('t1')
 
         const entries = yield* log.entries
-        const recorded = entries.find((event) => event._tag === 'thread/compacted')
+        const recorded = entries.find((event) => Predicate.isTagged(event, 'thread/compacted'))
         const request = pathOfLane(entries, threadLane('t1')).find(
-          (event) => event._tag === 'message/appended' && event.role === 'user',
+          (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'user',
         )
         // The harness supplies the summary; the entry the view keeps from is
         // oru's, taken from the log the same way the requested path takes it.
-        expect(recorded?._tag === 'thread/compacted' ? recorded.summary : '').toBe('summarised')
-        expect(recorded?._tag === 'thread/compacted' ? recorded.firstKeptEntryId : '').toBe(
-          request?.id,
+        expect(Predicate.isTagged(recorded, 'thread/compacted') ? recorded.summary : '').toBe(
+          'summarised',
         )
+        expect(
+          Predicate.isTagged(recorded, 'thread/compacted') ? recorded.firstKeptEntryId : '',
+        ).toBe(request?.id)
         const visible: string[] = []
         for (const event of modelVisiblePath(entries, 't1')) {
-          if (event._tag === 'message/appended') visible.push(`${event.role}:${event.body}`)
+          if (Predicate.isTagged(event, 'message/appended'))
+            visible.push(`${event.role}:${event.body}`)
         }
         expect(visible).toEqual(['user:hello', 'assistant:after compaction'])
       }),
@@ -509,8 +531,10 @@ describe('inference architecture', () => {
         yield* inference.send('t1', 'hello')
         yield* inference.whenIdle('t1')
         expect(ran).toBe(false)
-        const failed = (yield* log.entries).find((event) => event._tag === 'turn/failed')
-        expect(failed?._tag === 'turn/failed' ? failed.reason : '').toBe(
+        const failed = (yield* log.entries).find((event) =>
+          Predicate.isTagged(event, 'turn/failed'),
+        )
+        expect(Predicate.isTagged(failed, 'turn/failed') ? failed.reason : '').toBe(
           `pi is not on PATH. Run: ${installCommand}`,
         )
       }),

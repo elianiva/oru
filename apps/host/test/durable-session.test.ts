@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Deferred, Effect, Fiber, Ref, Schema, Stream, type Scope } from 'effect'
+import { Predicate, Deferred, Effect, Fiber, Ref, Schema, Stream, type Scope } from 'effect'
 import {
   definePlugin,
   foldActivePlugins,
@@ -177,7 +177,9 @@ const answerNumber = (
   nth: number,
 ): Effect.Effect<readonly SessionEvent[]> =>
   thread.watch(threadId).pipe(
-    Stream.filter((event) => event._tag === 'message/appended' && event.role === 'assistant'),
+    Stream.filter(
+      (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
+    ),
     Stream.take(nth),
     Stream.runCollect,
     Effect.map((chunk) => [...chunk]),
@@ -189,7 +191,7 @@ const tagsOf = (events: readonly SessionEvent[]): readonly string[] =>
 const bodiesOf = (events: readonly SessionEvent[]): readonly string[] => {
   const bodies: string[] = []
   for (const event of events) {
-    if (event._tag === 'message/appended') bodies.push(`${event.role}:${event.body}`)
+    if (Predicate.isTagged(event, 'message/appended')) bodies.push(`${event.role}:${event.body}`)
   }
   return bodies
 }
@@ -208,7 +210,7 @@ const request = (
     const watching = yield* answerNumber(thread, threadId, nth).pipe(Effect.forkScoped)
     yield* thread.watch(threadId).pipe(
       Stream.runForEach((event) =>
-        event._tag === 'tool/requested'
+        Predicate.isTagged(event, 'tool/requested')
           ? thread.decide(threadId, event.call, 'approve')
           : Effect.void,
       ),
@@ -274,10 +276,8 @@ describe('one journal, two hosts', () => {
           const client = yield* ThreadClient
           const created = yield* openThread('/tmp')
           thread = created.threadId
-          const watching = yield* factsUntil(
-            client,
-            thread,
-            (event) => event._tag === 'tool/requested',
+          const watching = yield* factsUntil(client, thread, (event) =>
+            Predicate.isTagged(event, 'tool/requested'),
           ).pipe(Effect.forkScoped)
           yield* client.send(thread, 'hello')
           const requested = yield* Fiber.join(watching)
@@ -293,16 +293,13 @@ describe('one journal, two hosts', () => {
         plugins,
         Effect.gen(function* () {
           const client = yield* ThreadClient
-          const atOpen = yield* factsUntil(
-            client,
-            thread,
-            (event) => event._tag === 'tool/requested',
+          const atOpen = yield* factsUntil(client, thread, (event) =>
+            Predicate.isTagged(event, 'tool/requested'),
           )
           expect(workOf(foldThread(atOpen, thread))._tag).toBe('AwaitApproval')
-          const requested = atOpen.find((event) => event._tag === 'tool/requested')
-          if (requested === undefined || requested._tag !== 'tool/requested') {
-            throw new Error('expected a pending tool request')
-          }
+          const requested = atOpen.find((event) => Predicate.isTagged(event, 'tool/requested'))
+          expect(requested).toBeDefined()
+          if (!Predicate.isTagged(requested, 'tool/requested')) return
           const watching = yield* answerNumber(client, thread, 1).pipe(Effect.forkScoped)
           yield* client.decide(thread, requested.call, 'approve')
           const answers = yield* Fiber.join(watching)
@@ -356,7 +353,9 @@ describe('one journal, two hosts', () => {
           const created = yield* client.fork(thread)
           fork = created.threadId
           // The fork's own lane is three facts: nothing of its source is copied.
-          const lane = yield* factsUntil(client, fork, (event) => event._tag === 'thread/branched')
+          const lane = yield* factsUntil(client, fork, (event) =>
+            Predicate.isTagged(event, 'thread/branched'),
+          )
           expect(tagsOf(lane)).toEqual(['thread/created', 'thread/configured', 'thread/branched'])
         }),
       ),
@@ -462,12 +461,12 @@ describe('one journal, two hosts', () => {
         log.entries.pipe(
           Effect.map((entries) => {
             const compaction = entries.find(
-              (event) => event._tag === 'thread/compacted' && event.thread === thread,
+              (event) => Predicate.isTagged(event, 'thread/compacted') && event.thread === thread,
             )
             return {
               compaction,
               requests: laneOf(entries, thread).filter(
-                (event) => event._tag === 'message/appended' && event.role === 'user',
+                (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'user',
               ),
               view: modelVisiblePath(entries, thread),
               work: workOf(foldThread(entries, thread)),
@@ -477,9 +476,8 @@ describe('one journal, two hosts', () => {
       )
 
     const first = await recorded()
-    if (first.compaction === undefined || first.compaction._tag !== 'thread/compacted') {
-      throw new Error('the compaction was recorded nowhere')
-    }
+    expect(first.compaction).toBeDefined()
+    if (!Predicate.isTagged(first.compaction, 'thread/compacted')) return
     expect(first.compaction.summary).toBe('summarized')
     // The bridge supplies the summary; the entry the view keeps from is oru's,
     // taken from the log rather than from the bridge's own checkpoint.

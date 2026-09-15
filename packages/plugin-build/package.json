@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "effect": "4.0.0-rc.112",
     "esbuild": "^0.25.11"
   },
   "devDependencies": {

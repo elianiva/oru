@@ -1,10 +1,13 @@
-import { Clock, Effect, Option, Random, Result, Stream } from 'effect'
+import { Effect, Option, Predicate, Result, Schema, Stream } from 'effect'
 import { HarnessHealth, Harnesses, type HarnessService, type ModelInfo } from '@oru/harness'
 import {
   SessionLog,
   ThreadCreated,
+  UnknownProject,
+  UnknownThread,
   foldProject,
   foldThreadConfig,
+  newId,
   threadOf,
   unsignedTree,
   type Host,
@@ -16,11 +19,14 @@ import {
 import { Inference } from '@oru/inference'
 import { HarnessChoice, ThreadOptions, signalOf, type ThreadSignal } from '@oru/rpc'
 
-const newId = Effect.fnUntraced(function* () {
-  const now = yield* Clock.currentTimeMillis
-  const n = yield* Random.next
-  return `${now.toString(36)}-${n.toString(36).slice(2, 10)}`
-})
+const keepThreadError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.catch((error) =>
+      Predicate.isTagged(error, 'UnknownProject') || Predicate.isTagged(error, 'UnknownThread')
+        ? Effect.fail(error)
+        : Effect.die(error),
+    ),
+  )
 
 const healthOf = (harness: HarnessService): Effect.Effect<HarnessChoice['health']> =>
   harness.health === undefined
@@ -86,14 +92,14 @@ const createThread = (
   project: ProjectId,
 ): Effect.Effect<
   { readonly threadId: ThreadId; readonly project: NamedProject },
-  SessionLogError,
+  SessionLogError | UnknownProject,
   SessionLog
 > =>
   Effect.gen(function* () {
     const log = yield* SessionLog
     const named = foldProject(yield* log.entries, project)
     if (named === undefined) {
-      return yield* Effect.die(new Error(`unknown project ${project}`))
+      return yield* new UnknownProject({ project })
     }
     const threadId = yield* newId()
     yield* log.write(
@@ -110,7 +116,7 @@ const createThread = (
 
 export const threadRpcHandlers = (host: Host) => ({
   CreateThread: (payload: { readonly project: ProjectId }) =>
-    createThread(host, payload.project).pipe(Effect.orDie),
+    keepThreadError(createThread(host, payload.project)),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.send(payload.threadId, payload.text)),
@@ -188,31 +194,33 @@ export const threadRpcHandlers = (host: Host) => ({
       Effect.orDie,
     ),
   ForkThread: (payload: { readonly sourceThreadId: ThreadId; readonly cwd: string | undefined }) =>
-    Effect.gen(function* () {
-      const inference = yield* host.service(Inference)
-      const log = yield* SessionLog
-      const entries = yield* log.entries
-      let project: ProjectId | undefined
-      for (const event of entries) {
-        if (event._tag === 'thread/created' && event.thread === payload.sourceThreadId) {
-          project = event.project
+    keepThreadError(
+      Effect.gen(function* () {
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        const entries = yield* log.entries
+        let project: ProjectId | undefined
+        for (const event of entries) {
+          if (Schema.is(ThreadCreated)(event) && event.thread === payload.sourceThreadId) {
+            project = event.project
+          }
         }
-      }
-      if (project === undefined) {
-        return yield* Effect.die(new Error(`unknown source thread ${payload.sourceThreadId}`))
-      }
-      const created = yield* createThread(host, project)
-      yield* inference.fork(
-        payload.cwd === undefined
-          ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }
-          : {
-              sourceThreadId: payload.sourceThreadId,
-              targetThreadId: created.threadId,
-              cwd: payload.cwd,
-            },
-      )
-      return { threadId: created.threadId }
-    }).pipe(Effect.orDie),
+        if (project === undefined) {
+          return yield* new UnknownThread({ thread: payload.sourceThreadId })
+        }
+        const created = yield* createThread(host, project)
+        yield* inference.fork(
+          payload.cwd === undefined
+            ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }
+            : {
+                sourceThreadId: payload.sourceThreadId,
+                targetThreadId: created.threadId,
+                cwd: payload.cwd,
+              },
+        )
+        return { threadId: created.threadId }
+      }),
+    ),
   DecideApproval: (payload: {
     readonly threadId: ThreadId
     readonly request: string

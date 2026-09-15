@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { PluginId, TokenId } from './primitives.ts'
+import { PluginId, ProjectId, ThreadId, TokenId } from './primitives.ts'
 
 export const ServiceMissing = Schema.TaggedStruct('ServiceMissing', { token: TokenId })
 
@@ -79,3 +79,22 @@ export type FacetLoadError = typeof FacetLoadError.Type
 
 export const BootError = Schema.Union([DuplicateProvider, GraphCycle])
 export type BootError = typeof BootError.Type
+
+export class UnknownProject extends Schema.TaggedError<UnknownProject>()('UnknownProject', {
+  project: ProjectId,
+}) {}
+
+export class UnknownThread extends Schema.TaggedError<UnknownThread>()('UnknownThread', {
+  thread: ThreadId,
+}) {}
+
+export class RelativeCwd extends Schema.TaggedError<RelativeCwd>()('RelativeCwd', {
+  cwd: Schema.String,
+}) {}
+
+export class ApprovalUndecided extends Schema.TaggedError<ApprovalUndecided>()(
+  'ApprovalUndecided',
+  {
+    request: Schema.String,
+  },
+) {}

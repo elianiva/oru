@@ -22,6 +22,7 @@ export {
   LiveCompacting,
   LiveContextWindow,
   LiveError,
+  LiveLine,
   LiveSessionReplaced,
   LiveSettled,
   LiveText,

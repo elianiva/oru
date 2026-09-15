@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { Effect, Layer, Scope } from 'effect'
+import { Effect, Layer, Predicate, Schema, Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { HttpRouter } from 'effect/unstable/http'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
@@ -7,6 +7,10 @@ import * as NodeHttpServer from '@effect/platform-node/NodeHttpServer'
 import { makeHost, sessionLogLayer, type AnyPlugin, type BootError, type Host } from '@oru/kernel'
 import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
 import { rpcRoutes } from './routes.ts'
+
+class NotTcpAddress extends Schema.TaggedError<NotTcpAddress>()('NotTcpAddress', {
+  address: Schema.String,
+}) {}
 
 export interface HostOptions {
   readonly plugins: readonly AnyPlugin[]
@@ -62,9 +66,9 @@ export const serveHost = (
     yield* server.serve(httpEffect).pipe(Effect.forkScoped)
 
     const address = server.address
-    if (address._tag !== 'TcpAddress') {
+    if (!Predicate.isTagged(address, 'TcpAddress')) {
       return yield* Effect.fail(
-        new ServeError({ cause: new Error('the host is not listening on a TCP address') }),
+        new ServeError({ cause: new NotTcpAddress({ address: address._tag }) }),
       )
     }
     return {

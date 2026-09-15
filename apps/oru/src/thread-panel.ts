@@ -5,13 +5,28 @@ import * as Update from 'foldkit/update'
 import type { HtmlBuilder } from 'foldkit/html'
 import { ModelInfo } from '@oru/harness'
 import { ProjectId, ThreadId } from '@oru/kernel'
-import { HarnessChoice, Project, ThreadConfig, ThreadOptions, ThreadSignal } from '@oru/rpc'
+import {
+  HarnessChoice,
+  Project,
+  ThreadConfig,
+  ThreadOptions,
+  ThreadSignal,
+  LiveSettled,
+  LiveLine,
+} from '@oru/rpc'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
 import { Empty } from '@/components/ui/empty.ts'
 import { inputClass } from '@/components/ui/input.ts'
 import { Item } from '@/components/ui/item.ts'
-import { labelOf, TranscriptLine, UsageLine } from './transcript.ts'
+import {
+  ApprovalDecidedLine,
+  labelOf,
+  ToolCompletedLine,
+  ToolRequestedLine,
+  TranscriptLine,
+  UsageLine,
+} from './transcript.ts'
 
 const UsageTotals = Schema.Struct({
   inputTokens: Schema.Number,
@@ -213,9 +228,9 @@ export const update = (model: Model, message: Message) =>
       model,
       outMessage: OutMessage.RequestedDecide({ request, decision: 'deny' }),
     }),
-    LineArrived: ({ line }) => {
-      if (line._tag === 'turn/usage') {
-        return {
+    LineArrived: ({ line }) =>
+      Match.value(line).pipe(
+        Match.tag('turn/usage', (line) => ({
           model: {
             ...model,
             sawUsage: true,
@@ -228,31 +243,27 @@ export const update = (model: Model, message: Message) =>
                   : (model.usage.cost ?? 0) + (line.cost ?? 0),
             },
           },
-        }
-      }
-      if (line._tag === 'context-window') {
-        return {
+        })),
+        Match.tag('context-window', (line) => ({
           model: {
             ...model,
             context: { tokens: line.tokens, contextWindow: line.contextWindow },
           },
-        }
-      }
-      return {
-        // The facts of a turn replace what the live stream drew while it ran.
-        model:
-          line._tag === 'turn' || line._tag === 'turn/failed'
-            ? { ...model, live: [], lines: [...model.lines, line] }
-            : { ...model, lines: [...model.lines, line] },
-      }
-    },
+        })),
+        Match.tag('turn', (line) => ({
+          model: { ...model, live: [], lines: [...model.lines, line] },
+        })),
+        Match.tag('turn/failed', (line) => ({
+          model: { ...model, live: [], lines: [...model.lines, line] },
+        })),
+        Match.orElse((line) => ({
+          model: { ...model, lines: [...model.lines, line] },
+        })),
+      ),
     SignalArrived: ({ signal }) => ({
-      // The live stream ends before that turn's facts are written, so settling
-      // is what clears it. A turn that fails clears it on its failed line.
-      model:
-        signal._tag === 'settled'
-          ? { ...model, live: [] }
-          : { ...model, live: [...model.live, signal] },
+      model: Schema.is(LiveSettled)(signal)
+        ? { ...model, live: [] }
+        : { ...model, live: [...model.live, signal] },
     }),
     ChangedProject: ({ value }) => {
       const selected = value.length === 0 ? undefined : value
@@ -294,14 +305,14 @@ export const update = (model: Model, message: Message) =>
 
 const awaitingApproval = (lines: readonly TranscriptLine[], index: number): boolean => {
   const line = lines[index]
-  if (line === undefined || line._tag !== 'tool/requested') return false
+  if (line === undefined || !Schema.is(ToolRequestedLine)(line)) return false
   const request = line.call
   return !lines
     .slice(index + 1)
     .some(
       (later) =>
-        (later._tag === 'approval/decided' && later.request === request) ||
-        (later._tag === 'tool/completed' && later.call === request),
+        (Schema.is(ApprovalDecidedLine)(later) && later.request === request) ||
+        (Schema.is(ToolCompletedLine)(later) && later.call === request),
     )
 }
 const liveLabelOf = (signal: ThreadSignal): string =>
@@ -557,7 +568,7 @@ export const view = defineView<Model, Message>((model, h) => {
                               h,
                             ),
                             ...(awaitingApproval(model.lines, index) &&
-                            line._tag === 'tool/requested'
+                            Schema.is(ToolRequestedLine)(line)
                               ? [
                                   button(
                                     {
@@ -589,8 +600,7 @@ export const view = defineView<Model, Message>((model, h) => {
                     ),
                   ),
                   ...model.live
-                    // Argument deltas arrive per token and are not a line of their own.
-                    .filter((signal) => signal._tag !== 'tool-args')
+                    .filter(Schema.is(LiveLine))
                     .map((signal) =>
                       Item(
                         { variant: 'muted', size: 'sm' },

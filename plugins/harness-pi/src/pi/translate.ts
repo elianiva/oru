@@ -1,4 +1,4 @@
-import { Option, Schema } from 'effect'
+import { Option, Predicate, Schema } from 'effect'
 import * as Items from '@effect-uai/core/Items'
 import { serializeValue } from '@effect-uai/core/ToolResult'
 import {
@@ -227,7 +227,7 @@ export const promptImagesOf = (history: readonly Items.HistoryItem[]): readonly 
   if (message === undefined) return []
   const images: PiImageBlock[] = []
   for (const block of message.content) {
-    if (block.type === 'input_image' && block.source._tag === 'base64') {
+    if (block.type === 'input_image' && Predicate.isTagged(block.source, 'base64')) {
       images.push({
         type: 'image',
         data: block.source.base64,
@@ -244,7 +244,7 @@ const piContentOf = (item: Items.Message): PiContentBlock[] => {
     if (block.type === 'input_text' || block.type === 'output_text') {
       content.push({ type: 'text', text: block.text })
     }
-    if (block.type === 'input_image' && block.source._tag === 'base64') {
+    if (block.type === 'input_image' && Predicate.isTagged(block.source, 'base64')) {
       content.push({
         type: 'image',
         data: block.source.base64,

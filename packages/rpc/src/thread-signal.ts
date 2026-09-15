@@ -30,6 +30,22 @@ export const LiveError = Schema.TaggedStruct('error', { message: Schema.String }
 export const LiveUnhandled = Schema.TaggedStruct('unhandled', { type: Schema.String })
 export const LiveSettled = Schema.TaggedStruct('settled', {})
 
+export const LiveLine = Schema.Union([
+  LiveText,
+  LiveThinking,
+  LiveToolStart,
+  LiveToolEnd,
+  LiveCompacting,
+  LiveCompacted,
+  LiveContextWindow,
+  LiveSessionReplaced,
+  LiveWarning,
+  LiveError,
+  LiveUnhandled,
+  LiveSettled,
+])
+export type LiveLine = typeof LiveLine.Type
+
 export const ThreadSignal = Schema.Union([
   LiveText,
   LiveThinking,

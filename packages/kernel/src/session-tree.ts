@@ -1,6 +1,6 @@
 import { Match, Schema } from 'effect'
 import { ThreadId, type EventId } from './primitives.ts'
-import { SessionEvent } from './session-event.ts'
+import { MessageAppended, SessionEvent, ThreadBranched, ThreadCompacted } from './session-event.ts'
 
 export const HostLane = Schema.TaggedStruct('host', {})
 export const ThreadLane = Schema.TaggedStruct('thread', { id: ThreadId })
@@ -9,10 +9,13 @@ export type Lane = typeof Lane.Type
 
 export const threadLane = (thread: ThreadId): Lane => ThreadLane.make({ id: thread })
 
-const sameLane = (left: Lane, right: Lane): boolean => {
-  if (left._tag === 'host') return right._tag === 'host'
-  return right._tag === 'thread' && left.id === right.id
-}
+const sameLane = (left: Lane, right: Lane): boolean =>
+  Match.value(left).pipe(
+    Match.tagsExhaustive({
+      host: () => Schema.is(HostLane)(right),
+      thread: (lane) => Schema.is(ThreadLane)(right) && lane.id === right.id,
+    }),
+  )
 
 export const laneOf = (event: SessionEvent): Lane =>
   Match.value(event).pipe(
@@ -38,7 +41,7 @@ export const laneOf = (event: SessionEvent): Lane =>
 
 export const threadOf = (event: SessionEvent): ThreadId | undefined => {
   const lane = laneOf(event)
-  if (lane._tag === 'host') return undefined
+  if (Schema.is(HostLane)(lane)) return undefined
   return lane.id
 }
 
@@ -89,7 +92,7 @@ const compactedView = (path: readonly SessionEvent[]): readonly SessionEvent[] =
   let compacted: Extract<SessionEvent, { _tag: 'thread/compacted' }> | undefined
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'thread/compacted') {
+    if (Schema.is(ThreadCompacted)(event)) {
       compacted = event
       break
     }
@@ -100,51 +103,35 @@ const compactedView = (path: readonly SessionEvent[]): readonly SessionEvent[] =
   return [compacted, ...tail.filter((event) => event.id !== compacted.id)]
 }
 
-/**
- * The path a lane continues from, as of the entry it names.
- *
- * The chain is read from the branch point backwards, so it is made only of
- * facts that already existed when the branch was written. What a fork remembers
- * therefore cannot change when its source continues or compacts.
- */
 const ancestorsOf = (
   byId: ReadonlyMap<EventId, SessionEvent>,
   fromId: EventId,
   seen: ReadonlySet<EventId>,
 ): readonly SessionEvent[] => {
-  // A branch names an entry the source already had, so the walk is finite; the
-  // guard is for a log that says otherwise.
   if (seen.has(fromId)) return []
   const next = new Set(seen).add(fromId)
   const chain = pathIn(byId, fromId)
   const inherited: SessionEvent[] = []
   for (const event of chain) {
-    if (event._tag !== 'thread/branched') continue
+    if (!Schema.is(ThreadBranched)(event)) continue
     inherited.push(...ancestorsOf(byId, event.fromId, next))
   }
   return compactedView([...inherited, ...chain])
 }
 
-/**
- * What one lane's model sees, including the lanes it continues.
- *
- * A fork writes a `thread/branched` fact naming the entry it continues from, so
- * its memory reaches into the source lane instead of copying facts into its own.
- * Fold and work state stay lane-local (`pathOfLane`); only what the model reads
- * inherits.
- */
 const memoryOf = (events: readonly SessionEvent[], thread: ThreadId): readonly SessionEvent[] => {
   const byId = byIdOf(events)
   const leaf = leafOf(events, threadLane(thread))
   const path = leaf === null ? [] : pathIn(byId, leaf)
   const inherited: SessionEvent[] = []
   for (const event of path) {
-    if (event._tag !== 'thread/branched') continue
+    if (!Schema.is(ThreadBranched)(event)) continue
     inherited.push(...ancestorsOf(byId, event.fromId, new Set()))
   }
   return compactedView([...inherited, ...path])
 }
 
+/** The facts this thread's model reads, including lanes continued through `thread/branched`. */
 export const modelVisiblePath = (
   events: readonly SessionEvent[],
   thread: ThreadId,
@@ -162,7 +149,7 @@ export const compactionCut = (
   const path = modelVisiblePath(events, thread)
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'message/appended' && event.role === 'user') return event.id
+    if (Schema.is(MessageAppended)(event) && event.role === 'user') return event.id
   }
   return path.at(-1)?.id
 }

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { setTimeout as sleepFor } from 'node:timers/promises'
-import { Match, Option } from 'effect'
+import { Match, Option, Predicate, Schema } from 'effect'
 import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
 import {
@@ -72,17 +72,11 @@ export const SKILLS_ENV = 'ORU_PI_SKILLS'
 export const delay = (ms: number): Promise<void> => sleepFor(ms, undefined, { ref: false })
 
 /** A bridge failure with a stable code, so the runtime records why. */
-export class PiBridgeError extends Error {
-  readonly code: string
-  readonly retryable: boolean
-
-  constructor(code: string, message: string, options: { readonly retryable?: boolean } = {}) {
-    super(message)
-    this.name = 'PiBridgeError'
-    this.code = code
-    this.retryable = options.retryable ?? false
-  }
-}
+export class PiBridgeError extends Schema.TaggedError<PiBridgeError>()('PiBridgeError', {
+  code: Schema.String,
+  message: Schema.String,
+  retryable: Schema.Boolean,
+}) {}
 
 export interface PiRunInput {
   readonly cwd: string
@@ -271,7 +265,11 @@ export class PiSession {
    */
   async run(input: PiRunInput, emit: (event: HarnessEvent) => void): Promise<void> {
     if (this.running) {
-      throw new PiBridgeError('busy', `thread ${this.threadId} is already running a turn`)
+      throw new PiBridgeError({
+        code: 'busy',
+        message: `thread ${this.threadId} is already running a turn`,
+        retryable: false,
+      })
     }
     this.running = true
     this.emit = emit
@@ -284,12 +282,11 @@ export class PiSession {
       const prompt = promptTextOf(input.history)
       const baseline = await this.baselineCursor(child)
       if (prompt === undefined) {
-        // Nothing for pi to run. The runtime asks again after a tool it ran
-        // itself; failing settles the thread instead of looping forever.
-        throw new PiBridgeError(
-          'no_prompt',
-          `thread ${this.threadId} has no user message for pi to answer`,
-        )
+        throw new PiBridgeError({
+          code: 'no_prompt',
+          message: `thread ${this.threadId} has no user message for pi to answer`,
+          retryable: false,
+        })
       }
       const settled = Promise.withResolvers<void>()
       this.settled = settled
@@ -306,7 +303,7 @@ export class PiSession {
       const failure = failureOfEntries(entries)
       if (failure !== undefined) {
         emit(HarnessLifecycle.ProviderError({ message: failure, retryable: false }))
-        throw new PiBridgeError('turn_failed', failure)
+        throw new PiBridgeError({ code: 'turn_failed', message: failure, retryable: false })
       }
 
       const content = turnContentOf(dropPromptEntry(entries, prompt))
@@ -343,7 +340,11 @@ export class PiSession {
   async steer(text: string): Promise<void> {
     const child = this.child
     if (child === null || child.exited || this.settled === null) {
-      throw new PiBridgeError('not_running', `thread ${this.threadId} is not running a turn`)
+      throw new PiBridgeError({
+        code: 'not_running',
+        message: `thread ${this.threadId} is not running a turn`,
+        retryable: false,
+      })
     }
     await child.request({ type: 'steer', message: text })
   }
@@ -382,10 +383,11 @@ export class PiSession {
   async fork(request: HarnessForkRequest): Promise<void> {
     const source = this.sessionFile
     if (!existsSync(source)) {
-      throw new PiBridgeError(
-        'no_session',
-        `thread ${request.sourceThreadId} has no pi session to fork`,
-      )
+      throw new PiBridgeError({
+        code: 'no_session',
+        message: `thread ${request.sourceThreadId} has no pi session to fork`,
+        retryable: false,
+      })
     }
     const target = sessionFileFor(this.deps.paths, request.targetThreadId)
     mkdirSync(dirname(target), { recursive: true })
@@ -404,7 +406,11 @@ export class PiSession {
     child.sendChannel(outgoing)
     const reply = await child.awaitChannelReply(outgoing.id, NO_REQUEST_TIMEOUT)
     if (reply.error !== undefined) {
-      throw new PiBridgeError('fork_failed', `pi could not fork the session: ${reply.error}`)
+      throw new PiBridgeError({
+        code: 'fork_failed',
+        message: `pi could not fork the session: ${reply.error}`,
+        retryable: false,
+      })
     }
   }
 
@@ -425,10 +431,6 @@ export class PiSession {
     const child = await this.childForOutOfTurnWork()
     return child.requestOk(PiStateData, { type: 'get_state' }, STATE_TIMEOUT_MS)
   }
-
-  // -------------------------------------------------------------------------
-  // Child lifecycle
-  // -------------------------------------------------------------------------
 
   private async ensureChild(input: PiRunInput): Promise<PiRpcChild> {
     const skills = skillsOf(this.deps.env, this.deps.log)
@@ -478,7 +480,11 @@ export class PiSession {
     if (child !== null && !child.exited) return child
     const file = this.sessionFile
     if (!existsSync(file)) {
-      throw new PiBridgeError('no_session', `thread ${this.threadId} has no pi session yet`)
+      throw new PiBridgeError({
+        code: 'no_session',
+        message: `thread ${this.threadId} has no pi session yet`,
+        retryable: false,
+      })
     }
     const cwd = this.lastCwd ?? sessionCwdOf(file) ?? process.cwd()
     return this.spawnChild(this.baseArgs(file), cwd, null)
@@ -529,10 +535,11 @@ export class PiSession {
       await Promise.race([
         ready.promise,
         delay(SPAWN_READY_TIMEOUT_MS).then(() => {
-          throw new PiBridgeError(
-            'spawn_timeout',
-            `pi did not report its session within ${SPAWN_READY_TIMEOUT_MS / 1000}s`,
-          )
+          throw new PiBridgeError({
+            code: 'spawn_timeout',
+            message: `pi did not report its session within ${SPAWN_READY_TIMEOUT_MS / 1000}s`,
+            retryable: false,
+          })
         }),
       ])
     } catch (cause) {
@@ -546,12 +553,13 @@ export class PiSession {
   private handleExit(info: PiRpcChildExitInfo, ready: PromiseWithResolvers<void>): void {
     this.ready = null
     ready.reject(
-      new PiBridgeError(
-        'pi_exited',
-        `pi exited (code ${info.code ?? 'null'}, signal ${info.signal ?? 'null'})${
+      new PiBridgeError({
+        code: 'pi_exited',
+        message: `pi exited (code ${info.code ?? 'null'}, signal ${info.signal ?? 'null'})${
           info.stderrTail === '' ? '' : `: ${info.stderrTail.trim()}`
         }`,
-      ),
+        retryable: false,
+      }),
     )
     const settled = this.settled
     if (settled !== null) {
@@ -574,18 +582,15 @@ export class PiSession {
     await Promise.race([child.waitForExit(), delay(STOP_KILL_MS)])
   }
 
-  // -------------------------------------------------------------------------
-  // Commands
-  // -------------------------------------------------------------------------
-
   private async applyConfiguration(child: PiRpcChild, input: PiRunInput): Promise<void> {
     if (input.model !== undefined && input.model !== this.model) {
       const separator = input.model.indexOf('/')
       if (separator <= 0) {
-        throw new PiBridgeError(
-          'bad_model',
-          `"${input.model}" is not a provider/model id pi accepts`,
-        )
+        throw new PiBridgeError({
+          code: 'bad_model',
+          message: `"${input.model}" is not a provider/model id pi accepts`,
+          retryable: false,
+        })
       }
       const applied = await child.request({
         type: 'set_model',
@@ -593,10 +598,11 @@ export class PiSession {
         modelId: input.model.slice(separator + 1),
       })
       if (!applied.success) {
-        throw new PiBridgeError(
-          'bad_model',
-          `pi rejected the model "${input.model}": ${applied.error ?? 'unknown reason'}`,
-        )
+        throw new PiBridgeError({
+          code: 'bad_model',
+          message: `pi rejected the model "${input.model}": ${applied.error ?? 'unknown reason'}`,
+          retryable: false,
+        })
       }
       this.model = input.model
     }
@@ -656,14 +662,10 @@ export class PiSession {
     )
   }
 
-  // -------------------------------------------------------------------------
-  // Live events
-  // -------------------------------------------------------------------------
-
   private handleEvent(message: PiEventMessage): void {
     const emit = this.emit
     if (emit === null) return
-    if (message._tag === 'raw') {
+    if (Predicate.isTagged(message, 'raw')) {
       emit(HarnessLifecycle.RawUnhandled({ type: message.type, payload: message.raw }))
       return
     }
@@ -753,7 +755,6 @@ export class PiSession {
               }`,
             }),
           ),
-        // Understood, and nothing oru records: turn boundaries.
         agent_start: () => {},
         agent_end: () => {},
       }),

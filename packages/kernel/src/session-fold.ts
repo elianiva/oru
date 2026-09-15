@@ -1,6 +1,13 @@
-import { Match } from 'effect'
-import type { PluginId, ProjectId, ThreadId } from './primitives.ts'
-import type { SessionEvent } from './session-event.ts'
+import { Match, Schema } from 'effect'
+import { ProjectId, type PluginId, type ThreadId } from './primitives.ts'
+import {
+  ProjectCreated,
+  ThreadConfigured,
+  ThreadContextWindow,
+  ThreadCreated,
+  TurnUsage,
+  type SessionEvent,
+} from './session-event.ts'
 import { pathOfLane, threadLane } from './session-tree.ts'
 
 export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<PluginId> =>
@@ -85,16 +92,17 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
     new Set<ProjectId>(),
   )
 
-export interface NamedProject {
-  readonly id: ProjectId
-  readonly name: string
-  readonly cwd: string
-}
+export const NamedProject = Schema.Struct({
+  id: ProjectId,
+  name: Schema.NonEmptyString,
+  cwd: Schema.NonEmptyString,
+})
+export type NamedProject = typeof NamedProject.Type
 
 export const foldProjects = (events: readonly SessionEvent[]): readonly NamedProject[] => {
   const projects = new Map<ProjectId, NamedProject>()
   for (const event of events) {
-    if (event._tag === 'project/created' && !projects.has(event.project)) {
+    if (Schema.is(ProjectCreated)(event) && !projects.has(event.project)) {
       projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
     }
   }
@@ -116,11 +124,12 @@ export const foldThreadPath = (
  * fact. Absent members mean "the harness's own default", so the reader, not
  * the log, decides what that default is.
  */
-export interface ThreadConfig {
-  readonly harness: string | undefined
-  readonly model: string | undefined
-  readonly reasoning: string | undefined
-}
+export const ThreadConfig = Schema.Struct({
+  harness: Schema.UndefinedOr(Schema.NonEmptyString),
+  model: Schema.UndefinedOr(Schema.NonEmptyString),
+  reasoning: Schema.UndefinedOr(Schema.NonEmptyString),
+})
+export type ThreadConfig = typeof ThreadConfig.Type
 
 export const foldThreadConfig = (
   events: readonly SessionEvent[],
@@ -129,7 +138,7 @@ export const foldThreadConfig = (
   const path = foldThreadPath(events, thread)
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'thread/configured') {
+    if (Schema.is(ThreadConfigured)(event)) {
       return { harness: event.harness, model: event.model, reasoning: event.reasoning }
     }
   }
@@ -151,7 +160,7 @@ export const foldThreadUsage = (events: readonly SessionEvent[], thread: ThreadI
   let outputTokens = 0
   let cost: number | undefined
   for (const event of foldThreadPath(events, thread)) {
-    if (event._tag !== 'turn/usage') continue
+    if (!Schema.is(TurnUsage)(event)) continue
     inputTokens += event.inputTokens
     outputTokens += event.outputTokens
     if (event.cost !== undefined) cost = (cost ?? 0) + event.cost
@@ -175,7 +184,7 @@ export const foldThreadContextWindow = (
   const path = foldThreadPath(events, thread)
   for (let index = path.length - 1; index >= 0; index--) {
     const event = path[index]
-    if (event?._tag === 'thread/context-window') {
+    if (Schema.is(ThreadContextWindow)(event)) {
       return { tokens: event.tokens, contextWindow: event.contextWindow }
     }
   }
@@ -194,11 +203,11 @@ export const foldThreadCwd = (
 ): string | undefined => {
   let project: ProjectId | undefined
   for (const event of events) {
-    if (event._tag === 'thread/created' && event.thread === thread) project = event.project
+    if (Schema.is(ThreadCreated)(event) && event.thread === thread) project = event.project
   }
   if (project === undefined) return undefined
   for (const event of events) {
-    if (event._tag === 'project/created' && event.project === project) return event.cwd
+    if (Schema.is(ProjectCreated)(event) && event.project === project) return event.cwd
   }
   return undefined
 }

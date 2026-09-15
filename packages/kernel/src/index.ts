@@ -4,6 +4,7 @@ export * from './errors.ts'
 export * from './event.ts'
 export * from './facet-loader.ts'
 export * from './host.ts'
+export { newId } from './id.ts'
 export * from './plugin.ts'
 export * from './primitives.ts'
 export * from './registry.ts'
@@ -41,8 +42,8 @@ export {
   foldThreadCwd,
   foldThreadPath,
   foldThreadUsage,
-  type NamedProject,
-  type ThreadConfig,
+  NamedProject,
+  ThreadConfig,
   type ThreadContextWindowState,
   type ThreadUsage,
 } from './session-fold.ts'

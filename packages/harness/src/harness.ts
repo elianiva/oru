@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Option, Ref, Schema, Stream } from 'effect'
+import { Context, Data, Effect, Match, Option, Ref, Schema, Stream } from 'effect'
 import type * as Items from '@effect-uai/core/Items'
 import type * as Toolkit from '@effect-uai/core/Toolkit'
 import * as Turn from '@effect-uai/core/Turn'
@@ -89,8 +89,7 @@ export interface HarnessTurnRequest {
   readonly threadId: string
   readonly history: readonly Items.HistoryItem[]
   readonly model: string
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; harness accepts any toolkit
-  readonly tools?: Toolkit.Toolkit<any>
+  readonly tools?: Toolkit.Toolkit
   readonly temperature?: number
   readonly maxOutputTokens?: number
   /** The thread's working directory. An agent-run harness is cwd-bound. */
@@ -265,7 +264,10 @@ export const turnFromStream = (
     const complete = yield* Ref.make(Option.none<Turn.Turn>())
     yield* stream.pipe(
       Stream.runForEach((event) =>
-        event._tag === 'TurnComplete' ? Ref.set(complete, Option.some(event.turn)) : Effect.void,
+        Match.value(event).pipe(
+          Match.tag('TurnComplete', (event) => Ref.set(complete, Option.some(event.turn))),
+          Match.orElse(() => Effect.void),
+        ),
       ),
     )
     const turn = yield* Ref.get(complete)

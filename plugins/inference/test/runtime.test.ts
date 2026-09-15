@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Effect, Fiber, Schema, Stream, type Scope } from 'effect'
+import { Predicate, Effect, Fiber, Schema, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
@@ -38,7 +38,7 @@ const approveOnRequest = (
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
-        event._tag === 'tool/requested' && event.thread === thread
+        Predicate.isTagged(event, 'tool/requested') && event.thread === thread
           ? inference.decide(thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
@@ -95,17 +95,19 @@ describe('inference runtime', () => {
         const log = yield* SessionLog
         const live = yield* log.subscribe
         const watching = yield* live.pipe(
-          Stream.filter((event) => event._tag === 'tool/completed'),
+          Stream.filter((event) => Predicate.isTagged(event, 'tool/completed')),
           Stream.take(1),
           Stream.runCollect,
           Effect.forkScoped,
         )
         const requests = yield* log.subscribe
         yield* requests.pipe(
-          Stream.filter((event) => event._tag === 'tool/requested' && event.thread === 't1'),
+          Stream.filter(
+            (event) => Predicate.isTagged(event, 'tool/requested') && event.thread === 't1',
+          ),
           Stream.take(1),
           Stream.runForEach((event) =>
-            event._tag === 'tool/requested'
+            Predicate.isTagged(event, 'tool/requested')
               ? inference.decide('t1', event.call, 'deny').pipe(Effect.orDie)
               : Effect.void,
           ),
@@ -113,9 +115,13 @@ describe('inference runtime', () => {
         )
         yield* inference.send('t1', 'hello')
         yield* Fiber.join(watching)
-        const completed = (yield* log.entries).find((event) => event._tag === 'tool/completed')
-        expect(completed?._tag === 'tool/completed' ? completed.ok : undefined).toBe(false)
-        expect(completed?._tag === 'tool/completed' ? completed.result : '').toBe(
+        const completed = (yield* log.entries).find((event) =>
+          Predicate.isTagged(event, 'tool/completed'),
+        )
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.ok : undefined).toBe(
+          false,
+        )
+        expect(Predicate.isTagged(completed, 'tool/completed') ? completed.result : '').toBe(
           'the user denied this tool call',
         )
       }),
@@ -140,9 +146,12 @@ describe('inference runtime', () => {
         expect(tags).toContain('turn/started')
         expect(tags).toContain('turn/failed')
         expect(tags).not.toContain('tool/requested')
-        const failed = (yield* log.entries).find((event) => event._tag === 'turn/failed')
+        const failed = (yield* log.entries).find((event) =>
+          Predicate.isTagged(event, 'turn/failed'),
+        )
         expect(failed?._tag).toBe('turn/failed')
-        if (failed?._tag === 'turn/failed') expect(failed.reason.length).toBeGreaterThan(0)
+        if (Predicate.isTagged(failed, 'turn/failed'))
+          expect(failed.reason.length).toBeGreaterThan(0)
       }),
     )
   })
