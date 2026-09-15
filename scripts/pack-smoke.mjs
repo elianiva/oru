@@ -68,6 +68,8 @@ if (!entries.some((entry) => entry.endsWith('/dist/main.js')))
   fail('packed tarball is missing dist/main.js')
 if (!entries.some((entry) => entry.endsWith('/dist/index.js')))
   fail('packed tarball is missing dist/index.js')
+if (!entries.some((entry) => entry.endsWith('/dist/oru-pi-extension.mjs')))
+  fail('packed tarball is missing dist/oru-pi-extension.mjs')
 
 const prefix = mkdtempSync(join(tmpdir(), 'oru-host-smoke-'))
 try {
