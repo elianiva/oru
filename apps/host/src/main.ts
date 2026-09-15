@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { Effect, type Scope } from 'effect'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
-import type { SqlError } from 'effect/unstable/sql/SqlError'
 import type { BootError } from '@oru/kernel'
+import type { JournalOpenError } from '@oru/kernel/sqlite'
 import { packageVersion, parseArgs, usage } from './cli.ts'
 import { hostPlugins } from './plugins.ts'
 import { serveHost } from './server.ts'
@@ -17,9 +17,15 @@ const write = (line: string, stream: NodeJS.WriteStream) =>
  * message is empty, and a `SqlError` says something only when the driver did.
  * Everything else already says what went wrong.
  */
-const describeFailure = (error: BootError | ServeError | SqlError): string => {
+const describeFailure = (error: BootError | ServeError | JournalOpenError): string => {
   if (error._tag === 'ServeError') return String(error.cause)
   if (error._tag === 'SqlError') return error.message ?? String(error.cause)
+  if (error._tag === 'SchemaTooNew') {
+    return `journal ${error.path} was written by a newer schema (${error.unknown.join(', ')})`
+  }
+  if (error._tag === 'SchemaDiverged') {
+    return `journal ${error.path} has a migration history this build does not apply (${error.applied.join(', ')})`
+  }
   return error.message
 }
 
