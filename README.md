@@ -8,9 +8,12 @@ Status: active development.
 
 - [CONTEXT.md](./CONTEXT.md) — the domain glossary.
 - [docs/adr](./docs/adr) — architecture decision records.
+- [docs/configuration.md](./docs/configuration.md) — host settings, precedence, and keys.
 - [PLAN.md](./PLAN.md) — build plan.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
 - [docs/release.md](./docs/release.md) — how to bump, pack, and cut a release.
+- [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md) — reproduce a host failure, a pi bridge failure, and a stuck turn.
+- [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md) — escaped bugs and the guards that catch them.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
 - [LICENSE](./LICENSE) — MIT.
 
@@ -29,6 +32,7 @@ Status: active development.
 | [0009](./docs/adr/0009-node-host-and-transport.md)    | A node host process serves the kernel over HTTP, and the app is its client    |
 | [0010](./docs/adr/0010-durable-sessions.md)           | Durable sessions in the host: the log is opened, resumed, and reprojected     |
 | [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
+| [0012](./docs/adr/0012-config-precedence.md)          | Effect Config, one file, flags then file then env then defaults               |
 
 ## Stack
 
@@ -41,10 +45,13 @@ TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool
 ```
 pnpm --filter @oru/host start          # http://127.0.0.1:7317
 pnpm --filter @oru/host start -- --help
+pnpm --filter @oru/host start -- config list
 pnpm pack:host                         # tarball of the built host
 pnpm pack:smoke                        # install that tarball, --version, start, stop
 pnpm dev                               # the host and the browser app together
 ```
+
+Settings are flags, then `~/.oru/config.json`, then `ORU_*` / `ORU_PI_*` environment variables, then built-in defaults. The file is created with mode `0600`. The listen address is loopback until you set `host`. Details are in [docs/configuration.md](./docs/configuration.md).
 
 `apps/oru` is a client of a running host. It reads the host URL from `VITE_ORU_HOST_URL` and defaults to its own origin; in development the Vite dev server forwards `/rpc` to the host, so both are one command and one origin.
 
@@ -84,6 +91,8 @@ Open the printed URL and check these, in order. The picker defaults to `Oru (eff
 4. Type a message into the pane and click `Send`. The transcript shows `user: ...`, `turn/started`, `tool/requested echo`, `tool/completed echo`, and `assistant: done`, with no leftover live lines from the stream.
 5. Send a second message. The demo model scripts two turns, so the next turn fails and the transcript shows a `turn/failed ...` line.
 6. Click `New thread`. The transcript empties and the pane starts a fresh thread.
+
+CI runs steps 2 and 4 in a real Chromium through Playwright (`pnpm --filter ./apps/oru e2e`). A failure keeps a screenshot and the last 8000 bytes of `apps/oru/test-results/host.log`.
 
 `docs/evidence/issue-11` holds the screenshots from one run of these steps, taken with the agent-browser CLI:
 

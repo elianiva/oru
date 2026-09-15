@@ -134,6 +134,29 @@ export const CompactThread = Command.define('CompactThread', {
     ),
 })
 
+export const RefreshThreadOptions = Command.define('RefreshThreadOptions', {
+  args: { threadId: ThreadId },
+  messages: [Message.GotThreadMessage],
+  execute: ({ threadId }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.options(threadId, { refresh: true })),
+      Effect.map((options) =>
+        Message.GotThreadMessage({ message: ThreadPanel.Message.OptionsArrived(options) }),
+      ),
+      Effect.orDie,
+    ),
+})
+
+export const CopyInstallCommand = Command.define('CopyInstallCommand', {
+  args: { text: Schema.String },
+  messages: [Message.SendFinished],
+  execute: ({ text }) =>
+    Effect.sync(() => {
+      const clipboard = globalThis.navigator?.clipboard
+      if (clipboard !== undefined) void clipboard.writeText(text)
+    }).pipe(Effect.as(Message.SendFinished())),
+})
+
 const foldPluginOutMessage = (outMessage: PluginPanel.OutMessage): Update.Step<Model, Message> =>
   PluginPanel.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
     RequestedAck: () => (model) => ({ model }),
@@ -167,6 +190,14 @@ const foldThreadOutMessage = (
       if (threadId === undefined) return { model }
       return { model, commands: [CompactThread({ threadId })] }
     },
+    RequestedRefresh: () => (model) => {
+      const threadId = model.thread?.threadId
+      if (threadId === undefined) return { model }
+      return { model, commands: [RefreshThreadOptions({ threadId })] }
+    },
+    RequestedCopy:
+      ({ text }) =>
+      (model) => ({ model, commands: [CopyInstallCommand({ text })] }),
   })
 
 const foldPlugin = (plugin: string) =>

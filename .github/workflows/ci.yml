@@ -34,3 +34,27 @@ jobs:
         run: pnpm check:lockstep
       - name: Pack smoke
         run: pnpm pack:smoke
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - uses: pnpm/action-setup@v4
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --filter ./apps/oru exec playwright install --with-deps chromium
+      - name: Browser e2e
+        run: pnpm --filter ./apps/oru e2e
+      - name: Upload failure screenshot and host log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-failure
+          path: |
+            apps/oru/test-results/
+            apps/oru/playwright-report/
+          if-no-files-found: warn
