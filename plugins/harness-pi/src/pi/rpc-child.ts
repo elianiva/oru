@@ -183,7 +183,6 @@ export class PiRpcChild {
     this.child = spawn(launch.command, [...launch.args, ...args.args], {
       cwd: args.cwd,
       env: args.env,
-      // Two extra pipes carry the extension channel.
       stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
     })
 

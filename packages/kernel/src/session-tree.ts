@@ -103,20 +103,11 @@ const compactedView = (path: readonly SessionEvent[]): readonly SessionEvent[] =
   return [compacted, ...tail.filter((event) => event.id !== compacted.id)]
 }
 
-/**
- * The path a lane continues from, as of the entry it names.
- *
- * The chain is read from the branch point backwards, so it is made only of
- * facts that already existed when the branch was written. What a fork remembers
- * therefore cannot change when its source continues or compacts.
- */
 const ancestorsOf = (
   byId: ReadonlyMap<EventId, SessionEvent>,
   fromId: EventId,
   seen: ReadonlySet<EventId>,
 ): readonly SessionEvent[] => {
-  // A branch names an entry the source already had, so the walk is finite; the
-  // guard is for a log that says otherwise.
   if (seen.has(fromId)) return []
   const next = new Set(seen).add(fromId)
   const chain = pathIn(byId, fromId)
@@ -128,14 +119,6 @@ const ancestorsOf = (
   return compactedView([...inherited, ...chain])
 }
 
-/**
- * What one lane's model sees, including the lanes it continues.
- *
- * A fork writes a `thread/branched` fact naming the entry it continues from, so
- * its memory reaches into the source lane instead of copying facts into its own.
- * Fold and work state stay lane-local (`pathOfLane`); only what the model reads
- * inherits.
- */
 const memoryOf = (events: readonly SessionEvent[], thread: ThreadId): readonly SessionEvent[] => {
   const byId = byIdOf(events)
   const leaf = leafOf(events, threadLane(thread))
@@ -148,6 +131,7 @@ const memoryOf = (events: readonly SessionEvent[], thread: ThreadId): readonly S
   return compactedView([...inherited, ...path])
 }
 
+/** The facts this thread's model reads, including lanes continued through `thread/branched`. */
 export const modelVisiblePath = (
   events: readonly SessionEvent[],
   thread: ThreadId,

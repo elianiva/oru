@@ -44,8 +44,7 @@ const failure = (kind: string, message: string): PiToolOutcome => ({
  * harness ran the tool.
  */
 export const runDynamicToolCall = async (
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; a bridge accepts any toolkit
-  toolkit: Toolkit.Toolkit<any>,
+  toolkit: Toolkit.Toolkit,
   name: string,
   argumentsJson: string,
   onProgress: (callId: string, delta: string) => void,
@@ -77,16 +76,16 @@ export const runDynamicToolCall = async (
           )
         }),
         Match.tag('ok', async (decoded) => {
+          const executed = tool.run(decoded.input, (event: ToolEvent.ToolEvent) =>
+            Effect.sync(() => {
+              if (ToolEvent.isProgress(event)) {
+                onProgress(event.call_id, serializeValue(event.data))
+              }
+            }),
+          )
+          // SAFETY: the bridge runs oru tools as a host with no leftover services
           const ran = await Effect.runPromise(
-            Effect.result(
-              tool.run(decoded.input, (event: ToolEvent.ToolEvent) =>
-                Effect.sync(() => {
-                  if (ToolEvent.isProgress(event)) {
-                    onProgress(event.call_id, serializeValue(event.data))
-                  }
-                }),
-              ),
-            ),
+            Effect.result(executed as Effect.Effect<unknown, unknown>),
           )
           return Result.isSuccess(ran)
             ? { text: serializeValue(ran.success), isError: false }
@@ -104,10 +103,7 @@ export const runDynamicToolCall = async (
 }
 
 /** Bind one request's toolkit to the bridge that runs its tool calls. */
-export const toolBridgeOf = (
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; a bridge accepts any toolkit
-  toolkit: Toolkit.Toolkit<any>,
-): PiToolBridge => ({
+export const toolBridgeOf = (toolkit: Toolkit.Toolkit): PiToolBridge => ({
   tools: Toolkit.descriptors(toolkit),
   run: (name, argumentsJson, onProgress) =>
     runDynamicToolCall(toolkit, name, argumentsJson, onProgress),

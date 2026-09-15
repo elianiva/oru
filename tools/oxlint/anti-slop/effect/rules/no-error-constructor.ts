@@ -18,7 +18,6 @@ function calleeName(node: ESTree.Expression | ESTree.Super): string | undefined 
 	return undefined;
 }
 
-/** Failures belong in Effect's error channel as tagged errors, not built-in Error. */
 export const noErrorConstructorRule = defineRule({
 	meta: {
 		type: "problem",

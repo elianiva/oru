@@ -282,8 +282,6 @@ export class PiSession {
       const prompt = promptTextOf(input.history)
       const baseline = await this.baselineCursor(child)
       if (prompt === undefined) {
-        // Nothing for pi to run. The runtime asks again after a tool it ran
-        // itself; failing settles the thread instead of looping forever.
         throw new PiBridgeError({
           code: 'no_prompt',
           message: `thread ${this.threadId} has no user message for pi to answer`,
@@ -433,10 +431,6 @@ export class PiSession {
     const child = await this.childForOutOfTurnWork()
     return child.requestOk(PiStateData, { type: 'get_state' }, STATE_TIMEOUT_MS)
   }
-
-  // -------------------------------------------------------------------------
-  // Child lifecycle
-  // -------------------------------------------------------------------------
 
   private async ensureChild(input: PiRunInput): Promise<PiRpcChild> {
     const skills = skillsOf(this.deps.env, this.deps.log)
@@ -588,10 +582,6 @@ export class PiSession {
     await Promise.race([child.waitForExit(), delay(STOP_KILL_MS)])
   }
 
-  // -------------------------------------------------------------------------
-  // Commands
-  // -------------------------------------------------------------------------
-
   private async applyConfiguration(child: PiRpcChild, input: PiRunInput): Promise<void> {
     if (input.model !== undefined && input.model !== this.model) {
       const separator = input.model.indexOf('/')
@@ -671,10 +661,6 @@ export class PiSession {
       }),
     )
   }
-
-  // -------------------------------------------------------------------------
-  // Live events
-  // -------------------------------------------------------------------------
 
   private handleEvent(message: PiEventMessage): void {
     const emit = this.emit
@@ -769,7 +755,6 @@ export class PiSession {
               }`,
             }),
           ),
-        // Understood, and nothing oru records: turn boundaries.
         agent_start: () => {},
         agent_end: () => {},
       }),

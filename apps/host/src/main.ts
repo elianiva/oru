@@ -24,11 +24,6 @@ const write = (line: string, stream: NodeJS.WriteStream) =>
     stream.write(line)
   })
 
-/**
- * A `ServeError` carries the reason it wrapped and nothing else, so its own
- * message is empty, and a `SqlError` says something only when the driver did.
- * Everything else already says what went wrong.
- */
 const describeFailure = (error: BootError | ServeError | JournalOpenError): string =>
   Match.value(error).pipe(
     Match.tagsExhaustive({

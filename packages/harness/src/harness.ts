@@ -89,8 +89,7 @@ export interface HarnessTurnRequest {
   readonly threadId: string
   readonly history: readonly Items.HistoryItem[]
   readonly model: string
-  // oxlint-disable-next-line typescript/no-explicit-any -- Toolkit is variadic over tool records; harness accepts any toolkit
-  readonly tools?: Toolkit.Toolkit<any>
+  readonly tools?: Toolkit.Toolkit
   readonly temperature?: number
   readonly maxOutputTokens?: number
   /** The thread's working directory. An agent-run harness is cwd-bound. */

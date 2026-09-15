@@ -51,11 +51,6 @@ const catalogue: readonly ModelInfo[] = [
   },
 ] as const
 
-/**
- * Provider failures reach this bridge as the typed `AiError` union, so the tag is
- * already the code and the retry policy is a branch on the domain value, with no
- * structural probing of an `unknown` cause.
- */
 const isRetryable = (cause: AiError.AiError): boolean =>
   Match.value(cause).pipe(
     Match.tag('RateLimited', () => true),

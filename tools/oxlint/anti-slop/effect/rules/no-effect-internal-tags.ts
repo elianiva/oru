@@ -26,7 +26,6 @@ function isTagAccess(node: ESTree.Expression): boolean {
 	return node.property.type === "Literal" && node.property.value === "_tag";
 }
 
-/** Option, Either, Result, Exit, and Cause expose helpers. Do not match their `_tag`. */
 export const noEffectInternalTagsRule = defineRule({
 	meta: {
 		type: "problem",

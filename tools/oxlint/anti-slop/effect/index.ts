@@ -6,7 +6,6 @@ import { noManualTagEqualityRule } from "./rules/no-manual-tag-equality.ts";
 import { noManualTaggedObjectRule } from "./rules/no-manual-tagged-object.ts";
 import { noServiceConstructorImportsRule } from "./rules/no-service-constructor-imports.ts";
 
-/** Opt-in Oxlint rules for Effect service and Layer architecture. */
 const antiSlopEffectPlugin = eslintCompatPlugin({
 	meta: { name: "anti-slop-effect" },
 	rules: {

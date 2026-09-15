@@ -12,7 +12,7 @@ import {
   ThreadOptions,
   ThreadSignal,
   LiveSettled,
-  LiveToolArgs,
+  LiveLine,
 } from '@oru/rpc'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
@@ -600,8 +600,7 @@ export const view = defineView<Model, Message>((model, h) => {
                     ),
                   ),
                   ...model.live
-                    // Argument deltas arrive per token and are not a line of their own.
-                    .filter((signal) => !Schema.is(LiveToolArgs)(signal))
+                    .filter(Schema.is(LiveLine))
                     .map((signal) =>
                       Item(
                         { variant: 'muted', size: 'sm' },

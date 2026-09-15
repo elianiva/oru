@@ -8,7 +8,6 @@ function isTagAccess(node: ESTree.Expression): boolean {
 	return node.property.type === "Literal" && node.property.value === "_tag";
 }
 
-/** Branch on tagged unions with Match or Schema.is, not `value._tag ===`. */
 export const noManualTagEqualityRule = defineRule({
 	meta: {
 		type: "problem",
