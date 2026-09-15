@@ -4,11 +4,6 @@ import { fileURLToPath } from 'node:url'
 
 export const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
-/**
- * Packages whose version a user can see. `--version` and the packed tarball
- * both read `apps/host/package.json`. Kernel and the other workspace packages
- * stay unpublished (ADR-0008), so they are not in this list.
- */
 export const PUBLIC_MANIFESTS = ['apps/host/package.json']
 
 const WORKSPACE_DIRS = ['packages', 'plugins', 'apps']
