@@ -52,13 +52,19 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'agent/inbox/spliced': () => {},
         'message/appended': (event) => {
           if (event.role === 'user') awaitingModel = true
-          if (event.role === 'assistant') awaitingModel = false
+          // The model answered, so this turn is closed and the next request
+          // opens its own rather than continuing this one.
+          if (event.role === 'assistant') {
+            awaitingModel = false
+            openTurn = undefined
+          }
         },
         'turn/started': (event) => {
           openTurn = event.turn
         },
         'turn/failed': () => {
           awaitingModel = false
+          openTurn = undefined
         },
         'tool/requested': (event) => {
           awaitingModel = false
@@ -72,7 +78,9 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
           )
         },
         'tool/completed': (event) => {
-          completed.add(event.call)
+          // A call belongs to the turn that asked for it: a harness that reuses
+          // a call id in a later turn is asking again, not repeating itself.
+          completed.add(`${event.turn}:${event.call}`)
           awaitingModel = true
         },
       }),
@@ -83,7 +91,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
     thread,
     openTurn,
     awaitingModel,
-    pending: requested.filter((call) => !completed.has(call.call)),
+    pending: requested.filter((call) => !completed.has(`${call.turn}:${call.call}`)),
   }
 }
 
