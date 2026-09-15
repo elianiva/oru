@@ -72,6 +72,7 @@ const optionsOf = (
   })
 
 const createThread = (
+  host: Host,
   project: ProjectId,
 ): Effect.Effect<
   { readonly threadId: ThreadId; readonly project: NamedProject },
@@ -93,12 +94,13 @@ const createThread = (
         project: named.id,
       }),
     )
+    yield* host.openThread(threadId).pipe(Effect.orDie)
     return { threadId, project: named }
   })
 
 export const threadRpcHandlers = (host: Host) => ({
   CreateThread: (payload: { readonly project: ProjectId }) =>
-    createThread(payload.project).pipe(Effect.orDie),
+    createThread(host, payload.project).pipe(Effect.orDie),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.send(payload.threadId, payload.text)),
@@ -161,6 +163,7 @@ export const threadRpcHandlers = (host: Host) => ({
   DiscardThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.discard(payload.threadId)),
+      Effect.andThen(host.closeThread(payload.threadId)),
       Effect.orDie,
     ),
   CompactThread: (payload: {
@@ -185,7 +188,7 @@ export const threadRpcHandlers = (host: Host) => ({
       if (project === undefined) {
         return yield* Effect.die(new Error(`unknown source thread ${payload.sourceThreadId}`))
       }
-      const created = yield* createThread(project)
+      const created = yield* createThread(host, project)
       yield* inference.fork(
         payload.cwd === undefined
           ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }

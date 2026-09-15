@@ -40,10 +40,12 @@ export const decideHostFact = (
   Match.value(event).pipe(
     Match.tagsExhaustive({
       PluginActivated: (event) => {
+        if (event.scope === 'thread') return Skip.make({ next: journalActive })
         if (journalActive.has(event.plugin)) return Skip.make({ next: journalActive })
         return Append.make({ next: new Set(journalActive).add(event.plugin) })
       },
       PluginDeactivated: (event) => {
+        if (event.scope === 'thread') return Skip.make({ next: journalActive })
         if (!journalActive.has(event.plugin)) return Skip.make({ next: journalActive })
         const next = new Set(journalActive)
         next.delete(event.plugin)

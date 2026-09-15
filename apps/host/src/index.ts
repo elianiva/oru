@@ -1,12 +1,23 @@
+export { Command, packageVersion, parseArgs, usage } from './cli.ts'
 export {
-  Command,
+  catalog,
+  configPath,
+  defaultHome,
   defaultHost,
-  defaultJournal,
+  defaultJournalOf,
+  defaultPiHomeOf,
   defaultPort,
-  packageVersion,
-  parseArgs,
-  usage,
-} from './cli.ts'
+  ensureLayout,
+  listLines,
+  loadFileConfig,
+  openSettings,
+  parseFileConfig,
+  piEnvOf,
+  resolveSettings,
+  setFileKey,
+  unsetFileKey,
+  writeFileConfig,
+} from './config.ts'
 export { decodePanelUi, PanelUi } from './panel.ts'
 export { viewGraphOf } from './graph.ts'
 export {
@@ -17,6 +28,7 @@ export {
   fixturePlugins,
   greeterPlugin,
   hostPlugins,
+  hostPluginsWith,
   loggingPlugin,
 } from './plugins.ts'
 export { hostRpcHandlers } from './handlers/host.ts'

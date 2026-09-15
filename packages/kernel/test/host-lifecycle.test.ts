@@ -112,4 +112,18 @@ describe('decideHostFact', () => {
     )
     expect(skip._tag).toBe('Skip')
   })
+
+  it('skips thread-scoped activation facts so the host fold stays host-wide', () => {
+    const current = new Set(['logging'])
+    const activated = decideHostFact(
+      current,
+      PluginActivated.make({ plugin: 'thread-tools', scope: 'thread' }),
+    )
+    expect(activated).toEqual(Skip.make({ next: current }))
+    const deactivated = decideHostFact(
+      current,
+      PluginDeactivated.make({ plugin: 'thread-tools', scope: 'thread' }),
+    )
+    expect(deactivated).toEqual(Skip.make({ next: current }))
+  })
 })
