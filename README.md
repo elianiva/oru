@@ -9,20 +9,25 @@ Status: active development.
 - [CONTEXT.md](./CONTEXT.md) — the domain glossary.
 - [docs/adr](./docs/adr) — architecture decision records.
 - [PLAN.md](./PLAN.md) — build plan.
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
+- [CHANGELOG.md](./CHANGELOG.md) — notable changes.
+- [LICENSE](./LICENSE) — MIT.
 
 ## Decisions
 
-| #                                                  | Decision                                                                      |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [0001](./docs/adr/0001-kernel-composition.md)      | Effect-native kernel, data-shaped declarations, generation reload             |
-| [0002](./docs/adr/0002-plugin-facets-and-scope.md) | A plugin is one identity with facets, activated host-wide or per thread       |
-| [0003](./docs/adr/0003-session-log.md)             | The session is an immutable event log, projected as state, stored as a tree   |
-| [0004](./docs/adr/0004-presentation-seam.md)       | Typed RPC to the server; the view mirrors the active graph                    |
-| [0005](./docs/adr/0005-inference-runtime.md)       | Inference is an ordinary plugin: effect-uai, model as plugin, tools as JSON   |
-| [0006](./docs/adr/0006-harness-layer.md)           | Many harnesses on one host: registry, session ownership, thread configuration |
-| [0007](./docs/adr/0007-pi-bridge.md)               | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
-| [0008](./docs/adr/0008-monorepo-unpublished.md)    | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
-| [0009](./docs/adr/0009-node-host-and-transport.md) | A node host process serves the kernel over HTTP, and the app is its client    |
+| #                                                     | Decision                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [0001](./docs/adr/0001-kernel-composition.md)         | Effect-native kernel, data-shaped declarations, generation reload             |
+| [0002](./docs/adr/0002-plugin-facets-and-scope.md)    | A plugin is one identity with facets, activated host-wide or per thread       |
+| [0003](./docs/adr/0003-session-log.md)                | The session is an immutable event log, projected as state, stored as a tree   |
+| [0004](./docs/adr/0004-presentation-seam.md)          | Typed RPC to the server; the view mirrors the active graph                    |
+| [0005](./docs/adr/0005-inference-runtime.md)          | Inference is an ordinary plugin: effect-uai, model as plugin, tools as JSON   |
+| [0006](./docs/adr/0006-harness-layer.md)              | Many harnesses on one host: registry, session ownership, thread configuration |
+| [0007](./docs/adr/0007-pi-bridge.md)                  | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
+| [0008](./docs/adr/0008-monorepo-unpublished.md)       | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
+| [0009](./docs/adr/0009-node-host-and-transport.md)    | A node host process serves the kernel over HTTP, and the app is its client    |
+| [0010](./docs/adr/0010-durable-sessions.md)           | Durable sessions in the host: the log is opened, resumed, and reprojected     |
+| [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
 
 ## Stack
 
@@ -85,3 +90,7 @@ agent-browser snapshot -i
 agent-browser click @e13
 agent-browser screenshot shot.png
 ```
+
+## License
+
+oru is MIT. See [LICENSE](./LICENSE).

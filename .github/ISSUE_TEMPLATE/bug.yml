@@ -1,0 +1,40 @@
+name: Bug report
+description: A reproduction another person can run
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The oru version, git SHA, or `pnpm --filter @oru/host start --version` output you ran.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal steps another person can copy. Commands and inputs, not a narrative.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >
+        If the host has written a log file, attach it. The planned path is
+        `<dataDir>/logs/oru.log` once rotating logs land (issue 20). If that
+        file is not there, paste the terminal output from the host.
+    validations:
+      required: false
