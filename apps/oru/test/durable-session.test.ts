@@ -257,7 +257,10 @@ describe('durable sessions across two hosts', () => {
             yield* (yield* host.service(Inference)).whenIdle(thread)
             const entries = yield* log.entries
             // At least once: the request that outlived its host ran again.
-            expect(yield* Ref.get(calls)).toBe(2)
+            expect(yield* Ref.get(calls)).toBe(3)
+            // The demo model repeats its script on a fresh host, so the turn it
+            // is asked for again runs its tool again and closes with an answer
+            // rather than parking on a request nobody will answer.
             expect(tagsOf(laneOf(entries, thread))).toEqual([
               'thread/created',
               'message/appended',
@@ -266,7 +269,10 @@ describe('durable sessions across two hosts', () => {
               'tool/requested',
               'tool/completed',
               'tool/requested',
+              'tool/completed',
+              'message/appended',
             ])
+            expect(bodiesOf(laneOf(entries, thread)).at(-1)).toBe('assistant:done')
             expect(workOf(foldThread(entries, thread))).toEqual(Idle.make({}))
           }),
         )
