@@ -404,4 +404,44 @@ describe('inference architecture', () => {
       }),
     )
   })
+
+  it('fails a turn with the harness health instead of running it', async () => {
+    const installCommand = 'npm install -g @earendil-works/pi-coding-agent@latest'
+    let ran = false
+    const sick = defineHarness({
+      meta: { id: 'sick', label: 'Sick' },
+      capabilities: { ...defaultCapabilities, tools: false, ownsHistory: true },
+      listModels: () => Effect.succeed([{ id: 'sick/one', label: 'Sick One' }]),
+      health: () =>
+        Effect.succeed({
+          status: 'not_installed',
+          message: 'pi is not on PATH',
+          installCommand,
+        }),
+      streamTurn: () => {
+        ran = true
+        return Stream.empty
+      },
+    })
+    const sickPlugin = definePlugin({
+      id: 'oru/harness-sick',
+      provides: [HarnessKind.of(sick)],
+    })
+
+    await run(
+      Effect.gen(function* () {
+        const host = yield* makeHost([harnessRegistryPlugin, sickPlugin, inferencePlugin])
+        const inference = yield* host.service(Inference)
+        const log = yield* SessionLog
+        yield* inference.configure('t1', { harness: 'sick' })
+        yield* inference.send('t1', 'hello')
+        yield* inference.whenIdle('t1')
+        expect(ran).toBe(false)
+        const failed = (yield* log.entries).find((event) => event._tag === 'turn/failed')
+        expect(failed?._tag === 'turn/failed' ? failed.reason : '').toBe(
+          `pi is not on PATH. Run: ${installCommand}`,
+        )
+      }),
+    )
+  })
 })

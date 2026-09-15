@@ -20,7 +20,10 @@ export const ThreadRpc = RpcGroup.make(
   }),
   /** What the pane needs to offer a choice: current configuration and the options. */
   Rpc.make('ThreadOptions', {
-    payload: { threadId: ThreadId },
+    payload: {
+      threadId: ThreadId,
+      refresh: Schema.optionalKey(Schema.Boolean),
+    },
     success: ThreadOptions,
   }),
   Rpc.make('ConfigureThread', {
