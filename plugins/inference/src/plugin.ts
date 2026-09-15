@@ -1,5 +1,5 @@
 import { Context, Effect, Scope } from 'effect'
-import { definePlugin, SessionLog, type PluginContext } from '@oru/kernel'
+import { BootKind, definePlugin, SessionLog, type PluginContext } from '@oru/kernel'
 import { Harnesses } from '@oru/harness'
 import { Inference, openInference } from './inference.ts'
 import { ToolKind } from './tool-kind.ts'
@@ -13,6 +13,9 @@ const setup = (ctx: PluginContext) =>
       .pipe(Effect.map((entries) => entries.map((entry) => entry.value)))
     const scope = yield* Scope.Scope
     const inference = yield* openInference(log, harnesses, loadTools, scope)
+    // A restarted host finishes what the journal left running, once the graph
+    // the loop reads is assembled (ADR-0009).
+    yield* ctx.contribute(BootKind.of(inference.resume()))
     return Context.make(Inference, inference)
   })
 

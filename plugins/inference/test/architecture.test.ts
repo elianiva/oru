@@ -8,8 +8,10 @@ import {
   definePlugin,
   foldActivePlugins,
   makeHost,
+  pathOfLane,
   SessionLog,
   sessionLogLayer,
+  threadLane,
   type SessionEvent,
 } from '@oru/kernel'
 import { HarnessKind, defaultCapabilities, defineHarness } from '@oru/harness'
@@ -228,9 +230,19 @@ describe('inference architecture', () => {
         yield* inference.fork({ sourceThreadId: 'chosen', targetThreadId: 'copy' })
         expect(calls).toEqual(['stop', 'compact', 'discard', 'fork:copy'])
 
-        // The compaction the bridge reported is a fact, with oru's own leaf as
-        // the entry the compacted view keeps from (ADR-0006).
-        const compaction = (yield* log.entries).find((event) => event._tag === 'thread/compacted')
+        const entries = yield* log.entries
+        // The fork is a fact on the new lane: it names the entry it continues
+        // from, so a restart reprojects the branch without the bridge copying
+        // anything (ADR-0009).
+        const branch = entries.find((event) => event._tag === 'thread/branched')
+        const sourceLeaf = pathOfLane(entries, threadLane('chosen')).at(-1)
+        expect(branch?._tag === 'thread/branched' ? branch.thread : '').toBe('copy')
+        expect(branch?._tag === 'thread/branched' ? branch.fromId : '').toBe(sourceLeaf?.id)
+
+        // The compaction the bridge reported is a fact, and the view it keeps is
+        // oru's: from the thread's latest request, so a summary replaces what
+        // came before it (ADR-0009).
+        const compaction = entries.find((event) => event._tag === 'thread/compacted')
         expect(compaction?._tag === 'thread/compacted' ? compaction.summary : '').toBe('kept')
       }),
     )

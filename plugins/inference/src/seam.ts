@@ -33,7 +33,7 @@ export const historyOf = (
           history.push(Items.userText(event.summary))
         },
         'thread/branched': (event) => {
-          history.push(Items.userText(event.summary))
+          if (event.summary !== undefined) history.push(Items.userText(event.summary))
         },
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},

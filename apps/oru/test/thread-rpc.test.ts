@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Fiber, Result, Stream } from 'effect'
+import { Context, Effect, Fiber, Stream } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { RpcTest } from 'effect/unstable/rpc'
 import {
@@ -8,8 +8,10 @@ import {
   foldThreadConfig as foldConfig,
   makeHost,
   MessageAppended,
+  pathOfLane,
   SessionLog,
   sessionLogLayer,
+  threadLane,
   unsignedTree,
 } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
@@ -62,6 +64,7 @@ const stubEnginePlugin = definePlugin({
               }),
             ),
           whenIdle: () => Effect.void,
+          resume: () => Effect.void,
           listModels: () => Effect.succeed([]),
           steer: (thread, text) =>
             log.write(
@@ -280,28 +283,35 @@ describe('thread configuration', () => {
     )
   })
 
-  it('treats lifecycle operations a bridge does not support as nothing to do', async () => {
+  it('reprojects a fork on the log when the bridge cannot copy a session', async () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const { host, client } = yield* setup()
+          const log = yield* SessionLog
           const created = yield* client.CreateThread({ cwd: undefined })
           // harness-oru keeps no session of its own, so releasing one is a no-op
-          // rather than a failure; forking is a capability it does not have.
+          // rather than a failure.
           yield* client.StopThread({ threadId: created.threadId })
           yield* client.DiscardThread({ threadId: created.threadId })
-          const inference = yield* host.service(Inference)
-          const forked = yield* Effect.result(
-            inference.fork({ sourceThreadId: created.threadId, targetThreadId: 'other' }),
+          const forked = yield* client.ForkThread({
+            sourceThreadId: created.threadId,
+            cwd: undefined,
+          })
+          const entries = yield* log.entries
+          const sourceLeaf = pathOfLane(entries, threadLane(created.threadId)).at(-1)
+          const branch = entries.find(
+            (event) => event._tag === 'thread/branched' && event.thread === forked.threadId,
           )
-          expect(Result.isFailure(forked)).toBe(true)
-          if (Result.isFailure(forked)) {
-            const failure = forked.failure
-            expect(failure._tag).toBe('HarnessError')
-            if (failure._tag === 'HarnessError') {
-              expect(failure.code).toBe('unsupported_operation')
-            }
-          }
+          // Forking does not need the bridge's snapshot: the new lane names the
+          // entry it continues from, and a restart reprojects it (ADR-0009).
+          expect(branch?._tag === 'thread/branched' ? branch.fromId : '').toBe(sourceLeaf?.id)
+          expect(
+            pathOfLane(entries, threadLane(forked.threadId)).map((event) => event._tag),
+          ).toEqual(['thread/created', 'thread/configured', 'thread/branched'])
+          expect(workOf(foldThread(entries, forked.threadId))).toEqual(Idle.make({}))
+          const inference = yield* host.service(Inference)
+          yield* inference.whenIdle(forked.threadId)
         }).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
       ),
     )
