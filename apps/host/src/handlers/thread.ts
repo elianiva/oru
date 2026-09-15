@@ -32,6 +32,16 @@ const healthOf = (harness: HarnessService): Effect.Effect<HarnessChoice['health'
           ),
         )
 
+const refreshHealthOf = (host: Host): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const registry = yield* host.service(Harnesses)
+    for (const entry of yield* registry.list()) {
+      if (entry.harness.refreshHealth !== undefined) {
+        yield* entry.harness.refreshHealth()
+      }
+    }
+  })
+
 const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =>
   Effect.gen(function* () {
     const registry = yield* host.service(Harnesses)
@@ -135,8 +145,11 @@ export const threadRpcHandlers = (host: Host) => ({
         )
       }).pipe(Effect.orDie),
     ),
-  ThreadOptions: (payload: { readonly threadId: ThreadId }) =>
-    optionsOf(host, payload.threadId).pipe(Effect.orDie),
+  ThreadOptions: (payload: { readonly threadId: ThreadId; readonly refresh?: boolean }) =>
+    Effect.gen(function* () {
+      if (payload.refresh === true) yield* refreshHealthOf(host)
+      return yield* optionsOf(host, payload.threadId)
+    }).pipe(Effect.orDie),
   ConfigureThread: (payload: {
     readonly threadId: ThreadId
     readonly harness: string | undefined

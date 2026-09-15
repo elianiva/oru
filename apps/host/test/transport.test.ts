@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
-import { Harnesses } from '@oru/harness'
+import { definePlugin } from '@oru/kernel'
+import { HarnessKind, Harnesses, defineHarness } from '@oru/harness'
 import { GraphRpc, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
 import { Inference } from '@oru/inference'
 import { corePlugins, echoToolPlugin, loggingPlugin, serveHost } from '../src/index.ts'
@@ -131,5 +132,50 @@ describe('the RPC transport', () => {
       reasoning: undefined,
     })
     expect(options.models.map((model) => model.id)).toContain('mock')
+  })
+
+  it('re-probes harness health when ThreadOptions refresh is set', async () => {
+    let refreshes = 0
+    const sick = defineHarness({
+      meta: { id: 'sick', label: 'Sick' },
+      health: () =>
+        Effect.succeed({
+          status: 'not_installed',
+          message: 'pi is not on PATH',
+          installCommand: 'npm install -g @earendil-works/pi-coding-agent@latest',
+        }),
+      refreshHealth: () =>
+        Effect.sync(() => {
+          refreshes += 1
+        }),
+      streamTurn: () => Stream.empty,
+    })
+    const sickPlugin = definePlugin({
+      id: 'oru/harness-sick',
+      provides: [HarnessKind.of(sick)],
+    })
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const running = yield* serveHost({
+            plugins: [...corePlugins, sickPlugin],
+            hostname: '127.0.0.1',
+            port: 0,
+          })
+          return yield* Effect.gen(function* () {
+            const thread = yield* ThreadClient
+            const created = yield* thread.create(process.cwd())
+            const first = yield* thread.options(created.threadId)
+            expect(refreshes).toBe(0)
+            expect(
+              first.harnesses.find((choice) => choice.id === 'sick')?.health.installCommand,
+            ).toBe('npm install -g @earendil-works/pi-coding-agent@latest')
+            yield* thread.options(created.threadId, { refresh: true })
+            expect(refreshes).toBe(1)
+          }).pipe(Effect.provide(clientsFor(running.url)))
+        }),
+      ),
+    )
   })
 })
