@@ -238,16 +238,12 @@ export const threadRpcHandlers = (host: Host) => ({
     Effect.gen(function* () {
       const inference = yield* host.service(Inference)
       const log = yield* SessionLog
-      const source = foldThreadConfig(yield* log.entries, payload.sourceThreadId)
+      // Without a cwd the fork inherits its source's, which is where the session
+      // it resumes was written. `Inference.fork` carries the configuration.
       const created = yield* createThread(
         host,
         payload.cwd ?? foldThreadCwd(yield* log.entries, payload.sourceThreadId),
       )
-      // The copy runs under the same bridge and model as its source, otherwise
-      // the new thread would resume someone else's session.
-      yield* inference.configure(created.threadId, source)
-      // Without a cwd the copy inherits its source's, which is where the
-      // session it resumes was written.
       yield* inference.fork(
         payload.cwd === undefined
           ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }

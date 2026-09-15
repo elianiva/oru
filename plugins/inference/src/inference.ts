@@ -574,6 +574,18 @@ export const openInference = (
         Effect.gen(function* () {
           const events = yield* log.entries
           const fromId = lastEventIdOf(events, request.sourceThreadId)
+          // The fork runs as its source did until someone says otherwise.
+          const config = foldThreadConfig(events, request.sourceThreadId)
+          yield* log.write(
+            ThreadConfigured.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread: request.targetThreadId,
+              harness: config.harness,
+              model: config.model,
+              reasoning: config.reasoning,
+            }),
+          )
           // The lane is oru's: the fork reaches back to the entry it continues
           // from whether or not the harness can copy a session of its own.
           if (fromId !== undefined) {
@@ -587,7 +599,7 @@ export const openInference = (
               }),
             )
           }
-          const harness = yield* resolveHarness(foldThreadConfig(events, request.sourceThreadId))
+          const harness = yield* resolveHarness(config)
           if (harness?.fork === undefined) return
           yield* harness.fork(request)
         }),
