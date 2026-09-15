@@ -242,3 +242,101 @@ describe('kernel activation', () => {
     )
   })
 })
+
+describe('kernel thread-scoped activation', () => {
+  const ToolKind = defineContributionKind<{ readonly name: string }>('oru/tool')
+
+  const hostSearch = definePlugin({
+    id: 'host-search',
+    provides: [ToolKind.of({ name: 'host-search' })],
+  })
+
+  const threadPing = definePlugin({
+    id: 'thread-ping',
+    scope: 'thread',
+    provides: [ToolKind.of({ name: 'ping' }), Greeter],
+    server: {
+      setup: () =>
+        Effect.gen(function* () {
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              events.push('ping:open')
+            }),
+            () =>
+              Effect.sync(() => {
+                events.push('ping:close')
+              }),
+          )
+          return Context.make(Greeter, {
+            greet: (name) => Effect.succeed(`ping ${name}`),
+          })
+        }),
+    },
+  })
+
+  it('activates a thread-scoped plugin per thread and hides it from the host graph and siblings', async () => {
+    events.length = 0
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([hostSearch, threadPing])
+          const hostGraph = yield* host.graph
+          expect(hostGraph.active.has('host-search')).toBe(true)
+          expect(hostGraph.active.has('thread-ping')).toBe(false)
+          expect((yield* host.contributions(ToolKind)).map((c) => c.value.name)).toEqual([
+            'host-search',
+          ])
+
+          yield* host.openThread('own')
+          yield* host.openThread('sibling')
+          yield* host.activate(threadPing, 'own')
+
+          const ownTools = (yield* host.contributions(ToolKind, 'own')).map((c) => c.value.name)
+          expect(ownTools).toEqual(['host-search', 'ping'])
+          const siblingTools = (yield* host.contributions(ToolKind, 'sibling')).map(
+            (c) => c.value.name,
+          )
+          expect(siblingTools).toEqual(['host-search'])
+          expect((yield* host.graphFor('own')).active.has('thread-ping')).toBe(true)
+          expect((yield* host.graphFor('sibling')).active.has('thread-ping')).toBe(false)
+
+          const greeter = yield* host.service(Greeter, 'own')
+          expect(yield* greeter.greet('own')).toBe('ping own')
+
+          yield* host.closeThread('own')
+          expect((yield* host.contributions(ToolKind, 'own')).map((c) => c.value.name)).toEqual([
+            'host-search',
+          ])
+          expect(events.filter((event) => event.startsWith('ping:'))).toEqual([
+            'ping:open',
+            'ping:close',
+          ])
+        }),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+    )
+  })
+
+  it('does not give a subagent thread its parent thread-scoped tools', async () => {
+    events.length = 0
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([threadPing])
+          yield* host.openThread('parent')
+          yield* host.activate(threadPing, 'parent')
+          expect((yield* host.contributions(ToolKind, 'parent')).map((c) => c.value.name)).toEqual([
+            'ping',
+          ])
+          expect(yield* (yield* host.service(Greeter, 'parent')).greet('parent')).toBe(
+            'ping parent',
+          )
+
+          yield* host.openThread('subagent')
+          expect(
+            (yield* host.contributions(ToolKind, 'subagent')).map((c) => c.value.name),
+          ).toEqual([])
+        }),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+    )
+  })
+})
