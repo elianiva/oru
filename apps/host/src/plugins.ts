@@ -2,7 +2,7 @@ import { Context, Effect, Schema } from 'effect'
 import { definePlugin, defineService } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
-import { harnessPiPlugin } from '@oru/harness-pi'
+import { harnessPiPlugin, makePiHarness } from '@oru/harness-pi'
 import { defineTool, demoModelPlugin, inferencePlugin, ToolKind } from '@oru/inference'
 import { PanelUi } from './panel.ts'
 
@@ -89,4 +89,9 @@ export const corePlugins = [
  * (ADR-0006). Only a node process can carry `oru/harness-pi`, because a bridge
  * spawns a process, and this is that process (ADR-0007).
  */
-export const hostPlugins = [...corePlugins, harnessPiPlugin()]
+export const hostPluginsWith = (env: NodeJS.ProcessEnv) => [
+  ...corePlugins,
+  harnessPiPlugin(makePiHarness({ env })),
+]
+
+export const hostPlugins = hostPluginsWith(process.env)

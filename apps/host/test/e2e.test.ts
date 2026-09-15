@@ -140,6 +140,7 @@ describe('a running host', () => {
 
     const host = await startedHost(['--port', '0'], {
       ...scripted.env,
+      ORU_HOME: scratchDir('oru-host-e2e-home-'),
       ORU_JOURNAL: join(scratchDir('oru-host-e2e-journal-'), 'journal.db'),
     })
     cleanups.push(() => host.stop())
@@ -174,6 +175,7 @@ describe('a running host', () => {
     const scratch = scratchDir('oru-host-live-')
     const host = await startedHost(['--port', '0'], {
       ...process.env,
+      ORU_HOME: scratch,
       ORU_JOURNAL: join(scratch, 'journal.db'),
       // The account and the model are the user's; the session is a temp file,
       // so the run never touches their own threads.

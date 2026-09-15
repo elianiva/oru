@@ -4,13 +4,13 @@ ADR-0003 promised that resume, fork, and crash recovery reproject the log. This 
 
 ## The journal is a file the host opens
 
-`sqliteJournalLayer(filename)` provides an `EventJournal` backed by a node SQLite client, and `serveHost` opens it when the caller names a file: `--journal`, or `ORU_JOURNAL`, or `~/.oru/oru.db`. Two host instances against one file are the restart case the tests drive.
+`sqliteJournalLayer(filename)` provides an `EventJournal` backed by a node SQLite client, and `serveHost` opens it when the caller names a file. The host resolves that file as `--journal`, then `config.json` `journal`, then `ORU_JOURNAL`, then `$home/data/oru.db` (ADR-0012). Two host instances against one file are the restart case the tests drive.
 
 The journal belongs to the caller's scope. Building it inside `serveHost` and providing it there released it as soon as the host was assembled, which a memory journal survives and a file one does not: the first call a client made after that found its statements finalized.
 
 `makeHost` takes the `SessionLog` service instead of building its own reader over the same journal. Two of them stamp leaves under two locks, which is how two facts come to share a leaf (ADR-0003), and the SQL driver rejects the overlap outright.
 
-It is the kernel's only node entry point (`@oru/kernel/sqlite`), so the browser host never pulls a filesystem driver into its bundle. Which directory holds oru's data, and how that choice precedes the others, is issue #19's.
+It is the kernel's only node entry point (`@oru/kernel/sqlite`), so the browser host never pulls a filesystem driver into its bundle. Which directory holds oru's data, and how that choice precedes the others, is [ADR-0012](./0012-config-precedence.md).
 
 ## Opening the journal resumes the lanes it names
 

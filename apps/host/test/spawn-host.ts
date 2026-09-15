@@ -19,9 +19,15 @@ const collect = (child: ChildProcess) => {
 }
 
 /** Run the host binary to completion: `--help`, `--version`, or a bad argument. */
-export const ranHost = (args: readonly string[]): Promise<Ran> => {
+export const ranHost = (
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Ran> => {
   const settled = Promise.withResolvers<Ran>()
-  const child = spawn(process.execPath, [main, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, [main, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env,
+  })
   const { out, err } = collect(child)
   let stdout = ''
   let stderr = ''
