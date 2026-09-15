@@ -8,4 +8,8 @@ allowBuilds:
   msgpackr-extract: false
   protobufjs: false
 overrides:
+  # The platform packages track effect's own version. `platform-node` accepts
+  # any 4.0.0-rc of its shared half, and the newer ones import modules this
+  # pinned effect does not ship.
+  '@effect/platform-node-shared': 4.0.0-rc.112
   vite: 8.2.2

@@ -70,8 +70,11 @@ export class PiCatalog {
   private inflight: Promise<PiCatalogProbe> | null = null
   private version: { readonly at: number; readonly raw: string | undefined } | null = null
   private threadDefault: string | null = null
+  private readonly deps: PiCatalogDeps
 
-  constructor(private readonly deps: PiCatalogDeps) {}
+  constructor(deps: PiCatalogDeps) {
+    this.deps = deps
+  }
 
   /** pi reported the default it resolved for a thread; prefer it for the marker. */
   observeThreadDefault(modelId: string | null): void {

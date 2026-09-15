@@ -234,11 +234,13 @@ export class PiSession {
   private model: string | null = null
   private reasoning: string | null = null
   private toolBridge: PiToolBridge | null = null
+  private readonly threadId: string
+  private readonly deps: PiSessionDeps
 
-  constructor(
-    private readonly threadId: string,
-    private readonly deps: PiSessionDeps,
-  ) {}
+  constructor(threadId: string, deps: PiSessionDeps) {
+    this.threadId = threadId
+    this.deps = deps
+  }
 
   get sessionFile(): string {
     return sessionFileFor(this.deps.paths, this.threadId)
