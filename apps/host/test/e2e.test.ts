@@ -73,13 +73,10 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
           }
 
           const watching = yield* thread.watch(created.threadId).pipe(
-            // A turn ends with the assistant's message or with a reported
-            // failure. Collecting a count instead would hang on a failure and
-            // report a timeout instead of what the bridge said.
+            // A turn ends with usage when the harness reported tokens, or with
+            // a failure. Collecting a count instead would hang on a failure.
             Stream.takeUntil(
-              (event) =>
-                event._tag === 'turn/failed' ||
-                (event._tag === 'message/appended' && event.role === 'assistant'),
+              (event) => event._tag === 'turn/failed' || event._tag === 'turn/usage',
             ),
             Stream.runCollect,
             Effect.forkScoped,
@@ -132,6 +129,7 @@ const TURN_FACTS = [
   'tool/requested',
   'tool/completed',
   'message/appended',
+  'turn/usage',
 ]
 
 describe('a running host', () => {

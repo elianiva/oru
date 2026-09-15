@@ -20,6 +20,7 @@ import {
   ToolCompletedLine,
   ToolRequestedLine,
   TurnLine,
+  UsageLine,
   UserLine,
 } from '../src/transcript.ts'
 
@@ -269,27 +270,54 @@ describe('root view', () => {
 
   it('shows a failed turn in the transcript', () => {
     const thread = {
+      ...idleThread(),
       threadId: 't1',
-      draft: '',
       lines: [
         UserLine.make({ body: 'hello' }),
         TurnLine.make({}),
         FailedLine.make({ reason: 'provider down' }),
       ],
-      live: [],
-      config: { harness: undefined, model: undefined, reasoning: undefined },
-      harnesses: [],
-      models: [],
-      projects: [demoProject],
-      selected: demoProject.id,
-      project: demoProject,
-      newName: '',
-      newCwd: '',
     }
     Scene.scene(
       { update, view },
       Scene.given({ ...init().model, panels: bothPanels, thread }),
       Scene.expect(Scene.text('turn/failed provider down')).toExist(),
+    )
+  })
+
+  it('shows folded token totals and context window on the thread pane', () => {
+    const thread = {
+      ...ThreadPanel.init(),
+      threadId: 't1',
+      sawUsage: true,
+      usage: { inputTokens: 11, outputTokens: 3, cost: 0.04 },
+      context: { tokens: 40, contextWindow: 128_000 },
+    }
+    Scene.scene(
+      { update, view },
+      Scene.given({ ...init().model, panels: bothPanels, thread }),
+      Scene.expect(Scene.selector('[data-thread-usage]')).toExist(),
+      Scene.expect(Scene.text('tokens 11 in / 3 out · cost 0.04')).toExist(),
+      Scene.expect(Scene.selector('[data-thread-context]')).toExist(),
+      Scene.expect(Scene.text('context 40/128000')).toExist(),
+    )
+  })
+
+  it('folds usage facts from the watch stream into the header', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given({
+        ...idle,
+        thread: { ...ThreadPanel.init(), threadId: 't1' },
+      }),
+      Scene.Subscription.emit(
+        Message.GotThreadMessage({
+          message: ThreadPanel.Message.LineArrived({
+            line: UsageLine.make({ inputTokens: 11, outputTokens: 3, cost: 0.04 }),
+          }),
+        }),
+      ),
+      Scene.expect(Scene.text('tokens 11 in / 3 out · cost 0.04')).toExist(),
     )
   })
 

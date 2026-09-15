@@ -18,6 +18,7 @@ export const PiUsage = Schema.Struct({
   cacheRead: Schema.optionalKey(Schema.Number),
   cacheWrite: Schema.optionalKey(Schema.Number),
   totalTokens: Schema.optionalKey(Schema.Number),
+  cost: Schema.optionalKey(Schema.Struct({ total: Schema.Number })),
 })
 export type PiUsage = typeof PiUsage.Type
 

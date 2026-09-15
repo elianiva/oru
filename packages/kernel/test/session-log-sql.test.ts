@@ -5,15 +5,20 @@ import { SqliteClient } from '@effect/sql-sqlite-node'
 import {
   foldActivePlugins,
   foldNamedThreads,
+  foldThreadContextWindow,
+  foldThreadUsage,
   MessageAppended,
   pathOfLane,
   SessionActivated,
   SessionLog,
   sessionLogLayer,
   threadLane,
+  ThreadContextWindow,
   ThreadCreated,
+  TurnUsage,
   unsignedTree,
 } from '../src/index'
+import { sqliteJournalLayer } from '../src/sqlite.ts'
 
 const runSql = <A, E>(
   effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,
@@ -101,5 +106,64 @@ describe('sql session log', () => {
         expect(pathOfLane(entries, threadLane('t1')).map((event) => event.id)).toEqual(written)
       }).pipe(Effect.provideService(Clock.Clock, frozenClock)),
     )
+  })
+
+  it('reprojects usage from a file after the writer process is gone', async () => {
+    const file = `/tmp/oru-usage-${Date.now().toString(36)}.db`
+    const withFile = <A, E>(
+      effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,
+    ) =>
+      Effect.runPromise(
+        Effect.scoped(
+          effect.pipe(Effect.provide(sessionLogLayer), Effect.provide(sqliteJournalLayer(file))),
+        ),
+      )
+
+    await withFile(
+      Effect.gen(function* () {
+        const log = yield* SessionLog
+        yield* log.write(
+          ThreadCreated.make({
+            ...unsignedTree,
+            id: 'e0',
+            thread: 't1',
+            project: 'p1',
+          }),
+        )
+        yield* log.write(
+          TurnUsage.make({
+            ...unsignedTree,
+            id: 'e1',
+            thread: 't1',
+            turn: 'turn-1',
+            inputTokens: 11,
+            outputTokens: 3,
+            cost: 0.04,
+          }),
+        )
+        yield* log.write(
+          ThreadContextWindow.make({
+            ...unsignedTree,
+            id: 'e2',
+            thread: 't1',
+            tokens: 40,
+            contextWindow: 128_000,
+          }),
+        )
+      }),
+    )
+
+    const replayed = await withFile(
+      Effect.gen(function* () {
+        const log = yield* SessionLog
+        const entries = yield* log.entries
+        return {
+          usage: foldThreadUsage(entries, 't1'),
+          context: foldThreadContextWindow(entries, 't1'),
+        }
+      }),
+    )
+    expect(replayed.usage).toEqual({ inputTokens: 11, outputTokens: 3, cost: 0.04 })
+    expect(replayed.context).toEqual({ tokens: 40, contextWindow: 128_000 })
   })
 })
