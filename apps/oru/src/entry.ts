@@ -12,7 +12,6 @@ import { Model, init, subscriptions, update, view } from './root.ts'
 const hostUrl = import.meta.env.VITE_ORU_HOST_URL ?? ''
 
 const program = Effect.gen(function* () {
-  const resources = yield* clientsFor(hostUrl)
   const container = document.getElementById('root')
   const application = Runtime.makeElement({
     Model,
@@ -21,7 +20,7 @@ const program = Effect.gen(function* () {
     view,
     subscriptions,
     container,
-    resources,
+    resources: clientsFor(hostUrl),
   })
   Runtime.run(application)
   yield* Effect.never

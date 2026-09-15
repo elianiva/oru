@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Stream, type Scope } from 'effect'
+import { Context, Effect, Layer, Stream } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { RpcClient, RpcClientError } from 'effect/unstable/rpc'
 import type { PluginId, SessionEvent, ThreadId } from '@oru/kernel'
@@ -84,18 +84,21 @@ export const threadClientOf = (
  * Both facades, wired to a host over the real transport.
  *
  * The view asks for `GraphRpc` and `ThreadClient` and never sees the URLs, the
- * framing, or the RPC groups. `hostUrl` is a prefix, so `''` targets whatever
- * origin served the app and an absolute URL targets a host somewhere else.
+ * framing, or the RPC groups. It is a layer because that is what a caller
+ * wants: the runtime's resources, or an `Effect.provide`.
+ *
+ * `hostUrl` is a prefix, so `''` targets whatever origin served the app and an
+ * absolute URL targets a host somewhere else.
  */
-export const clientsFor = (
-  hostUrl: string,
-): Effect.Effect<Layer.Layer<GraphRpc | ThreadClient>, never, Scope.Scope> =>
-  Effect.gen(function* () {
-    const host = yield* RpcClient.make(HostRpc).pipe(
-      Effect.provide(protocolFor(`${hostUrl}${hostRpcPath}`)),
-    )
-    const thread = yield* RpcClient.make(ThreadRpc).pipe(
-      Effect.provide(protocolFor(`${hostUrl}${threadRpcPath}`)),
-    )
-    return Layer.mergeAll(graphRpcOf(host), threadClientOf(thread))
-  })
+export const clientsFor = (hostUrl: string): Layer.Layer<GraphRpc | ThreadClient> =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const host = yield* RpcClient.make(HostRpc).pipe(
+        Effect.provide(protocolFor(`${hostUrl}${hostRpcPath}`)),
+      )
+      const thread = yield* RpcClient.make(ThreadRpc).pipe(
+        Effect.provide(protocolFor(`${hostUrl}${threadRpcPath}`)),
+      )
+      return Layer.mergeAll(graphRpcOf(host), threadClientOf(thread))
+    }),
+  )

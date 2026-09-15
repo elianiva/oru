@@ -13,6 +13,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "vitest run test/e2e.test.ts",
     "dev": "node src/main.ts",
     "start": "node src/main.ts"
   },

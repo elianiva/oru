@@ -4,6 +4,7 @@ export { viewGraphOf } from './graph.ts'
 export {
   Greeter,
   Logger,
+  corePlugins,
   echoToolPlugin,
   fixturePlugins,
   greeterPlugin,

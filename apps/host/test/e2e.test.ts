@@ -58,7 +58,6 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const clients = yield* clientsFor(url)
         return yield* Effect.gen(function* () {
           const thread = yield* ThreadClient
           const created = yield* thread.create(cwd)
@@ -99,7 +98,7 @@ const runTurn = (url: string, cwd: string, model: string): Promise<TurnResult> =
             toolResult: completed?._tag === 'tool/completed' ? completed.result : '',
             failed: failed?._tag === 'turn/failed' ? failed.reason : undefined,
           } satisfies TurnResult
-        }).pipe(Effect.provide(clients))
+        }).pipe(Effect.provide(clientsFor(url)))
       }),
     ),
   )
@@ -109,14 +108,13 @@ const piHealth = (url: string): Promise<string> =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const clients = yield* clientsFor(url)
         return yield* Effect.gen(function* () {
           const thread = yield* ThreadClient
           const created = yield* thread.create(process.cwd())
           const options = yield* thread.options(created.threadId)
           const pi = options.harnesses.find((choice) => choice.id === 'pi')
           return pi === undefined ? 'missing' : pi.health.status
-        }).pipe(Effect.provide(clients))
+        }).pipe(Effect.provide(clientsFor(url)))
       }),
     ),
   )
