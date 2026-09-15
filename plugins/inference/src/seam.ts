@@ -42,6 +42,8 @@ export const historyOf = (
         'thread/configured': () => {},
         'turn/started': () => {},
         'turn/failed': () => {},
+        'turn/usage': () => {},
+        'thread/context-window': () => {},
         'agent/inbox/spliced': () => {},
       }),
     )

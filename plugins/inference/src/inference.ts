@@ -19,10 +19,12 @@ import {
   ThreadBranched,
   ThreadCompacted,
   ThreadConfigured,
+  ThreadContextWindow,
   ToolCompleted,
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  TurnUsage,
   compactionCut,
   foldNamedThreads,
   foldThreadConfig,
@@ -48,6 +50,7 @@ import {
   type Mutable,
 } from '@oru/harness'
 import { demoModelId } from './demo-model.ts'
+import { decodeReportedUsage, recordedUsageOf } from './reported-usage.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
 import { foldThread, workOf } from './session-fold.ts'
 import type { ToolContribution } from './tool-kind.ts'
@@ -132,6 +135,7 @@ interface CollectedTurn {
     readonly modifiedFiles: readonly string[]
   }[]
   readonly toolResults: ReadonlyMap<string, { readonly ok: boolean; readonly result: string }>
+  readonly contextWindow: Option.Option<{ readonly tokens: number; readonly contextWindow: number }>
 }
 
 /**
@@ -148,6 +152,9 @@ const collectTurn = (
     const turn = yield* Ref.make(Option.none<Turn.Turn>())
     const compactions = yield* Ref.make<CollectedTurn['compactions']>([])
     const toolResults = yield* Ref.make(new Map<string, { ok: boolean; result: string }>())
+    const contextWindow = yield* Ref.make(
+      Option.none<{ readonly tokens: number; readonly contextWindow: number }>(),
+    )
     yield* stream.pipe(
       Stream.runForEach((event) =>
         Match.value(event).pipe(
@@ -169,9 +176,12 @@ const collectTurn = (
               new Map(map).set(event.call_id, { ok: event.ok, result: event.result }),
             ),
           ),
-          // Every other lifecycle fact has no home in the log, and the streaming
-          // deltas were already watched live: keep only what gets recorded
-          // (ADR-0006).
+          Match.tag('ContextWindow', (event) =>
+            Ref.set(
+              contextWindow,
+              Option.some({ tokens: event.tokens, contextWindow: event.contextWindow }),
+            ),
+          ),
           Match.orElse(() => Effect.void),
         ),
       ),
@@ -180,6 +190,7 @@ const collectTurn = (
       turn: yield* Ref.get(turn),
       compactions: yield* Ref.get(compactions),
       toolResults: yield* Ref.get(toolResults),
+      contextWindow: yield* Ref.get(contextWindow),
     }
   })
 
@@ -281,6 +292,21 @@ const persistTurn = (
       }
     }
     yield* flush()
+    const parsed = decodeReportedUsage(assembled.usage)
+    if (parsed._tag === 'None') return
+    const usage = recordedUsageOf(parsed.value)
+    if (usage === undefined) return
+    yield* log.write(
+      TurnUsage.make({
+        ...unsignedTree,
+        id: yield* newId(),
+        thread,
+        turn,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cost: usage.cost,
+      }),
+    )
   })
 
 export const openInference = (
@@ -439,6 +465,17 @@ export const openInference = (
           continue
         }
         yield* persistTurn(log, thread, turn, assembled.turn.value, assembled.toolResults, prompt)
+        if (Option.isSome(assembled.contextWindow)) {
+          yield* log.write(
+            ThreadContextWindow.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread,
+              tokens: assembled.contextWindow.value.tokens,
+              contextWindow: assembled.contextWindow.value.contextWindow,
+            }),
+          )
+        }
       }
     })
 

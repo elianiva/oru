@@ -11,7 +11,19 @@ import { button } from '@/components/ui/button.ts'
 import { Empty } from '@/components/ui/empty.ts'
 import { inputClass } from '@/components/ui/input.ts'
 import { Item } from '@/components/ui/item.ts'
-import { labelOf, TranscriptLine } from './transcript.ts'
+import { labelOf, TranscriptLine, UsageLine } from './transcript.ts'
+
+const UsageTotals = Schema.Struct({
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  cost: Schema.UndefinedOr(Schema.Number),
+})
+
+const emptyUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cost: undefined,
+} satisfies typeof UsageTotals.Type
 
 export const Model = Schema.Struct({
   threadId: Schema.UndefinedOr(ThreadId),
@@ -19,6 +31,15 @@ export const Model = Schema.Struct({
   lines: Schema.Array(TranscriptLine),
   /** The turn happening right now, as the harness reports it. */
   live: Schema.Array(ThreadSignal),
+  /** Totals folded from `turn/usage` facts the watch stream already delivered. */
+  usage: UsageTotals,
+  sawUsage: Schema.Boolean,
+  context: Schema.UndefinedOr(
+    Schema.Struct({
+      tokens: Schema.Number,
+      contextWindow: Schema.Number,
+    }),
+  ),
   config: ThreadConfig,
   harnesses: Schema.Array(HarnessChoice),
   models: Schema.Array(ModelInfo),
@@ -56,6 +77,9 @@ export const init = (): Model => ({
   draft: '',
   lines: [],
   live: [],
+  usage: emptyUsage,
+  sawUsage: false,
+  context: undefined,
   config: { harness: undefined, model: undefined, reasoning: undefined },
   harnesses: [],
   models: [],
@@ -102,6 +126,10 @@ export const update = (model: Model, message: Message) =>
         ...applied(model, options),
         threadId,
         live: [],
+        lines: [],
+        usage: emptyUsage,
+        sawUsage: false,
+        context: undefined,
       },
     }),
     OptionsArrived: (options) => ({ model: applied(model, options) }),
@@ -115,13 +143,39 @@ export const update = (model: Model, message: Message) =>
     },
     ClickedStop: () => ({ model, outMessage: OutMessage.RequestedStop() }),
     ClickedCompact: () => ({ model, outMessage: OutMessage.RequestedCompact() }),
-    LineArrived: ({ line }) => ({
-      // The facts of a turn replace what the live stream drew while it ran.
-      model:
-        line._tag === 'turn' || line._tag === 'turn/failed'
-          ? { ...model, live: [], lines: [...model.lines, line] }
-          : { ...model, lines: [...model.lines, line] },
-    }),
+    LineArrived: ({ line }) => {
+      if (line._tag === 'turn/usage') {
+        return {
+          model: {
+            ...model,
+            sawUsage: true,
+            usage: {
+              inputTokens: model.usage.inputTokens + line.inputTokens,
+              outputTokens: model.usage.outputTokens + line.outputTokens,
+              cost:
+                line.cost === undefined && model.usage.cost === undefined
+                  ? undefined
+                  : (model.usage.cost ?? 0) + (line.cost ?? 0),
+            },
+          },
+        }
+      }
+      if (line._tag === 'context-window') {
+        return {
+          model: {
+            ...model,
+            context: { tokens: line.tokens, contextWindow: line.contextWindow },
+          },
+        }
+      }
+      return {
+        // The facts of a turn replace what the live stream drew while it ran.
+        model:
+          line._tag === 'turn' || line._tag === 'turn/failed'
+            ? { ...model, live: [], lines: [...model.lines, line] }
+            : { ...model, lines: [...model.lines, line] },
+      }
+    },
     SignalArrived: ({ signal }) => ({
       // The live stream ends before that turn's facts are written, so settling
       // is what clears it. A turn that fails clears it on its failed line.
@@ -249,6 +303,33 @@ export const view = defineView<Model, Message>((model, h) => {
             'Compact',
             h,
           ),
+          ...(model.sawUsage
+            ? [
+                h.span(
+                  [h.Attribute('data-thread-usage', ''), h.Class('text-sm text-muted-foreground')],
+                  [
+                    labelOf(
+                      UsageLine.make({
+                        inputTokens: model.usage.inputTokens,
+                        outputTokens: model.usage.outputTokens,
+                        cost: model.usage.cost,
+                      }),
+                    ),
+                  ],
+                ),
+              ]
+            : []),
+          ...(model.context !== undefined
+            ? [
+                h.span(
+                  [
+                    h.Attribute('data-thread-context', ''),
+                    h.Class('text-sm text-muted-foreground'),
+                  ],
+                  [`context ${model.context.tokens}/${model.context.contextWindow}`],
+                ),
+              ]
+            : []),
         ],
       ),
       h.div(

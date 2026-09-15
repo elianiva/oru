@@ -128,7 +128,9 @@ export const usageOfEntries = (entries: readonly PiEntry[]): Items.Usage => {
   let cacheRead = 0
   let cacheWrite = 0
   let total = 0
+  let cost = 0
   let seen = false
+  let seenCost = false
   for (const entry of entries) {
     const message = messageOfEntry(entry)
     if (message === undefined || message.role !== 'assistant') continue
@@ -139,14 +141,20 @@ export const usageOfEntries = (entries: readonly PiEntry[]): Items.Usage => {
     cacheRead += usage.cacheRead ?? 0
     cacheWrite += usage.cacheWrite ?? 0
     total += usage.totalTokens ?? usage.input + usage.output
+    if (usage.cost !== undefined) {
+      seenCost = true
+      cost += usage.cost.total
+    }
   }
   if (!seen) return {}
-  return {
+  const usage: Items.Usage = {
     input_tokens: input,
     output_tokens: output,
     total_tokens: total,
     input_tokens_details: { cached_tokens: cacheRead, cache_write_tokens: cacheWrite },
   }
+  if (seenCost) Object.assign(usage, { cost })
+  return usage
 }
 
 export const stopReasonOfEntries = (entries: readonly PiEntry[]): Items.StopReason => {
