@@ -10,3 +10,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Added
 
 - MIT `LICENSE`, contribution guide, changelog, and a GitHub bug-report form.
+- Host configuration: `~/.oru/config.json` (mode 0600), a `data/` directory, `config list` / `set` / `unset`, and one precedence chain (flags, then file, then environment, then defaults).

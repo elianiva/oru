@@ -8,6 +8,7 @@ Status: active development.
 
 - [CONTEXT.md](./CONTEXT.md) — the domain glossary.
 - [docs/adr](./docs/adr) — architecture decision records.
+- [docs/configuration.md](./docs/configuration.md) — host settings, precedence, and keys.
 - [PLAN.md](./PLAN.md) — build plan.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
@@ -28,6 +29,7 @@ Status: active development.
 | [0009](./docs/adr/0009-node-host-and-transport.md)    | A node host process serves the kernel over HTTP, and the app is its client    |
 | [0010](./docs/adr/0010-durable-sessions.md)           | Durable sessions in the host: the log is opened, resumed, and reprojected     |
 | [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
+| [0012](./docs/adr/0012-config-precedence.md)          | One catalog, one file, flags then file then env then defaults                 |
 
 ## Stack
 
@@ -39,9 +41,12 @@ TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool
 
 ```
 pnpm --filter @oru/host start          # http://127.0.0.1:7317
-pnpm --filter @oru/host start --help   # --help, --version, --host, --port
+pnpm --filter @oru/host start --help   # flags, config list/set/unset, --version
+pnpm --filter @oru/host start -- config list
 pnpm dev                               # the host and the browser app together
 ```
+
+Settings are flags, then `~/.oru/config.json`, then `ORU_*` / `ORU_PI_*` environment variables, then built-in defaults. The file is created with mode `0600`. The listen address is loopback until you set `host`. Details are in [docs/configuration.md](./docs/configuration.md).
 
 `apps/oru` is a client of a running host. It reads the host URL from `VITE_ORU_HOST_URL` and defaults to its own origin; in development the Vite dev server forwards `/rpc` to the host, so both are one command and one origin.
 
