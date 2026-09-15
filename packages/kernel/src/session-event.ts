@@ -71,6 +71,30 @@ export const TurnFailed = Schema.TaggedStruct('turn/failed', {
   reason: Schema.String,
 })
 
+/**
+ * What one harness turn consumed, when the harness reported tokens or cost.
+ * Absent `cost` means the harness did not report one, not that the turn was free.
+ */
+export const TurnUsage = Schema.TaggedStruct('turn/usage', {
+  ...Tree,
+  thread: ThreadId,
+  turn: TurnId,
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  cost: Schema.UndefinedOr(Schema.Number),
+})
+
+/**
+ * How full the model's context window was, as the harness last reported it.
+ * Latest on the path is the pane's answer after a restart.
+ */
+export const ThreadContextWindow = Schema.TaggedStruct('thread/context-window', {
+  ...Tree,
+  thread: ThreadId,
+  tokens: Schema.Number,
+  contextWindow: Schema.Number,
+})
+
 export const MessageAppended = Schema.TaggedStruct('message/appended', {
   ...Tree,
   thread: ThreadId,
@@ -137,6 +161,8 @@ export const SessionEvent = Schema.Union([
   ThreadConfigured,
   TurnStarted,
   TurnFailed,
+  TurnUsage,
+  ThreadContextWindow,
   MessageAppended,
   ToolRequested,
   ToolCompleted,

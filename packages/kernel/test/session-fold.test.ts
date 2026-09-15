@@ -3,6 +3,11 @@ import {
   MessageAppended,
   SessionActivated,
   ThreadCreated,
+  ThreadContextWindow,
+  TurnUsage,
+  chain,
+  foldThreadContextWindow,
+  foldThreadUsage,
   leafOf,
   pathFromLeaf,
   relink,
@@ -87,5 +92,61 @@ describe('session tree', () => {
     expect(leafOf(events, threadLane('t1'))).toBe('e3')
     expect(pathFromLeaf(events, 'e3').map((event) => event.id)).toEqual(['e0', 'e1', 'e3'])
     expect(abandoned.id).toBe('e2')
+  })
+})
+
+describe('foldThreadUsage', () => {
+  it('sums turn usage on the lane and keeps the latest context window', () => {
+    const events = chain([
+      ThreadCreated.make({
+        ...unsignedTree,
+        id: 'e0',
+        thread: 't1',
+        project: 'p1',
+      }),
+      TurnUsage.make({
+        ...unsignedTree,
+        id: 'e1',
+        thread: 't1',
+        turn: 'turn-1',
+        inputTokens: 10,
+        outputTokens: 4,
+        cost: 0.02,
+      }),
+      ThreadContextWindow.make({
+        ...unsignedTree,
+        id: 'e2',
+        thread: 't1',
+        tokens: 80,
+        contextWindow: 200,
+      }),
+      TurnUsage.make({
+        ...unsignedTree,
+        id: 'e3',
+        thread: 't1',
+        turn: 'turn-2',
+        inputTokens: 2,
+        outputTokens: 1,
+        cost: undefined,
+      }),
+      ThreadContextWindow.make({
+        ...unsignedTree,
+        id: 'e4',
+        thread: 't1',
+        tokens: 90,
+        contextWindow: 200,
+      }),
+    ])
+    expect(foldThreadUsage(events, 't1')).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      cost: 0.02,
+    })
+    expect(foldThreadContextWindow(events, 't1')).toEqual({ tokens: 90, contextWindow: 200 })
+    expect(foldThreadUsage(events, 't2')).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cost: undefined,
+    })
   })
 })

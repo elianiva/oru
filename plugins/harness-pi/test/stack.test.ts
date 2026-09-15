@@ -115,6 +115,8 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'project/created': () => false,
         'turn/started': (event) => event.thread === thread,
         'turn/failed': (event) => event.thread === thread,
+        'turn/usage': (event) => event.thread === thread,
+        'thread/context-window': (event) => event.thread === thread,
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
@@ -174,6 +176,8 @@ describe('harness-pi in a host', () => {
           'tool/requested',
           'tool/completed',
           'message/appended',
+          'turn/usage',
+          'thread/context-window',
         ])
         expect(bodiesOf(events)).toEqual([
           'user:/tool echo {"text":"hi"}',

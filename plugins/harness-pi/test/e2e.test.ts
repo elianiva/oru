@@ -163,6 +163,8 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'agent/inbox/spliced': (event) => event.thread === thread,
         'turn/started': (event) => event.thread === thread,
         'turn/failed': (event) => event.thread === thread,
+        'turn/usage': (event) => event.thread === thread,
+        'thread/context-window': (event) => event.thread === thread,
         'message/appended': (event) => event.thread === thread,
         'tool/requested': (event) => event.thread === thread,
         'tool/completed': (event) => event.thread === thread,
@@ -216,7 +218,9 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
 
         // The model answered through pi, and its answer is oru's fact.
         expect(failed).toBeUndefined()
-        expect(events.at(-1)?._tag).toBe('message/appended')
+        expect(
+          events.some((event) => event._tag === 'message/appended' && event.role === 'assistant'),
+        ).toBe(true)
         expect(
           transcriptOf(events).some(
             (line) => line.startsWith('assistant: ') && line.length > 'assistant: '.length,
