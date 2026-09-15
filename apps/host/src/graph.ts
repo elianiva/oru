@@ -1,5 +1,5 @@
 import { Effect, Option } from 'effect'
-import type { AnyPlugin, Host } from '@oru/kernel'
+import type { AnyPlugin, Host, ThreadId } from '@oru/kernel'
 import { Inference } from '@oru/inference'
 import type { ViewGraph } from '@oru/rpc'
 import { decodePanelUi } from './panel.ts'
@@ -11,10 +11,14 @@ import { decodePanelUi } from './panel.ts'
  * Reading it is what keeps the view a projection: nothing here is cached, so a
  * plugin that activates or deactivates is visible on the next read.
  */
-export const viewGraphOf = (host: Host, plugins: readonly AnyPlugin[]): Effect.Effect<ViewGraph> =>
+export const viewGraphOf = (
+  host: Host,
+  plugins: readonly AnyPlugin[],
+  thread?: ThreadId,
+): Effect.Effect<ViewGraph> =>
   Effect.gen(function* () {
     const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
-    const graph = yield* host.graph
+    const graph = yield* thread === undefined ? host.graph : host.graphFor(thread)
     const active = [...graph.active.keys()].flatMap((plugin) => {
       const ui = decodePanelUi(byId.get(plugin)?.ui)
       if (Option.isNone(ui)) return []

@@ -168,6 +168,11 @@ export const HarnessHealth = Schema.Struct({
 })
 export type HarnessHealth = typeof HarnessHealth.Type
 
+export const explanationOfHealth = (health: HarnessHealth): string => {
+  const message = health.message ?? health.status
+  return health.installCommand === undefined ? message : `${message}. Run: ${health.installCommand}`
+}
+
 /** A harness's own checkpoint, opaque to the runtime. */
 export interface HarnessForkRequest {
   readonly sourceThreadId: string
@@ -237,6 +242,7 @@ export interface HarnessService {
     request: HarnessCompactRequest,
   ) => Effect.Effect<HarnessCompaction, HarnessError>
   readonly health?: () => Effect.Effect<HarnessHealth, HarnessError>
+  readonly invalidateHealth?: () => Effect.Effect<void>
 }
 
 /**
@@ -293,6 +299,7 @@ export const defineHarness = (spec: {
     request: HarnessCompactRequest,
   ) => Effect.Effect<HarnessCompaction, HarnessError>
   readonly health?: () => Effect.Effect<HarnessHealth, HarnessError>
+  readonly invalidateHealth?: () => Effect.Effect<void>
 }): HarnessService => {
   const streamTurn = spec.streamTurn
   const service: Mutable<HarnessService> = {
@@ -311,5 +318,6 @@ export const defineHarness = (spec: {
   if (spec.fork !== undefined) service.fork = spec.fork
   if (spec.compact !== undefined) service.compact = spec.compact
   if (spec.health !== undefined) service.health = spec.health
+  if (spec.invalidateHealth !== undefined) service.invalidateHealth = spec.invalidateHealth
   return service
 }

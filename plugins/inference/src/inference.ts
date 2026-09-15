@@ -41,6 +41,8 @@ import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
 import {
   HarnessError,
+  HarnessHealth,
+  explanationOfHealth,
   type HarnessEvent,
   type HarnessForkRequest,
   type HarnessService,
@@ -488,6 +490,31 @@ export const openInference = (
                 configuration.harness === undefined
                   ? 'no harness is active on this host'
                   : `no harness named "${configuration.harness}" is active`,
+            }),
+          )
+          continue
+        }
+
+        const health =
+          harness.health === undefined
+            ? HarnessHealth.make({ status: 'ready' })
+            : yield* harness
+                .health()
+                .pipe(
+                  Effect.catch((error) =>
+                    Effect.succeed(
+                      HarnessHealth.make({ status: 'unknown', message: error.message }),
+                    ),
+                  ),
+                )
+        if (health.status !== 'ready') {
+          yield* log.write(
+            TurnFailed.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              thread,
+              turn,
+              reason: explanationOfHealth(health),
             }),
           )
           continue

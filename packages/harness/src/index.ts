@@ -1,6 +1,7 @@
 export {
   HarnessError,
   HarnessHealth,
+  explanationOfHealth,
   HarnessKind,
   HarnessLifecycle,
   Harnesses,

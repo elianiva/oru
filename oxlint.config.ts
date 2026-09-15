@@ -19,6 +19,8 @@ export default defineConfig({
     'apps/oru/src/components/**',
     'apps/oru/src/lib/icons.ts',
     'apps/oru/src/lib/utils.ts',
+    'apps/oru/e2e/**',
+    'apps/oru/playwright.config.ts',
   ],
   jsPlugins: [
     { name: 'anti-slop', specifier: './tools/oxlint/anti-slop/index.ts' },
