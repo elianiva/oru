@@ -1,51 +1,18 @@
 import './index.css'
-import { Effect, Layer, Stream } from 'effect'
-import { EventJournal } from 'effect/unstable/eventlog'
-import { RpcTest } from 'effect/unstable/rpc'
-import { makeHost, sessionLogLayer } from '@oru/kernel'
+import { Effect } from 'effect'
+import { clientsFor } from '@oru/rpc'
 import { Runtime } from 'foldkit'
-import { fixtureTitles, hostPlugins } from './fixtures.ts'
-import { GraphRpc } from './graph-rpc.ts'
-import { HostRpc, hostRpcHandlers } from './host-rpc.ts'
 import { Model, init, subscriptions, update, view } from './root.ts'
-import { ThreadClient } from './thread-client.ts'
-import { ThreadRpc, threadRpcHandlers } from './thread-rpc.ts'
+
+/**
+ * The app is a client of a running host, not a host itself. A host that is not
+ * the origin serving this page is named by `VITE_ORU_HOST_URL`; by default the
+ * page talks to its own origin, which is the dev server's proxy to the host.
+ */
+const hostUrl = import.meta.env.VITE_ORU_HOST_URL ?? ''
 
 const program = Effect.gen(function* () {
-  const host = yield* makeHost(hostPlugins)
-  const hostClient = yield* RpcTest.makeClient(HostRpc).pipe(
-    Effect.provide(HostRpc.toLayer(hostRpcHandlers(host, hostPlugins, fixtureTitles))),
-  )
-  const threadClient = yield* RpcTest.makeClient(ThreadRpc).pipe(
-    Effect.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
-  )
-  const resources = Layer.mergeAll(
-    Layer.succeed(GraphRpc, {
-      watch: hostClient.WatchGraph().pipe(Stream.orDie),
-      setLive: (plugin, live) => hostClient.SetLive({ plugin, live }).pipe(Effect.orDie),
-    }),
-    Layer.succeed(ThreadClient, {
-      create: (cwd) => threadClient.CreateThread({ cwd }).pipe(Effect.orDie),
-      send: (threadId, text) => threadClient.SendMessage({ threadId, text }).pipe(Effect.orDie),
-      watch: (threadId) => threadClient.WatchThread({ threadId }).pipe(Stream.orDie),
-      options: (threadId) => threadClient.ThreadOptions({ threadId }).pipe(Effect.orDie),
-      configure: (threadId, configuration) =>
-        threadClient
-          .ConfigureThread({
-            threadId,
-            harness: configuration.harness,
-            model: configuration.model,
-            reasoning: configuration.reasoning,
-          })
-          .pipe(Effect.orDie),
-      watchSignals: (threadId) => threadClient.WatchSignals({ threadId }).pipe(Stream.orDie),
-      stop: (threadId) => threadClient.StopThread({ threadId }).pipe(Effect.orDie),
-      compact: (threadId, instructions) =>
-        threadClient.CompactThread({ threadId, instructions }).pipe(Effect.orDie),
-      fork: (sourceThreadId, cwd) =>
-        threadClient.ForkThread({ sourceThreadId, cwd }).pipe(Effect.orDie),
-    }),
-  )
+  const resources = yield* clientsFor(hostUrl)
   const container = document.getElementById('root')
   const application = Runtime.makeElement({
     Model,
@@ -60,8 +27,4 @@ const program = Effect.gen(function* () {
   yield* Effect.never
 })
 
-Effect.runFork(
-  Effect.scoped(
-    program.pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
-  ),
-)
+Effect.runFork(Effect.scoped(program))

@@ -73,22 +73,3 @@ export const signalOf = (event: HarnessEvent): ThreadSignal | undefined =>
     Match.tag('TurnComplete', () => LiveSettled.make({})),
     Match.orElse(() => undefined),
   )
-
-export const liveLabelOf = (signal: ThreadSignal): string =>
-  Match.value(signal).pipe(
-    Match.tagsExhaustive({
-      text: (signal) => signal.delta,
-      thinking: (signal) => `thinking: ${signal.delta}`,
-      'tool-start': (signal) => `tool ${signal.name} running`,
-      'tool-args': () => '',
-      'tool-end': (signal) => `tool ${signal.name} ${signal.ok ? 'done' : 'failed'}`,
-      compacting: (signal) => (signal.automatic ? 'compacting' : 'compacting (requested)'),
-      compacted: (signal) => `compacted ${signal.tokensBefore} tokens`,
-      'context-window': (signal) => `context ${signal.tokens}/${signal.contextWindow}`,
-      'session-replaced': (signal) => `session replaced: ${signal.reason}`,
-      warning: (signal) => `warning: ${signal.message}`,
-      error: (signal) => `error: ${signal.message}`,
-      unhandled: (signal) => `unhandled: ${signal.type}`,
-      settled: () => 'turn settled',
-    }),
-  )

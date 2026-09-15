@@ -1,8 +1,10 @@
-import { Context, Effect, Option, Schema } from 'effect'
+import { Context, Effect, Schema } from 'effect'
 import { definePlugin, defineService } from '@oru/kernel'
 import { harnessOruPlugin } from '@oru/harness-oru'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
+import { harnessPiPlugin } from '@oru/harness-pi'
 import { defineTool, demoModelPlugin, inferencePlugin, ToolKind } from '@oru/inference'
+import { PanelUi } from './panel.ts'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -15,13 +17,6 @@ interface GreeterService {
 }
 
 export const Greeter = defineService<GreeterService>('oru/greeter')
-
-export const PanelUi = Schema.Struct({
-  title: Schema.String,
-})
-export type PanelUi = typeof PanelUi.Type
-
-export const decodePanelUi = Schema.decodeUnknownOption(PanelUi)
 
 export const loggingPlugin = definePlugin({
   id: 'logging',
@@ -47,6 +42,11 @@ export const greeterPlugin = definePlugin({
   },
 })
 
+/**
+ * The slice's two-plugin pair: `logging` provides, `greeter` consumes. Toggling
+ * `logging` offline is what shows a coeffect doing its work, and it is the only
+ * thing the panel view has to render before a thread exists.
+ */
 export const fixturePlugins = [greeterPlugin, loggingPlugin]
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -66,13 +66,12 @@ export const echoToolPlugin = definePlugin({
 })
 
 /**
- * The app's host.
+ * The host's plugin set.
  *
  * The registry is what makes harnesses plural: any plugin that contributes
  * under `HarnessKind` shows up in the picker without the host knowing it
- * (ADR-0006). A bridge that spawns a process, `oru/harness-pi`, belongs to a
- * node host, so the browser app carries the registry and the in-process bridge,
- * and a node host is where the others are added.
+ * (ADR-0006). Only a node process can carry `oru/harness-pi`, because a bridge
+ * spawns a process, and this is that process (ADR-0007).
  */
 export const hostPlugins = [
   ...fixturePlugins,
@@ -80,14 +79,6 @@ export const hostPlugins = [
   echoToolPlugin,
   demoModelPlugin,
   harnessOruPlugin,
+  harnessPiPlugin(),
   inferencePlugin,
 ]
-
-export const fixtureTitles: ReadonlyMap<string, string> = new Map(
-  fixturePlugins.flatMap((plugin) =>
-    Option.match(decodePanelUi(plugin.ui), {
-      onNone: () => [],
-      onSome: (ui) => [[plugin.id, ui.title] as const],
-    }),
-  ),
-)

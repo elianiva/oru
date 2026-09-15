@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HashMap } from 'effect'
 import * as Scene from 'foldkit/scene'
-import { Inference } from '@oru/inference'
-import { CreateThread, Message, update, wiredView as view, init } from '../src/root.ts'
+import { Message, update, wiredView as view, init } from '../src/root.ts'
 import * as PluginPanel from '../src/plugin-panel.ts'
 import * as ThreadPanel from '../src/thread-panel.ts'
 import {
@@ -13,19 +12,10 @@ import {
   UserLine,
 } from '../src/transcript.ts'
 
-const emptyOptions = (threadId: string) => ({
-  threadId,
-  options: {
-    config: { harness: undefined, model: undefined, reasoning: undefined },
-    harnesses: [],
-    models: [],
-  },
-})
-
 describe('root view', () => {
   const bothPanels = HashMap.fromIterable([
-    ['logging', PluginPanel.init({ title: 'Log' })],
-    ['greeter', PluginPanel.init({ title: 'Greet' })],
+    ['logging', PluginPanel.init('Log')],
+    ['greeter', PluginPanel.init('Greet')],
   ])
   const idle = { ...init().model, panels: bothPanels, thread: undefined }
 
@@ -37,7 +27,7 @@ describe('root view', () => {
       Scene.expect(Scene.text('Log')).toExist(),
       Scene.Subscription.emit(
         Message.GraphArrived({
-          graph: { active: [{ plugin: 'logging', title: 'Log' }], tokens: [] },
+          graph: { active: [{ plugin: 'logging', title: 'Log' }], tokens: [], agent: false },
         }),
       ),
       Scene.expect(Scene.text('Greet')).not.toExist(),
@@ -57,6 +47,7 @@ describe('root view', () => {
               { plugin: 'greeter', title: 'Greet' },
             ],
             tokens: [],
+            agent: false,
           },
         }),
       ),
@@ -76,6 +67,7 @@ describe('root view', () => {
             { plugin: 'greeter', title: 'Greet' },
           ],
           tokens: [],
+          agent: false,
         },
       }),
     )
@@ -95,7 +87,7 @@ describe('root view', () => {
     )
   })
 
-  it('opens a thread panel when the Inference token is live', () => {
+  it('opens a thread panel when the host has an agent loop', () => {
     const next = update(
       idle,
       Message.GraphArrived({
@@ -104,7 +96,8 @@ describe('root view', () => {
             { plugin: 'logging', title: 'Log' },
             { plugin: 'engines/stub', title: 'engines/stub' },
           ],
-          tokens: [Inference.key],
+          tokens: [],
+          agent: true,
         },
       }),
     )
@@ -112,13 +105,14 @@ describe('root view', () => {
     expect('commands' in next ? next.commands : undefined).toHaveLength(1)
   })
 
-  it('does not open a thread panel for the inference plugin id without the token', () => {
+  it('does not open a thread panel when no agent loop is live', () => {
     const next = update(
       idle,
       Message.GraphArrived({
         graph: {
           active: [{ plugin: 'oru/inference', title: 'oru/inference' }],
           tokens: [],
+          agent: false,
         },
       }),
     )
@@ -149,32 +143,6 @@ describe('root view', () => {
       Scene.expect(Scene.text('tool/requested echo')).toExist(),
       Scene.expect(Scene.text('tool/completed echo')).toExist(),
       Scene.expect(Scene.text('assistant: done')).toExist(),
-    )
-  })
-
-  it('does not mount a title panel for plugins without ui', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given({ ...init().model, panels: HashMap.empty(), thread: undefined }),
-      Scene.Subscription.emit(
-        Message.GraphArrived({
-          graph: {
-            active: [
-              { plugin: 'model/fake', title: 'model/fake' },
-              { plugin: 'engines/stub', title: 'engines/stub' },
-            ],
-            tokens: [Inference.key],
-          },
-        }),
-      ),
-      Scene.Command.resolve(
-        CreateThread,
-        Message.GotThreadMessage({
-          message: ThreadPanel.Message.Opened(emptyOptions('t1')),
-        }),
-      ),
-      Scene.expect(Scene.text('model/fake')).not.toExist(),
-      Scene.expect(Scene.text('Send')).toExist(),
     )
   })
 })

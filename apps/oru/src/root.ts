@@ -4,36 +4,24 @@ import type { HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { Inference } from '@oru/inference'
 import { PluginId, ThreadId } from '@oru/kernel'
+import { GraphRpc, ThreadClient, ThreadConfig, ViewGraph } from '@oru/rpc'
 import { button } from '@/components/ui/button.ts'
 import * as Sidebar from '@/components/ui/sidebar.ts'
 import { syncActivePanels } from './active-panels.ts'
 import { chatStub, initInfoSidebar, initRailSidebar } from './chat-stub.ts'
-import { decodePanelUi, fixturePlugins, type PanelUi } from './fixtures.ts'
-import { GraphRpc } from './graph-rpc.ts'
 import * as PluginPanel from './plugin-panel.ts'
 import { twoPane } from './shell.ts'
-import { ThreadClient } from './thread-client.ts'
 import * as ThreadPanel from './thread-panel.ts'
 import { lineOf } from './transcript.ts'
-import { ThreadConfig } from './thread-options.ts'
-import { ViewGraph } from './view-graph.ts'
 
-const uiByPlugin = new Map(fixturePlugins.map((plugin) => [plugin.id, plugin.ui]))
-
-const panelUiFor = (id: string, fallbackTitle: string): PanelUi =>
-  Option.getOrElse(decodePanelUi(uiByPlugin.get(id)), () => ({ title: fallbackTitle }))
-
-const titledPlugins = (graph: ViewGraph): ReadonlySet<string> => {
-  const ids = new Set<string>()
-  for (const panel of graph.active) {
-    if (Option.isSome(decodePanelUi(uiByPlugin.get(panel.plugin)))) ids.add(panel.plugin)
-  }
-  return ids
-}
-
-const inferenceLive = (graph: ViewGraph): boolean => graph.tokens.includes(Inference.key)
+/**
+ * The graph already knows which plugins carry a panel: the host decides it,
+ * because a plugin's `ui` declaration is the host's to read. So the view keys
+ * its panel collection off the graph and holds no plugin knowledge at all.
+ */
+const titledPlugins = (graph: ViewGraph): ReadonlySet<string> =>
+  new Set(graph.active.map((panel) => panel.plugin))
 
 export const Model = Schema.Struct({
   panels: Schema.HashMap(PluginId, PluginPanel.Model),
@@ -216,9 +204,9 @@ export const update = (model: Model, message: Message) =>
     GraphArrived: ({ graph }) => {
       const titles = new Map(graph.active.map((panel) => [panel.plugin, panel.title]))
       const panels = syncActivePanels(model.panels, titledPlugins(graph), (id) =>
-        PluginPanel.init(panelUiFor(id, titles.get(id) ?? id)),
+        PluginPanel.init(titles.get(id) ?? id),
       )
-      if (!inferenceLive(graph)) return { model: { ...model, panels, thread: undefined } }
+      if (!graph.agent) return { model: { ...model, panels, thread: undefined } }
       if (model.thread !== undefined) return { model: { ...model, panels, thread: model.thread } }
       return {
         model: { ...model, panels, thread: ThreadPanel.init() },
