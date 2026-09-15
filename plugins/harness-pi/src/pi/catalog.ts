@@ -69,6 +69,7 @@ export class PiCatalog {
   private cached: { readonly at: number; readonly value: PiCatalogProbe } | null = null
   private inflight: Promise<PiCatalogProbe> | null = null
   private version: { readonly at: number; readonly raw: string | undefined } | null = null
+  private probeEpoch = 0
   private threadDefault: string | null = null
   private readonly deps: PiCatalogDeps
 
@@ -110,14 +111,18 @@ export class PiCatalog {
   }
 
   invalidate(): void {
+    this.probeEpoch += 1
     this.cached = null
+    this.version = null
+    this.inflight = null
   }
 
   private async installedVersion(): Promise<string | undefined> {
     const now = Date.now()
     if (this.version !== null && now - this.version.at < CACHE_TTL_MS) return this.version.raw
+    const epoch = this.probeEpoch
     const raw = probePiVersion(this.deps.launch, this.deps.env)
-    this.version = { at: now, raw }
+    if (epoch === this.probeEpoch) this.version = { at: now, raw }
     return raw
   }
 
@@ -126,9 +131,10 @@ export class PiCatalog {
     if (this.cached !== null && now - this.cached.at < CACHE_TTL_MS) {
       return Promise.resolve(this.cached.value)
     }
+    const epoch = this.probeEpoch
     this.inflight ??= this.runProbe()
       .then((value) => {
-        this.cached = { at: Date.now(), value }
+        if (epoch === this.probeEpoch) this.cached = { at: Date.now(), value }
         return value
       })
       .finally(() => {

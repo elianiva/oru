@@ -171,6 +171,7 @@ export const makePiHarness = (options: PiHarnessOptions = {}): PiHarness => {
         catch: toHarnessError,
       }),
     health: () => Effect.tryPromise({ try: () => catalog.health(), catch: toHarnessError }),
+    invalidateHealth: () => Effect.sync(() => catalog.invalidate()),
   })
 
   return {

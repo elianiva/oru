@@ -32,6 +32,16 @@ const healthOf = (harness: HarnessService): Effect.Effect<HarnessChoice['health'
           ),
         )
 
+const invalidateHealthOf = (host: Host): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const registry = yield* host.service(Harnesses)
+    for (const entry of yield* registry.list()) {
+      if (entry.harness.invalidateHealth !== undefined) {
+        yield* entry.harness.invalidateHealth()
+      }
+    }
+  })
+
 const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =>
   Effect.gen(function* () {
     const registry = yield* host.service(Harnesses)
@@ -107,6 +117,7 @@ const createThread = (
         project,
       }),
     )
+    yield* host.openThread(threadId).pipe(Effect.orDie)
     return { threadId }
   })
 
@@ -135,8 +146,11 @@ export const threadRpcHandlers = (host: Host) => ({
         )
       }).pipe(Effect.orDie),
     ),
-  ThreadOptions: (payload: { readonly threadId: ThreadId }) =>
-    optionsOf(host, payload.threadId).pipe(Effect.orDie),
+  ThreadOptions: (payload: { readonly threadId: ThreadId; readonly refresh?: boolean }) =>
+    Effect.gen(function* () {
+      if (payload.refresh === true) yield* invalidateHealthOf(host)
+      return yield* optionsOf(host, payload.threadId)
+    }).pipe(Effect.orDie),
   ConfigureThread: (payload: {
     readonly threadId: ThreadId
     readonly harness: string | undefined
@@ -175,6 +189,7 @@ export const threadRpcHandlers = (host: Host) => ({
   DiscardThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.discard(payload.threadId)),
+      Effect.andThen(host.closeThread(payload.threadId)),
       Effect.orDie,
     ),
   CompactThread: (payload: {

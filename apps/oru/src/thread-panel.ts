@@ -37,6 +37,8 @@ export const Message = defineMessageUnion({
   ChangedHarness: { value: Schema.String },
   ChangedModel: { value: Schema.String },
   ChangedReasoning: { value: Schema.String },
+  ClickedRecheck: {},
+  ClickedCopyInstall: {},
 })
 export type Message = typeof Message.Type
 
@@ -45,6 +47,8 @@ export const OutMessage = defineMessageUnion({
   RequestedConfigure: { config: ThreadConfig },
   RequestedStop: {},
   RequestedCompact: {},
+  RequestedRefresh: {},
+  RequestedCopy: { text: Schema.String },
 })
 export type OutMessage = typeof OutMessage.Type
 
@@ -85,6 +89,12 @@ const applied = (model: Model, options: ThreadOptions): Model => {
     models: options.models,
   }
 }
+
+const configuredChoice = (
+  harnesses: ReadonlyArray<HarnessChoice>,
+  harness: string | undefined,
+): HarnessChoice | undefined =>
+  harness === undefined ? harnesses[0] : harnesses.find((choice) => choice.id === harness)
 
 const optionsFor = (
   h: HtmlBuilder<Message>,
@@ -151,6 +161,12 @@ export const update = (model: Model, message: Message) =>
         },
       }),
     }),
+    ClickedRecheck: () => ({ model, outMessage: OutMessage.RequestedRefresh() }),
+    ClickedCopyInstall: () => {
+      const command = configuredChoice(model.harnesses, model.config.harness)?.health.installCommand
+      if (command === undefined) return { model }
+      return { model, outMessage: OutMessage.RequestedCopy({ text: command }) }
+    },
   })
 
 /**
@@ -178,6 +194,9 @@ const liveLabelOf = (signal: ThreadSignal): string =>
 
 export const view = defineView<Model, Message>((model, h) => {
   const levels = levelsOf(model.models.find((choice) => choice.id === model.config.model))
+  const selected = configuredChoice(model.harnesses, model.config.harness)
+  const health = selected?.health
+  const needsFix = health !== undefined && health.status !== 'ready'
   return h.section(
     [h.Attribute('data-thread-panel', ''), h.Class('flex h-full min-h-0 flex-col')],
     [
@@ -251,6 +270,64 @@ export const view = defineView<Model, Message>((model, h) => {
           ),
         ],
       ),
+      ...(needsFix && health !== undefined
+        ? [
+            h.div(
+              [
+                h.Attribute('data-harness-health', ''),
+                h.Class('flex shrink-0 flex-col gap-2 border-b border-border-seam px-4 py-3'),
+              ],
+              [
+                h.div(
+                  [h.Class('flex flex-wrap items-center gap-2')],
+                  [
+                    badge({ variant: 'outline' }, [health.status], h),
+                    h.span(
+                      [h.Attribute('data-harness-health-message', '')],
+                      [health.message ?? health.status],
+                    ),
+                    button(
+                      {
+                        onClick: Message.ClickedRecheck(),
+                        variant: 'outline',
+                        size: 'sm',
+                        attributes: [h.Attribute('data-harness-recheck', '')],
+                      },
+                      'Recheck',
+                      h,
+                    ),
+                  ],
+                ),
+                ...(health.installCommand === undefined
+                  ? []
+                  : [
+                      h.div(
+                        [h.Class('flex min-w-0 items-center gap-2')],
+                        [
+                          h.span(
+                            [
+                              h.Attribute('data-harness-install-command', ''),
+                              h.Class('min-w-0 flex-1 font-mono text-xs break-all'),
+                            ],
+                            [health.installCommand],
+                          ),
+                          button(
+                            {
+                              onClick: Message.ClickedCopyInstall(),
+                              variant: 'outline',
+                              size: 'sm',
+                              attributes: [h.Attribute('data-harness-copy-install', '')],
+                            },
+                            'Copy',
+                            h,
+                          ),
+                        ],
+                      ),
+                    ]),
+              ],
+            ),
+          ]
+        : []),
       h.div(
         [h.Class('flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3')],
         model.lines.length === 0 && model.live.length === 0

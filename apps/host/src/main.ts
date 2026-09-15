@@ -4,7 +4,19 @@ import { ServeError } from 'effect/unstable/http/HttpServerError'
 import type { SqlError } from 'effect/unstable/sql/SqlError'
 import type { BootError } from '@oru/kernel'
 import { packageVersion, parseArgs, usage } from './cli.ts'
-import { hostPlugins } from './plugins.ts'
+import {
+  ConfigError,
+  ensureLayout,
+  isWritableKey,
+  listLines,
+  loadFileConfig,
+  openSettings,
+  piEnvOf,
+  setFileKey,
+  unsetFileKey,
+  writeFileConfig,
+} from './config.ts'
+import { hostPluginsWith } from './plugins.ts'
 import { serveHost } from './server.ts'
 
 const write = (line: string, stream: NodeJS.WriteStream) =>
@@ -56,15 +68,67 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
       return 0
     }
 
-    const running = yield* serveHost({
-      plugins: hostPlugins,
-      hostname: command.hostname,
-      port: command.port,
-      journal: command.journal,
-    })
-    yield* write(`oru host listening on ${running.url}\n`, process.stdout)
-    yield* askedToStop
-    return 0
+    try {
+      if (command._tag === 'ConfigList') {
+        const flags = command.home === undefined ? {} : { home: command.home }
+        const settings = openSettings(flags, process.env)
+        ensureLayout(settings.home.value)
+        yield* write(`${listLines(settings).join('\n')}\n`, process.stdout)
+        return 0
+      }
+      if (command._tag === 'ConfigSet') {
+        if (!isWritableKey(command.key)) {
+          yield* write(`unknown setting ${command.key}\n\n${usage}`, process.stderr)
+          return 2
+        }
+        const flags = command.home === undefined ? {} : { home: command.home }
+        const settings = openSettings(flags, process.env)
+        writeFileConfig(
+          settings.home.value,
+          setFileKey(loadFileConfig(settings.home.value), command.key, command.value),
+        )
+        yield* write(
+          `set ${command.key}; it is startup-only, so the next start reads it\n`,
+          process.stdout,
+        )
+        return 0
+      }
+      if (command._tag === 'ConfigUnset') {
+        if (!isWritableKey(command.key)) {
+          yield* write(`unknown setting ${command.key}\n\n${usage}`, process.stderr)
+          return 2
+        }
+        const flags = command.home === undefined ? {} : { home: command.home }
+        const settings = openSettings(flags, process.env)
+        writeFileConfig(
+          settings.home.value,
+          unsetFileKey(loadFileConfig(settings.home.value), command.key),
+        )
+        yield* write(
+          `unset ${command.key}; it is startup-only, so the next start reads it\n`,
+          process.stdout,
+        )
+        return 0
+      }
+
+      const settings = openSettings(command, process.env)
+      ensureLayout(settings.home.value)
+      const running = yield* serveHost({
+        plugins: hostPluginsWith(piEnvOf(process.env, settings)),
+        hostname: settings.hostname.value,
+        port: settings.port.value,
+        journal: settings.journal.value,
+      })
+      yield* write(`oru host listening on ${running.url}\n`, process.stdout)
+      yield* askedToStop
+      return 0
+    } catch (cause) {
+      if (cause instanceof ConfigError) {
+        yield* write(`oru host failed: ${cause.message}\n`, process.stderr)
+        return 2
+      }
+      throw cause
+    }
   }).pipe(
     Effect.catch((error) =>
       write(`oru host failed: ${describeFailure(error)}\n`, process.stderr).pipe(Effect.as(1)),

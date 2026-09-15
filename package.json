@@ -13,7 +13,7 @@
     "lint": "NODE_OPTIONS='--experimental-strip-types' oxlint",
     "prepare": "lefthook install",
     "typecheck": "turbo typecheck",
-    "test": "turbo test"
+    "test": "turbo test && node --test scripts/effect-lockstep.test.mjs && node scripts/effect-lockstep.mjs pnpm-lock.yaml"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.82.0",

@@ -30,7 +30,7 @@ The record is `EventJournal.layerMemory`, so facts live as long as the process. 
 
 ## Consequences
 
-- `--help`, `--version`, `--host`, and `--port` are the whole CLI, parsed by hand because a CLI framework is a dependency for four flags. `--port 0` asks the operating system for a free port, which is what the tests use.
+- `--help`, `--version`, `--home`, `--host`, `--port`, `--journal`, and `config list` / `set` / `unset` are the CLI, parsed by hand because a CLI framework is a dependency for a small flag set. `--port 0` asks the operating system for a free port, which is what the tests use. Settings resolve in `config.ts` (ADR-0012).
 - `serveHost` provides its own journal and its own scope. A caller gets a URL and a running kernel, and releasing the scope stops both.
 - SIGINT and SIGTERM resolve into a scope close, so the kernel deactivates the pi bridge and the bridge stops its children. Without it, a Ctrl-C orphans them. An open stream makes that close wait up to the platform's twenty-second preemptive shutdown.
 - `harness-pi` now reads a file at module load, so the package is node-only in a way it always was in fact. Its `@oru/harness-pi/testing` subpath exports the scripted provider, which is what lets the host's end-to-end test run hermetically and what `apps/host` depends on to prove a real pi turn.
