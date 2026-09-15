@@ -2,19 +2,23 @@ import { describe, expect, it } from 'vitest'
 import {
   MessageAppended,
   SessionActivated,
+  ThreadContextWindow,
   ToolCompleted,
   ToolRequested,
   TurnFailed,
   TurnStarted,
+  TurnUsage,
   unsignedTree,
 } from '@oru/kernel'
 import {
+  ContextWindowLine,
   FailedLine,
   labelOf,
   lineOf,
   ToolCompletedLine,
   ToolRequestedLine,
   TurnLine,
+  UsageLine,
   UserLine,
 } from '../src/transcript.ts'
 
@@ -99,5 +103,35 @@ describe('transcript', () => {
     expect(completed).toEqual(ToolCompletedLine.make({ name: 'echo' }))
     if (completed === undefined) throw new Error('expected tool completed line')
     expect(labelOf(completed)).toBe('tool/completed echo')
+  })
+
+  it('projects usage and context-window facts into labeled lines', () => {
+    const usage = lineOf(
+      TurnUsage.make({
+        ...unsignedTree,
+        id: 'e5',
+        thread: 't1',
+        turn: 'turn_1',
+        inputTokens: 11,
+        outputTokens: 3,
+        cost: 0.04,
+      }),
+    )
+    expect(usage).toEqual(UsageLine.make({ inputTokens: 11, outputTokens: 3, cost: 0.04 }))
+    if (usage === undefined) throw new Error('expected usage line')
+    expect(labelOf(usage)).toBe('tokens 11 in / 3 out · cost 0.04')
+
+    const context = lineOf(
+      ThreadContextWindow.make({
+        ...unsignedTree,
+        id: 'e6',
+        thread: 't1',
+        tokens: 40,
+        contextWindow: 128_000,
+      }),
+    )
+    expect(context).toEqual(ContextWindowLine.make({ tokens: 40, contextWindow: 128_000 }))
+    if (context === undefined) throw new Error('expected context line')
+    expect(labelOf(context)).toBe('context 40/128000')
   })
 })

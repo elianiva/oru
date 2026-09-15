@@ -19,6 +19,8 @@ export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<
           'thread/configured': () => active,
           'turn/started': () => active,
           'turn/failed': () => active,
+          'turn/usage': () => active,
+          'thread/context-window': () => active,
           'message/appended': () => active,
           'tool/requested': () => active,
           'tool/completed': () => active,
@@ -42,6 +44,8 @@ export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<T
           'thread/configured': (event) => new Set(threads).add(event.thread),
           'turn/started': (event) => new Set(threads).add(event.thread),
           'turn/failed': (event) => new Set(threads).add(event.thread),
+          'turn/usage': (event) => new Set(threads).add(event.thread),
+          'thread/context-window': (event) => new Set(threads).add(event.thread),
           'message/appended': (event) => new Set(threads).add(event.thread),
           'tool/requested': (event) => new Set(threads).add(event.thread),
           'tool/completed': (event) => new Set(threads).add(event.thread),
@@ -65,6 +69,8 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
           'thread/configured': () => projects,
           'turn/started': () => projects,
           'turn/failed': () => projects,
+          'turn/usage': () => projects,
+          'thread/context-window': () => projects,
           'message/appended': () => projects,
           'tool/requested': () => projects,
           'tool/completed': () => projects,
@@ -104,6 +110,52 @@ export const foldThreadConfig = (
     }
   }
   return { harness: undefined, model: undefined, reasoning: undefined }
+}
+
+/**
+ * Per-thread token totals, summed from `turn/usage` facts on the lane.
+ * `cost` is the sum of reported costs, or undefined when no turn reported one.
+ */
+export interface ThreadUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly cost: number | undefined
+}
+
+export const foldThreadUsage = (events: readonly SessionEvent[], thread: ThreadId): ThreadUsage => {
+  let inputTokens = 0
+  let outputTokens = 0
+  let cost: number | undefined
+  for (const event of foldThreadPath(events, thread)) {
+    if (event._tag !== 'turn/usage') continue
+    inputTokens += event.inputTokens
+    outputTokens += event.outputTokens
+    if (event.cost !== undefined) cost = (cost ?? 0) + event.cost
+  }
+  return { inputTokens, outputTokens, cost }
+}
+
+/**
+ * The latest context-window snapshot on the lane. A fact, not a live process
+ * query, so a restarted view can render fill without the harness.
+ */
+export interface ThreadContextWindowState {
+  readonly tokens: number
+  readonly contextWindow: number
+}
+
+export const foldThreadContextWindow = (
+  events: readonly SessionEvent[],
+  thread: ThreadId,
+): ThreadContextWindowState | undefined => {
+  const path = foldThreadPath(events, thread)
+  for (let index = path.length - 1; index >= 0; index--) {
+    const event = path[index]
+    if (event?._tag === 'thread/context-window') {
+      return { tokens: event.tokens, contextWindow: event.contextWindow }
+    }
+  }
+  return undefined
 }
 
 /**
