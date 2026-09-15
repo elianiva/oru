@@ -36,7 +36,10 @@ export interface ThreadClientContract {
   ) => Effect.Effect<{ readonly threadId: ThreadId; readonly project: Project }>
   readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void>
   readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent>
-  readonly options: (threadId: ThreadId) => Effect.Effect<ThreadOptions>
+  readonly options: (
+    threadId: ThreadId,
+    options?: { readonly refresh?: boolean },
+  ) => Effect.Effect<ThreadOptions>
   readonly configure: (
     threadId: ThreadId,
     configuration: ThreadConfig,
@@ -85,7 +88,10 @@ export const threadClientOf = (
     create: (project) => client.CreateThread({ project }).pipe(Effect.orDie),
     send: (threadId, text) => client.SendMessage({ threadId, text }).pipe(Effect.orDie),
     watch: (threadId) => client.WatchThread({ threadId }).pipe(Stream.orDie),
-    options: (threadId) => client.ThreadOptions({ threadId }).pipe(Effect.orDie),
+    options: (threadId, options) =>
+      client
+        .ThreadOptions(options?.refresh === true ? { threadId, refresh: true } : { threadId })
+        .pipe(Effect.orDie),
     configure: (threadId, configuration) =>
       client
         .ConfigureThread({
