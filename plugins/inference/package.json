@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "build": "oru-build-facet src/plugin.ts --store dist/facets",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@oru/harness-oru": "workspace:*",
     "@oru/harness-registry": "workspace:*",
+    "@oru/plugin-build": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }

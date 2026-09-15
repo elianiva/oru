@@ -7,11 +7,13 @@ import {
 } from './errors.ts'
 import type { Activation, Host } from './host.ts'
 import type { AnyPlugin } from './plugin.ts'
-import { PluginId } from './primitives.ts'
+import { BundleAddress, PluginId } from './primitives.ts'
 
 export interface FacetLoader {
-  readonly load: (url: string) => Effect.Effect<AnyPlugin, FacetLoadError>
-  readonly reload: (url: string) => Effect.Effect<Activation, FacetLoadError | ActivationError>
+  readonly load: (address: BundleAddress) => Effect.Effect<AnyPlugin, FacetLoadError>
+  readonly reload: (
+    address: BundleAddress,
+  ) => Effect.Effect<Activation, FacetLoadError | ActivationError>
 }
 
 const FacetId = Schema.Struct({ id: PluginId })
@@ -21,9 +23,16 @@ const FacetEnvelope = Schema.Struct({
 })
 const decodeFacetId = Schema.decodeUnknownOption(FacetId)
 const decodeEnvelope = Schema.decodeUnknownOption(FacetEnvelope)
+const decodeAddress = Schema.decodeUnknownOption(BundleAddress)
 
-export const loadFacet = (url: string): Effect.Effect<AnyPlugin, FacetLoadError> =>
-  Effect.tryPromise({
+export const loadFacet = (
+  address: string,
+  urlOf: (address: BundleAddress) => string,
+): Effect.Effect<AnyPlugin, FacetLoadError> => {
+  const parsed = decodeAddress(address)
+  if (Option.isNone(parsed)) return Effect.fail(new FacetInvalid({ url: address }))
+  const url = urlOf(parsed.value)
+  return Effect.tryPromise({
     try: () => import(url),
     catch: (cause) => new FacetImportFailed({ url, cause }),
   }).pipe(
@@ -45,8 +54,13 @@ export const loadFacet = (url: string): Effect.Effect<AnyPlugin, FacetLoadError>
       return Effect.fail(new FacetInvalid({ url }))
     }),
   )
+}
 
-export const makeFacetLoader = (host: Host): FacetLoader => ({
-  load: loadFacet,
-  reload: (url) => loadFacet(url).pipe(Effect.flatMap(host.replace)),
+export const makeFacetLoader = (
+  host: Host,
+  urlOf: (address: BundleAddress) => string,
+): FacetLoader => ({
+  load: (address) => loadFacet(address, urlOf),
+  reload: (address) =>
+    loadFacet(address, urlOf).pipe(Effect.flatMap((plugin) => host.replace(plugin, address))),
 })

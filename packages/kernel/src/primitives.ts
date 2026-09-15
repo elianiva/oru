@@ -3,6 +3,9 @@ import { Schema } from 'effect'
 export const PluginId = Schema.NonEmptyString
 export type PluginId = typeof PluginId.Type
 
+export const BundleAddress = Schema.NonEmptyString.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+export type BundleAddress = typeof BundleAddress.Type
+
 export const TokenId = Schema.NonEmptyString
 export type TokenId = typeof TokenId.Type
 
