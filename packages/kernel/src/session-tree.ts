@@ -50,11 +50,10 @@ export const leafOf = (events: readonly SessionEvent[], lane: Lane): EventId | n
 const byIdOf = (events: readonly SessionEvent[]): ReadonlyMap<EventId, SessionEvent> =>
   new Map(events.map((event) => [event.id, event]))
 
-export const pathFromLeaf = (
-  events: readonly SessionEvent[],
+const pathIn = (
+  byId: ReadonlyMap<EventId, SessionEvent>,
   leafId: EventId,
 ): readonly SessionEvent[] => {
-  const byId = byIdOf(events)
   const path: SessionEvent[] = []
   const seen = new Set<EventId>()
   let current: EventId | null = leafId
@@ -68,6 +67,11 @@ export const pathFromLeaf = (
   }
   return path.reverse()
 }
+
+export const pathFromLeaf = (
+  events: readonly SessionEvent[],
+  leafId: EventId,
+): readonly SessionEvent[] => pathIn(byIdOf(events), leafId)
 
 export const pathOfLane = (
   events: readonly SessionEvent[],
@@ -101,7 +105,7 @@ const compactedView = (path: readonly SessionEvent[]): readonly SessionEvent[] =
  * therefore cannot change when its source continues or compacts.
  */
 const ancestorsOf = (
-  events: readonly SessionEvent[],
+  byId: ReadonlyMap<EventId, SessionEvent>,
   fromId: EventId,
   seen: ReadonlySet<EventId>,
 ): readonly SessionEvent[] => {
@@ -109,11 +113,11 @@ const ancestorsOf = (
   // guard is for a log that says otherwise.
   if (seen.has(fromId)) return []
   const next = new Set(seen).add(fromId)
-  const chain = pathFromLeaf(events, fromId)
+  const chain = pathIn(byId, fromId)
   const inherited: SessionEvent[] = []
   for (const event of chain) {
     if (event._tag !== 'thread/branched') continue
-    inherited.push(...ancestorsOf(events, event.fromId, next))
+    inherited.push(...ancestorsOf(byId, event.fromId, next))
   }
   return compactedView([...inherited, ...chain])
 }
@@ -127,11 +131,13 @@ const ancestorsOf = (
  * inherits.
  */
 const memoryOf = (events: readonly SessionEvent[], thread: ThreadId): readonly SessionEvent[] => {
-  const path = pathOfLane(events, threadLane(thread))
+  const byId = byIdOf(events)
+  const leaf = leafOf(events, threadLane(thread))
+  const path = leaf === null ? [] : pathIn(byId, leaf)
   const inherited: SessionEvent[] = []
   for (const event of path) {
     if (event._tag !== 'thread/branched') continue
-    inherited.push(...ancestorsOf(events, event.fromId, new Set()))
+    inherited.push(...ancestorsOf(byId, event.fromId, new Set()))
   }
   return compactedView([...inherited, ...path])
 }
