@@ -398,7 +398,11 @@ const panel = (model: Model, options: ThreadOptions, h: HtmlBuilder<Message>): H
                   h.DataAttribute('model-empty', ''),
                   h.Class('px-3 py-4 text-sm text-muted-foreground'),
                 ],
-                ['No model matches'],
+                [
+                  options.models.length === 0
+                    ? 'This harness reported no models'
+                    : 'No model matches',
+                ],
               ),
             ]
           : groups.map((group) => groupView(group, model, h)),
