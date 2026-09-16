@@ -4,7 +4,7 @@ import * as Scene from 'foldkit/scene'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Resizable from '../src/components/ui/resizable.ts'
 import * as Composer from '../src/composer.ts'
-import { Message, init, update, view } from '../src/root.ts'
+import { Message, init, selectedThread, update, view } from '../src/root.ts'
 import {
   AppRoute,
   homeRouter,
@@ -13,6 +13,7 @@ import {
   settingsIndexRouter,
   settingsProvidersRouter,
   settingsSections,
+  threadRouter,
   titleForRoute,
   urlToAppRoute,
 } from '../src/route.ts'
@@ -259,16 +260,20 @@ describe('thread list', () => {
     expect(ThreadList.statusTone('idle')).toBe('text-muted-foreground')
   })
 
-  it('encloses a project group of more than one row, and only that one', () => {
+  it('gives each project in a section its own list', () => {
     Scene.scene(
       { update, view },
       Scene.given(init(homeUrl).model),
-      Scene.expect(
-        Scene.selector('[data-thread-section="active"] [data-thread-group="oru"]'),
-      ).toHaveClass('rounded-lg'),
-      Scene.expect(
-        Scene.selector('[data-thread-section="active"] [data-thread-group="bb-sidebar"]'),
-      ).not.toHaveClass('rounded-lg'),
+      Scene.expectAll(
+        Scene.all.selector('[data-thread-section="active"] [data-thread-group]'),
+      ).toHaveCount(2),
+      Scene.expect(Scene.selector('[data-thread-group="oru"]')).toHaveAttr(
+        'aria-label',
+        'oru threads',
+      ),
+      Scene.expect(Scene.selector('[data-thread-group="bb-sidebar"]')).toContainText(
+        'Status slot: word or age, never both',
+      ),
     )
   })
 
@@ -336,7 +341,7 @@ describe('thread list', () => {
     )
   })
 
-  it('reports a click upward and lets the app hold the selection', () => {
+  it('reports a click upward and navigates to that thread’s URL', () => {
     const click = ThreadList.update(
       ThreadList.init(),
       ThreadList.Message.ClickedThread({ id: 'sidebar-rows' }),
@@ -345,19 +350,21 @@ describe('thread list', () => {
       ThreadList.OutMessage.Selected({ id: 'sidebar-rows' }),
     )
 
+    const before = init(homeUrl).model
     const selected = update(
-      init(homeUrl).model,
+      before,
       Message.GotThreads({ message: ThreadList.Message.ClickedThread({ id: 'sidebar-rows' }) }),
     )
-    expect(selected.model.selectedThread).toEqual(Option.some('sidebar-rows'))
+    expect(selected.model).toEqual(before)
+    expect(selected.commands).toHaveLength(1)
+    expect(selected.commands?.[0]?.name).toBe('NavigateInternal')
+    expect(selected.commands?.[0]?.args).toEqual({ url: '/thread/sidebar-rows' })
   })
 
-  it('carries the selection into the right column through the shell’s slot callback', () => {
+  it('draws the selected thread from the route, in both columns', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init(homeUrl).model),
-      Scene.expect(Scene.selector('[data-detail]')).toContainText('No thread selected'),
-      Scene.click(Scene.selector('[data-thread-row="shell-retro"]')),
+      Scene.given(init(urlForPath('/thread/shell-retro')).model),
       Scene.expect(Scene.selector('[data-detail]')).toContainText(
         'Fold the resizable engine into the app shell',
       ),
@@ -365,7 +372,18 @@ describe('thread list', () => {
         'aria-current',
         'page',
       ),
+      Scene.expect(Scene.selector('[data-conversation]')).toContainText(
+        'Fold the resizable engine into the app shell',
+      ),
     )
+  })
+
+  it('reads the selection out of the route and shows no thread at home', () => {
+    expect(selectedThread(init(homeUrl).model)).toEqual(Option.none())
+    expect(selectedThread(init(urlForPath('/thread/shell-retro')).model)).toEqual(
+      Option.some('shell-retro'),
+    )
+    expect(selectedThread(init(urlForPath('/settings/general')).model)).toEqual(Option.none())
   })
 
   it('names an idle row with no status word', () => {
@@ -462,6 +480,7 @@ describe('composer', () => {
 describe('routing', () => {
   it('builds each page back to its own URL', () => {
     expect(homeRouter()).toBe('/')
+    expect(threadRouter({ threadId: 'shell-retro' })).toBe('/thread/shell-retro')
     expect(settingsIndexRouter()).toBe('/settings')
     expect(settingsGeneralRouter()).toBe('/settings/general')
     expect(settingsProvidersRouter()).toBe('/settings/providers')
@@ -470,6 +489,9 @@ describe('routing', () => {
 
   it('parses every settings section to its own route, with a fallback', () => {
     expect(urlToAppRoute(urlForPath('/'))).toEqual(AppRoute.Home())
+    expect(urlToAppRoute(urlForPath('/thread/shell-retro'))).toEqual(
+      AppRoute.Thread({ threadId: 'shell-retro' }),
+    )
     expect(urlToAppRoute(urlForPath('/settings'))).toEqual(AppRoute.SettingsGeneral())
     expect(urlToAppRoute(urlForPath('/settings/general'))).toEqual(AppRoute.SettingsGeneral())
     expect(urlToAppRoute(urlForPath('/settings/providers'))).toEqual(AppRoute.SettingsProviders())
@@ -479,6 +501,7 @@ describe('routing', () => {
 
   it('titles each route from the section list', () => {
     expect(titleForRoute(AppRoute.Home())).toBe('oru')
+    expect(titleForRoute(AppRoute.Thread({ threadId: 'shell-retro' }))).toBe('Thread | oru')
     expect(titleForRoute(AppRoute.SettingsGeneral())).toBe('General - Settings | oru')
     expect(titleForRoute(AppRoute.SettingsProviders())).toBe('Providers - Settings | oru')
     expect(titleForRoute(AppRoute.NotFound({ path: '/nope' }))).toBe('Not found | oru')
