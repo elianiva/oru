@@ -9,6 +9,11 @@ export const ProjectRpc = RpcGroup.make(
     success: Project,
     error: RelativeCwd,
   }),
+  Rpc.make('UpdateProject', {
+    payload: { project: ProjectId, name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
+    success: Project,
+    error: Schema.Union([RelativeCwd, UnknownProject]),
+  }),
   Rpc.make('ListProjects', {
     success: Schema.Array(Project),
   }),

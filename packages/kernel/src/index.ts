@@ -17,6 +17,7 @@ export {
   PluginActivated as SessionActivated,
   PluginDeactivated as SessionDeactivated,
   ProjectCreated,
+  ProjectUpdated,
   SessionEvent,
   ThreadBranched,
   ThreadCompacted,

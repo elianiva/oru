@@ -35,6 +35,19 @@ export const ProjectCreated = Schema.TaggedStruct('project/created', {
   cwd: Schema.NonEmptyString,
 })
 
+/**
+ * A project's name or cwd, as it stands after the change. One fact per change
+ * and both members required, like `thread/configured`: the latest fact on the
+ * path is the whole answer, so no reader carries a field forward from an
+ * earlier one.
+ */
+export const ProjectUpdated = Schema.TaggedStruct('project/updated', {
+  ...Tree,
+  project: ProjectId,
+  name: Schema.NonEmptyString,
+  cwd: Schema.NonEmptyString,
+})
+
 export const ThreadCreated = Schema.TaggedStruct('thread/created', {
   ...Tree,
   thread: ThreadId,
@@ -171,6 +184,7 @@ export const SessionEvent = Schema.Union([
   PluginActivated,
   PluginDeactivated,
   ProjectCreated,
+  ProjectUpdated,
   ThreadCreated,
   ThreadConfigured,
   TurnStarted,

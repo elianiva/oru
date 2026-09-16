@@ -236,3 +236,37 @@ test('the composer still submits a draft and clears the box', async ({ page }) =
   await expect(page.locator('[data-composer-input]')).toHaveValue('')
   await expect(page.locator('[data-composer-submit][data-disabled]')).toHaveCount(1)
 })
+
+/**
+ * The whole project surface in one run, against the host the suite started: the
+ * chip creates, the host's own refusal is on screen, and the name a reload shows
+ * is the one the host recorded rather than the text that was typed.
+ *
+ * It runs last because the suite shares one journal: earlier cases assert the
+ * empty state of a host with no projects.
+ */
+test('the project chip creates a project, and its name survives a reload', async ({ page }) => {
+  const cwd = dirname(fileURLToPath(import.meta.url))
+  await page.goto('/')
+
+  await page.locator('[data-composer-chip="project"]').click()
+  await page.locator('[data-composer-chip-option="new-project"]').click()
+  await page.locator('[data-composer-chip-field="name"]').fill('oru-app')
+  await page.locator('[data-composer-chip-field="cwd"]').fill('relative/place')
+  await page.locator('[data-composer-chip-submit="project"]').click()
+
+  // The host refused the cwd, so its own words are inline and nothing was made.
+  await expect(page.locator('[data-composer-chip-error="project"]')).toContainText('absolute')
+  await expect(page.locator('[data-project]')).toHaveCount(0)
+
+  await page.locator('[data-composer-chip-field="cwd"]').fill(cwd)
+  await page.locator('[data-composer-chip-submit="project"]').click()
+
+  await expect(page.locator('[data-composer-chip="project"]')).toContainText('oru-app')
+  await expect(page.locator('[data-project]')).toContainText(cwd)
+
+  await page.reload()
+
+  await expect(page.locator('[data-composer-chip="project"]')).toContainText('oru-app')
+  await expect(page.locator('[data-project]')).toContainText(cwd)
+})

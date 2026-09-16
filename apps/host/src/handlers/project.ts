@@ -2,6 +2,7 @@ import { isAbsolute } from 'node:path'
 import { Effect, Predicate } from 'effect'
 import {
   ProjectCreated,
+  ProjectUpdated,
   RelativeCwd,
   SessionLog,
   UnknownProject,
@@ -47,6 +48,33 @@ export const projectRpcHandlers = {
       const log = yield* SessionLog
       return foldProjects(yield* log.entries)
     }).pipe(Effect.orDie),
+  UpdateProject: (payload: {
+    readonly project: ProjectId
+    readonly name: string
+    readonly cwd: string
+  }) =>
+    keepProjectError(
+      Effect.gen(function* () {
+        if (!isAbsolute(payload.cwd)) {
+          return yield* new RelativeCwd({ cwd: payload.cwd })
+        }
+        const log = yield* SessionLog
+        const existing = foldProject(yield* log.entries, payload.project)
+        if (existing === undefined) {
+          return yield* new UnknownProject({ project: payload.project })
+        }
+        yield* log.write(
+          ProjectUpdated.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            project: payload.project,
+            name: payload.name,
+            cwd: payload.cwd,
+          }),
+        )
+        return { id: payload.project, name: payload.name, cwd: payload.cwd }
+      }),
+    ),
   GetProject: (payload: { readonly project: ProjectId }) =>
     keepProjectError(
       Effect.gen(function* () {

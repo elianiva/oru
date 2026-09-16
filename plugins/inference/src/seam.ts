@@ -39,6 +39,7 @@ export const historyOf = (
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},
         'project/created': () => {},
+        'project/updated': () => {},
         'thread/created': () => {},
         'thread/configured': () => {},
         'turn/started': () => {},

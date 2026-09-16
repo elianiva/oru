@@ -170,6 +170,7 @@ const threadFacts = (events: readonly SessionEvent[], thread: string): readonly 
         'plugin/activated': () => false,
         'plugin/deactivated': () => false,
         'project/created': () => false,
+        'project/updated': () => false,
         'thread/created': (event) => event.thread === thread,
         'thread/configured': (event) => event.thread === thread,
         'thread/compacted': (event) => event.thread === thread,

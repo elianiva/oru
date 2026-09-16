@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 import { Predicate, Effect, type Scope } from 'effect'
 import {
   foldThreadCwd,
+  RelativeCwd,
   SessionLog,
+  UnknownProject,
   sessionLogLayer,
   type SessionLogContract,
   type SessionLogError,
@@ -82,5 +84,107 @@ describe('project cwd on a thread', () => {
       expect(created.project).toBe(project.project)
       expect(project.cwd).toBe(cwd)
     }
+  })
+
+  it('moves a thread already created against the project to the edited cwd it folds', async () => {
+    const file = sessionFile()
+    const before = mkdtempSync(join(tmpdir(), 'oru-project-before-'))
+    const after = mkdtempSync(join(tmpdir(), 'oru-project-after-'))
+
+    const threadId = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const threads = yield* ThreadClient
+          const project = yield* projects.create('demo', before)
+          const created = yield* threads.create(project.id)
+          yield* projects.update(project.id, { name: 'demo', cwd: after })
+          return created.threadId
+        }),
+      ),
+    )
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(foldThreadCwd(entries, threadId)).toBe(after)
+  })
+})
+
+describe('UpdateProject', () => {
+  it('records the new name and cwd and answers with the project', async () => {
+    const file = sessionFile()
+    const first = mkdtempSync(join(tmpdir(), 'oru-project-first-'))
+    const second = mkdtempSync(join(tmpdir(), 'oru-project-second-'))
+
+    const seen = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const project = yield* projects.create('demo', first)
+          const updated = yield* projects.update(project.id, { name: 'renamed', cwd: second })
+          return {
+            project,
+            updated,
+            listed: yield* projects.list(),
+            fetched: yield* projects.get(project.id),
+          }
+        }),
+      ),
+    )
+
+    expect(seen.updated).toEqual({ id: seen.project.id, name: 'renamed', cwd: second })
+    expect(seen.listed).toEqual([seen.updated])
+    expect(seen.fetched).toEqual(seen.updated)
+
+    const entries = await readJournal(file, (log) => log.entries)
+    const facts = entries.filter((event) => Predicate.isTagged(event, 'project/updated'))
+    expect(facts).toHaveLength(1)
+    const fact = facts[0]
+    if (!Predicate.isTagged(fact, 'project/updated')) expect.fail('no project/updated fact')
+    expect(fact.project).toBe(seen.project.id)
+    expect(fact.name).toBe('renamed')
+    expect(fact.cwd).toBe(second)
+  })
+
+  it("refuses a relative cwd with the host's own error, writing nothing", async () => {
+    const file = sessionFile()
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-relative-'))
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const project = yield* projects.create('demo', cwd)
+          return yield* Effect.flip(projects.update(project.id, { name: 'demo', cwd: './here' }))
+        }),
+      ),
+    )
+
+    expect(refused).toEqual(new RelativeCwd({ cwd: './here' }))
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(entries.some((event) => Predicate.isTagged(event, 'project/updated'))).toBe(false)
+  })
+
+  it("refuses an unknown project with the host's own error, writing nothing", async () => {
+    const file = sessionFile()
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-unknown-'))
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* Effect.flip(projects.update('p-ghost', { name: 'ghost', cwd }))
+        }),
+      ),
+    )
+
+    expect(refused).toEqual(new UnknownProject({ project: 'p-ghost' }))
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(entries.some((event) => Predicate.isTagged(event, 'project/updated'))).toBe(false)
   })
 })

@@ -23,6 +23,7 @@ export const laneOf = (event: SessionEvent): Lane =>
       'plugin/activated': () => HostLane.make({}),
       'plugin/deactivated': () => HostLane.make({}),
       'project/created': () => HostLane.make({}),
+      'project/updated': () => HostLane.make({}),
       'thread/created': (event) => threadLane(event.thread),
       'thread/configured': (event) => threadLane(event.thread),
       'turn/started': (event) => threadLane(event.thread),
