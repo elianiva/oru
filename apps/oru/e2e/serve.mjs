@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { createWriteStream, mkdirSync } from 'node:fs'
+import { createWriteStream, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,6 +14,14 @@ const journal = join(outDir, 'oru.db')
 const hostMain = join(repoDir, 'apps/host/src/main.ts')
 const log = createWriteStream(hostLog)
 
+// The dev server the suite drives. It moves with the environment so the suite
+// can run beside a `pnpm dev` that already holds 5173.
+const appPort = process.env.ORU_E2E_PORT ?? '5173'
+
+// Each run starts from an empty log, so "a fresh host has no projects" is a
+// property of the run and not of whatever an earlier run left behind.
+rmSync(journal, { force: true })
+
 const children = []
 
 const stop = () => {
@@ -25,7 +33,9 @@ const stop = () => {
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)
 
-const host = spawn(process.execPath, [hostMain, '--port', '7317', '--journal', journal], {
+// Port 0: the host picks its own, so a dev host on 7317 is not in the way. The
+// dev server is told where it landed through the proxy target.
+const host = spawn(process.execPath, [hostMain, '--port', '0', '--journal', journal], {
   env: { ...process.env, ORU_JOURNAL: journal },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -38,25 +48,26 @@ const takeHostChunk = (chunk) => {
   log.write(text)
 }
 
-const hostReady = new Promise((resolve, reject) => {
+const hostUrl = await new Promise((resolve, reject) => {
   let settled = false
   const fail = (reason) => {
     if (settled) return
     settled = true
     reject(reason instanceof Error ? reason : new Error(String(reason)))
   }
-  const pass = () => {
+  const pass = (url) => {
     if (settled) return
     settled = true
-    resolve(undefined)
+    resolve(url)
   }
   const timer = setTimeout(() => {
     fail(new Error(`the host did not listen:\n${hostText}`))
   }, 30_000)
   const check = () => {
-    if (/listening on http:\/\//u.test(hostText)) {
+    const listening = /listening on (http:\/\/\S+)/u.exec(hostText)
+    if (listening?.[1] !== undefined) {
       clearTimeout(timer)
-      pass()
+      pass(listening[1])
     }
   }
   host.stdout.on('data', (chunk) => {
@@ -74,12 +85,10 @@ const hostReady = new Promise((resolve, reject) => {
   check()
 })
 
-await hostReady
-
 const vite = spawn(
   'pnpm',
-  ['exec', 'vite', '--host', '127.0.0.1', '--port', '5173', '--strictPort'],
-  { cwd: appDir, stdio: 'inherit' },
+  ['exec', 'vite', '--host', '127.0.0.1', '--port', appPort, '--strictPort'],
+  { cwd: appDir, env: { ...process.env, ORU_PROXY_TARGET: hostUrl }, stdio: 'inherit' },
 )
 children.push(vite)
 

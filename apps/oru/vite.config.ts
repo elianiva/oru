@@ -16,9 +16,11 @@ export default defineConfig({
   },
   server: {
     // The app talks to its own origin, so development forwards the RPC paths to
-    // the host instead of making the browser cross an origin boundary.
+    // the host instead of making the browser cross an origin boundary. The
+    // target follows `ORU_PROXY_TARGET`, which is how the browser suite points
+    // its own dev server at the host it started.
     proxy: {
-      '/rpc': `http://127.0.0.1:${defaultPort}`,
+      '/rpc': process.env.ORU_PROXY_TARGET ?? `http://127.0.0.1:${String(defaultPort)}`,
     },
   },
 })
