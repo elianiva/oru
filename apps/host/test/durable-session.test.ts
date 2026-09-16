@@ -30,7 +30,13 @@ import {
   ToolKind,
   workOf,
 } from '@oru/inference'
-import { ThreadClient, ProjectClient, clientsFor, type ThreadClientContract } from '@oru/rpc'
+import {
+  HostUnreachable,
+  ThreadClient,
+  ProjectClient,
+  clientsFor,
+  type ThreadClientContract,
+} from '@oru/rpc'
 import { serveHost } from '../src/index.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -160,7 +166,7 @@ const factsUntil = (
   thread: ThreadClientContract,
   threadId: string,
   stop: (event: SessionEvent) => boolean,
-): Effect.Effect<readonly SessionEvent[]> =>
+): Effect.Effect<readonly SessionEvent[], HostUnreachable> =>
   thread.watch(threadId).pipe(
     Stream.takeUntil(stop),
     Stream.runCollect,
@@ -175,7 +181,7 @@ const answerNumber = (
   thread: ThreadClientContract,
   threadId: string,
   nth: number,
-): Effect.Effect<readonly SessionEvent[]> =>
+): Effect.Effect<readonly SessionEvent[], HostUnreachable> =>
   thread.watch(threadId).pipe(
     Stream.filter(
       (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
@@ -205,7 +211,7 @@ const request = (
   threadId: string,
   nth: number,
   text: string,
-): Effect.Effect<void, never, Scope.Scope> =>
+): Effect.Effect<void, HostUnreachable, Scope.Scope> =>
   Effect.gen(function* () {
     const watching = yield* answerNumber(thread, threadId, nth).pipe(Effect.forkScoped)
     yield* thread.watch(threadId).pipe(
