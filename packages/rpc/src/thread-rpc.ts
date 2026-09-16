@@ -7,7 +7,16 @@ import { ThreadSignal } from './thread-signal.ts'
 
 export const ThreadRpc = RpcGroup.make(
   Rpc.make('CreateThread', {
-    payload: { project: ProjectId },
+    /**
+     * The configuration rides with the creation, so a lazily created thread is
+     * born configured in one round trip with no window where it is not.
+     */
+    payload: {
+      project: ProjectId,
+      harness: Schema.UndefinedOr(Schema.NonEmptyString),
+      model: Schema.UndefinedOr(Schema.NonEmptyString),
+      reasoning: Schema.UndefinedOr(Schema.NonEmptyString),
+    },
     success: Schema.Struct({ threadId: ThreadId, project: Project }),
     error: UnknownProject,
   }),
@@ -20,10 +29,14 @@ export const ThreadRpc = RpcGroup.make(
     success: SessionEvent,
     stream: true,
   }),
-  /** What the pane needs to offer a choice: current configuration and the options. */
+  /**
+   * What the pane needs to offer a choice: current configuration and the
+   * options. An absent thread names one that does not exist yet, so the answer
+   * is the host's defaults.
+   */
   Rpc.make('ThreadOptions', {
     payload: {
-      threadId: ThreadId,
+      threadId: Schema.UndefinedOr(ThreadId),
       refresh: Schema.optionalKey(Schema.Boolean),
     },
     success: ThreadOptions,

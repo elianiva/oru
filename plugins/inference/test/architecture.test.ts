@@ -166,7 +166,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -226,7 +226,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -293,7 +293,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           delayedModelPlugin(releaseSecond),
           harnessOruPlugin,
@@ -355,7 +355,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -416,7 +416,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           reportingPlugin,
           inferencePlugin,
@@ -475,7 +475,7 @@ describe('inference architecture', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           reportingPlugin,
           inferencePlugin,
@@ -525,7 +525,7 @@ describe('inference architecture', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin, sickPlugin, inferencePlugin])
+        const host = yield* makeHost([harnessRegistryPlugin(), sickPlugin, inferencePlugin])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
         yield* inference.configure('t1', { harness: 'sick' })

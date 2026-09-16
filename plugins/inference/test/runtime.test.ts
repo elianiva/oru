@@ -130,7 +130,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -155,7 +155,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           demoModelPlugin,
           harnessOruPlugin,
@@ -206,7 +206,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           recordingHarnessPlugin(cwds),
           inferencePlugin,
         ])
@@ -257,7 +257,7 @@ describe('inference runtime', () => {
     await runRuntime(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           mockModelPlugin('oru/model-empty', []),
           harnessOruPlugin,

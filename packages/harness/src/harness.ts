@@ -201,6 +201,18 @@ export interface HarnessEntry {
 }
 
 /**
+ * The host's own selection for a thread nobody has configured, resolved from
+ * the host config (ADR-0012). A harness plugin is generic and never reads the
+ * host's settings, so the host hands this to the registry when it is built.
+ * Absent members leave the choice to the harness: the first registered harness,
+ * or its own default model.
+ */
+export interface HarnessDefaults {
+  readonly harness?: string | undefined
+  readonly model?: string | undefined
+}
+
+/**
  * The token for this contribution kind. Several harness plugins contribute
  * under it at once, so a host can register many bridges without colliding on a
  * service token (ADR-0006).
@@ -216,8 +228,14 @@ export const HarnessKind: ContributionKind<HarnessService> =
 export interface HarnessesContract {
   readonly list: () => Effect.Effect<readonly HarnessEntry[]>
   readonly get: (id: string) => Effect.Effect<Option.Option<HarnessEntry>>
-  /** The host default: the first harness by plugin id, so it is deterministic. */
+  /**
+   * The harness an unconfigured thread runs: the host's configured default when
+   * it is registered, otherwise the first by plugin id, so the answer is always
+   * deterministic.
+   */
   readonly preferred: () => Effect.Effect<Option.Option<HarnessEntry>>
+  /** The host's own default selection, for the model fallback and the picker. */
+  readonly defaults: () => HarnessDefaults
 }
 
 export class Harnesses extends Context.Service<Harnesses, HarnessesContract>()('oru/harnesses') {}

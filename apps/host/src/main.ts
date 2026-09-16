@@ -131,7 +131,10 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             return settings
           })
           const running = yield* serveHost({
-            plugins: hostPluginsWith(piEnvOf(process.env, settings)),
+            plugins: hostPluginsWith(piEnvOf(process.env, settings), {
+              harness: settings.defaultHarness.value,
+              model: settings.defaultModel.value,
+            }),
             hostname: settings.hostname.value,
             port: settings.port.value,
             journal: settings.journal.value,

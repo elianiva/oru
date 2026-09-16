@@ -1,5 +1,6 @@
 import { Context, Effect, Schema } from 'effect'
-import { definePlugin, defineService } from '@oru/kernel'
+import { definePlugin, defineService, type AnyPlugin } from '@oru/kernel'
+import type { HarnessDefaults } from '@oru/harness'
 import { harnessOruPlugin } from '@oru/harness-oru'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
 import { harnessPiPlugin, makePiHarness } from '@oru/harness-pi'
@@ -70,16 +71,19 @@ export const echoToolPlugin = definePlugin({
  *
  * The bridge is the one plugin whose environment is a process, so it is the one
  * plugin a test swaps or leaves out: this is what the transport suite composes
- * to keep `pnpm test` hermetic.
+ * to keep `pnpm test` hermetic. The defaults are the host's configured harness
+ * and model, handed to the registry the way `config.json` resolved them.
  */
-export const corePlugins = [
+export const corePluginsWith = (defaults: HarnessDefaults = {}): readonly AnyPlugin[] => [
   ...fixturePlugins,
-  harnessRegistryPlugin,
+  harnessRegistryPlugin(defaults),
   echoToolPlugin,
   demoModelPlugin,
   harnessOruPlugin,
   inferencePlugin,
 ]
+
+export const corePlugins = corePluginsWith()
 
 /**
  * The host's plugin set.
@@ -89,8 +93,8 @@ export const corePlugins = [
  * (ADR-0006). Only a node process can carry `oru/harness-pi`, because a bridge
  * spawns a process, and this is that process (ADR-0007).
  */
-export const hostPluginsWith = (env: NodeJS.ProcessEnv) => [
-  ...corePlugins,
+export const hostPluginsWith = (env: NodeJS.ProcessEnv, defaults: HarnessDefaults = {}) => [
+  ...corePluginsWith(defaults),
   harnessPiPlugin(makePiHarness({ env })),
 ]
 

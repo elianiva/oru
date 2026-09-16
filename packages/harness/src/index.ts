@@ -13,6 +13,7 @@ export {
   type HarnessCapabilities,
   type HarnessCompaction,
   type HarnessCompactRequest,
+  type HarnessDefaults,
   type HarnessEntry,
   type HarnessEvent,
   type HarnessesContract,

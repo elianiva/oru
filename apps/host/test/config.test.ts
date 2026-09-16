@@ -123,6 +123,41 @@ describe('resolveSettings', () => {
     expect(resolveSettings({}, {}, { host: '0.0.0.0' }, osHome).hostname.value).toBe('0.0.0.0')
   })
 
+  it('ships pi as the default harness and leaves the model to the harness', () => {
+    const settings = resolveSettings({}, {}, {}, osHome)
+    expect(settings.defaultHarness).toEqual({ value: 'pi', source: 'default' })
+    expect(settings.defaultModel).toEqual({ value: undefined, source: 'default' })
+    expect(listLines(settings)).toContain('defaultHarness=pi source=default lifetime=startup')
+  })
+
+  it('reads both defaults from the file, the environment, and back to the default', () => {
+    const fromFile = resolveSettings(
+      {},
+      {},
+      { defaultHarness: 'oru', defaultModel: 'claude-sonnet-4' },
+      osHome,
+    )
+    expect(fromFile.defaultHarness).toEqual({ value: 'oru', source: 'file' })
+    expect(fromFile.defaultModel).toEqual({ value: 'claude-sonnet-4', source: 'file' })
+
+    const fromEnv = resolveSettings(
+      {},
+      { ORU_DEFAULT_HARNESS: 'oru', ORU_DEFAULT_MODEL: 'gpt-5.4-mini' },
+      {},
+      osHome,
+    )
+    expect(fromEnv.defaultHarness).toEqual({ value: 'oru', source: 'env' })
+    expect(fromEnv.defaultModel).toEqual({ value: 'gpt-5.4-mini', source: 'env' })
+
+    const written = setFileKey({ defaultModel: 'gpt-5.4-mini' }, 'defaultHarness', 'oru')
+    expect(written.defaultHarness).toBe('oru')
+    expect(written.defaultModel).toBe('gpt-5.4-mini')
+
+    const cleared = unsetFileKey(written, 'defaultHarness')
+    expect(cleared.defaultHarness).toBeUndefined()
+    expect(cleared.defaultModel).toBe('gpt-5.4-mini')
+  })
+
   it('puts winning pi paths into the env bag and leaves unset command off it', () => {
     const settings = resolveSettings(
       { home: '/srv/oru' },
