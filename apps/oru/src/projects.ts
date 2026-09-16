@@ -182,9 +182,17 @@ export const refusalText = (refusal: Refusal): string =>
     }),
   )
 
-const clearSaving = (model: Model): Model =>
+/**
+ * A host that stopped answering is not a write in flight, so neither draft stays
+ * pending through the retry that follows.
+ */
+const settled = (model: Model): Model =>
   evo(model, {
     edit: (edit) => (edit === undefined ? edit : evo(edit, { isSaving: () => false })),
+    panel: (panel) =>
+      Predicate.isTagged(panel, 'PanelComposing')
+        ? PanelComposing.make({ ...panel, isSaving: false })
+        : panel,
   })
 
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>
@@ -195,7 +203,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: evo(model, { host: () => Loaded.make({ projects }) }),
     }),
     HostUnreachable: ({ reason }) => ({
-      model: clearSaving(evo(model, { host: () => Unreachable.make({ reason }) })),
+      model: settled(evo(model, { host: () => Unreachable.make({ reason }) })),
     }),
     ProjectCreated: ({ project }) => ({
       model: evo(model, {

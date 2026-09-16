@@ -523,6 +523,51 @@ describe('composer', () => {
     )
   })
 
+  it('keeps a create draft through a host that stops, and stops calling it pending', () => {
+    const submitted = update(
+      typedCreateForm(listOne()),
+      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
+    ).model
+    expect(submitted.projects.panel).toEqual(
+      Projects.PanelComposing.make({
+        name: 'second',
+        cwd: 'tmp/second',
+        refusal: undefined,
+        isSaving: true,
+      }),
+    )
+
+    const back = update(
+      submitted,
+      Message.GotProjects({
+        message: Projects.Message.HostUnreachable({ reason: 'ListProjects: the host is down' }),
+      }),
+    ).model
+    expect(back.projects.panel).toEqual(
+      Projects.PanelComposing.make({
+        name: 'second',
+        cwd: 'tmp/second',
+        refusal: undefined,
+        isSaving: false,
+      }),
+    )
+
+    const remembered = update(
+      back,
+      Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects: [] }) }),
+    ).model
+    Scene.scene(
+      { update, view },
+      Scene.given(remembered),
+      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toHaveAttr(
+        'aria-expanded',
+        'true',
+      ),
+      Scene.expect(Scene.selector('[data-composer-chip-field="name"]')).toHaveValue('second'),
+      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
+    )
+  })
+
   it('does not offer a project id the host never answered with', () => {
     const opened = update(
       listOne(),
