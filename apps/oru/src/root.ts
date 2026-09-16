@@ -6,13 +6,14 @@ import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { Box, Folder, GitBranch, Lock, Mic, Plus } from 'lucide'
 import * as Composer from './composer.ts'
+import * as LeftPanel from './left-panel.ts'
+import * as RightPanel from './right-panel.ts'
 import * as Shell from './shell.ts'
-import * as ThreadList from './thread-list.ts'
-import { fakeThreadSections, threadById } from './threads.ts'
+import { fakeThreadSections } from './threads.ts'
 
 export const Model = Schema.Struct({
   shell: Shell.Model,
-  threads: ThreadList.Model,
+  threads: LeftPanel.Model,
   selectedThread: Schema.Option(Schema.String),
   composer: Composer.Model,
 })
@@ -20,7 +21,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GotShell: { message: Shell.Message },
-  GotThreads: { message: ThreadList.Message },
+  GotThreads: { message: LeftPanel.Message },
   GotComposer: { message: Composer.Message },
 })
 export type Message = typeof Message.Type
@@ -28,7 +29,7 @@ export type Message = typeof Message.Type
 export const init = () => ({
   model: {
     shell: Shell.init(),
-    threads: ThreadList.init(),
+    threads: LeftPanel.init(),
     selectedThread: Option.none<string>(),
     composer: Composer.init(),
   },
@@ -42,12 +43,12 @@ const foldShell = Update.foldChild({
 })
 
 const foldThreads = Update.foldChild({
-  update: ThreadList.update,
+  update: LeftPanel.update,
   read: (model: Model) => Option.some(model.threads),
   write: (model, nextChild) => evo(model, { threads: () => nextChild }),
-  toParentMessage: (message: ThreadList.Message) => Message.GotThreads({ message }),
-  foldOutMessage: (outMessage: ThreadList.OutMessage): Update.Step<Model, Message> =>
-    ThreadList.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+  toParentMessage: (message: LeftPanel.Message) => Message.GotThreads({ message }),
+  foldOutMessage: (outMessage: LeftPanel.OutMessage): Update.Step<Model, Message> =>
+    LeftPanel.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
       Selected:
         ({ id }) =>
         (model) => ({
@@ -80,9 +81,9 @@ const shellSubs = Subscription.lift(Shell.subscriptions)({
   toParentMessage: (message: Shell.Message): Message => Message.GotShell({ message }),
 })
 
-const threadSubs = Subscription.lift(ThreadList.subscriptions)({
+const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
   toChildModel: (model: Model) => model.threads,
-  toParentMessage: (message: ThreadList.Message): Message => Message.GotThreads({ message }),
+  toParentMessage: (message: LeftPanel.Message): Message => Message.GotThreads({ message }),
 })
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(shellSubs, threadSubs)
@@ -104,61 +105,17 @@ const main = (model: Model, h: HtmlBuilder<Message>) =>
     ],
   )
 
-const threadList = (model: Model, h: HtmlBuilder<Message>): Html =>
+const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.submodel({
-    slotId: 'thread-list',
+    slotId: 'left-panel',
     model: model.threads,
-    view: ThreadList.view,
+    view: LeftPanel.view,
     viewInputs: { sections: fakeThreadSections, selected: model.selectedThread },
     toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
   })
 
-const fact = (label: string, value: string, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class('flex items-baseline justify-between gap-2')],
-    [
-      h.dt([h.Class('text-2xs text-muted-foreground')], [label]),
-      h.dd([h.Class('min-w-0 truncate font-mono text-xs')], [value]),
-    ],
-  )
-
-const detail = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const thread = Option.flatMap(model.selectedThread, (id) =>
-    Option.fromNullishOr(threadById(fakeThreadSections, id)),
-  )
-  return h.div(
-    [
-      h.DataAttribute('detail', ''),
-      h.Class('flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'),
-    ],
-    [
-      h.div(
-        [h.Class('flex h-9 shrink-0 items-center border-b border-border-seam px-3')],
-        [h.span([h.Class('truncate text-sm font-medium')], ['Details'])],
-      ),
-      h.div(
-        [h.Class('min-h-0 flex-1 overflow-y-auto px-3 py-2')],
-        Option.match(thread, {
-          onNone: () => [h.p([h.Class('text-xs text-muted-foreground')], ['No thread selected'])],
-          onSome: (row) => [
-            h.div([h.Class('mb-2 text-sm font-medium')], [row.title]),
-            h.dl(
-              [h.Class('flex flex-col gap-1.5')],
-              [
-                fact('Project', row.project.name, h),
-                fact('Location', row.location.name, h),
-                fact('Status', ThreadList.statusLabel(row.status) ?? 'Idle', h),
-                ...(row.pullRequest === undefined
-                  ? []
-                  : [fact('Pull request', `#${String(row.pullRequest)}`, h)]),
-              ],
-            ),
-          ],
-        }),
-      ),
-    ],
-  )
-}
+const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
+  RightPanel.view(model.selectedThread, { sections: fakeThreadSections }, h)
 
 const coreContributions = (): Composer.ComposerContributions => ({
   placeholder: 'Ask anything. @ to mention files, folders, or sections',
@@ -190,9 +147,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>) =>
     model: model.shell,
     view: Shell.view,
     viewInputs: {
-      toLeftPanel: () => threadList(model, h),
+      toLeftPanel: () => leftPanel(model, h),
       toMain: () => main(model, h),
-      toRightPanel: () => detail(model, h),
+      toRightPanel: () => rightPanel(model, h),
     },
     toParentMessage: (message) => Message.GotShell({ message }),
   })

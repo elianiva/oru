@@ -3,7 +3,8 @@
  *
  * The list never re-orders: rows hold the place the source gave them, and each
  * row carries its own status, so the sidebar only moves when you act. The
- * footer holds the app's navigation.
+ * The menu above the list and the action bar below it mirror the reference
+ * app's chrome; both stay visual until the app grows the features behind them.
  */
 import { Effect, Option, Queue, Schema as S, Stream } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
@@ -13,13 +14,22 @@ import { defineView } from 'foldkit/submodel'
 import * as Subscription from 'foldkit/subscription'
 import type { IconNode } from 'lucide'
 import {
+  Asterisk,
+  Bug,
+  ChartColumn,
   ChevronDown,
   Computer,
-  Folder,
+  Download,
   FolderGit,
   GitBranch,
-  MessagesSquare,
+  GitFork,
+  MessageCirclePlus,
+  Plug,
+  Search,
   Settings,
+  Smartphone,
+  Undo2,
+  Zap,
 } from 'lucide'
 import { icon } from '@/lib/icons.ts'
 import { cn } from '@/lib/utils.ts'
@@ -114,7 +124,7 @@ const STATUS_TONES: Readonly<Record<Exclude<ThreadStatus, 'idle'>, string>> = {
   draft: 'text-status-draft',
 }
 
-/** The slot holds a status word or an age, never both, so `'idle'` names no word. */
+/** The details panel names the status word, so `'idle'` names no word. The list itself carries status as dots, never words. */
 export const statusLabel = (status: ThreadStatus): string | undefined =>
   status === 'idle' ? undefined : STATUS_LABELS[status]
 
@@ -153,23 +163,52 @@ const projectGlyph = (project: ThreadProject, h: HtmlBuilder<Message>): Html =>
     onSome: (src) => h.img([h.Src(src), h.Alt(''), h.Class('size-3 shrink-0 rounded-[3px]')]),
   })
 
-/** Fixed width, because an age and a status word vary in width: a variable slot drags the project column back and forth. */
-const statusSlot = (row: ThreadRow, now: number, h: HtmlBuilder<Message>): Html => {
-  const label = statusLabel(row.status)
-  return h.span(
-    [h.Class('flex w-16 shrink-0 items-center justify-end')],
+/** Fixed width, because an age varies in width (`3m` versus `12d`): a variable slot drags the project column back and forth. The top-right slot is always the age; the status lives in the bottom row as dots. */
+const ageSlot = (row: ThreadRow, now: number, h: HtmlBuilder<Message>): Html =>
+  h.span(
+    [h.DataAttribute('thread-age', ''), h.Class('flex w-16 shrink-0 items-center justify-end')],
     [
-      label === undefined
-        ? h.span(
-            [h.Class('tabular-nums text-2xs text-muted-foreground')],
-            [relativeAge(row.updatedAt, now)],
-          )
-        : h.span(
-            [h.Class(cn('max-w-full truncate text-2xs font-medium', statusTone(row.status)))],
-            [label],
-          ),
+      h.span(
+        [h.Class('tabular-nums text-2xs text-muted-foreground')],
+        [relativeAge(row.updatedAt, now)],
+      ),
     ],
   )
+
+/** The dots preview whose statuses the count behind them stands for: the row's own when it works alone, its children's when it fronts subagents. */
+const MAX_PILL_DOTS = 3
+
+const activityPill = (row: ThreadRow, h: HtmlBuilder<Message>): ReadonlyArray<Html> => {
+  const frontsSubagents = row.children.length > 0
+  const count = frontsSubagents ? row.children.length : row.activity
+  if (count === 0) return []
+  const dotted: ReadonlyArray<ThreadRow> = frontsSubagents
+    ? row.children.slice(0, MAX_PILL_DOTS)
+    : [row]
+  return [
+    h.span(
+      [
+        h.DataAttribute('activity-pill', ''),
+        h.AriaLabel(
+          frontsSubagents ? `${String(count)} subagents` : `${String(count)} background activities`,
+        ),
+        h.Class('flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-px'),
+      ],
+      [
+        ...dotted.map((dottedRow) =>
+          h.span(
+            [
+              h.Class(
+                cn('size-1.5 shrink-0 rounded-full bg-current', statusTone(dottedRow.status)),
+              ),
+            ],
+            [],
+          ),
+        ),
+        h.span([h.Class('font-mono text-2xs tabular-nums')], [String(count)]),
+      ],
+    ),
+  ]
 }
 
 /** The renderer's bound: a source can hand back a cycle, and a cycle is a hang, not a wrong pixel. */
@@ -190,7 +229,7 @@ const subagentList = (
           [
             h.AriaLabel(`Subagents of ${row.title}`),
             h.DataAttribute('subagent-list', String(depth)),
-            h.Class('mt-1 ml-1 flex flex-col gap-px border-l border-border pl-3'),
+            h.Class('mt-1 ml-2 flex flex-col gap-px pl-3'),
           ],
           row.children.map((child) => childRow(child, depth, config, h)),
         ),
@@ -202,8 +241,9 @@ const childRow = (
   depth: number,
   config: Readonly<{ selected: boolean; now: number }>,
   h: HtmlBuilder<Message>,
-): Html =>
-  h.li(
+): Html => {
+  const childCount = row.children.length > 0 ? row.children.length : row.activity
+  return h.li(
     [h.Class('list-none')],
     [
       h.button(
@@ -229,16 +269,30 @@ const childRow = (
           h.span(
             [
               h.Class(
-                'flex shrink-0 items-center justify-end text-2xs text-muted-foreground tabular-nums',
+                'flex shrink-0 items-center justify-end gap-1.5 text-2xs text-muted-foreground tabular-nums',
               ),
             ],
-            [statusLabel(row.status) ?? relativeAge(row.updatedAt, config.now)],
+            [
+              h.span(
+                [h.DataAttribute('thread-age', ''), h.Class('tabular-nums')],
+                [relativeAge(row.updatedAt, config.now)],
+              ),
+              ...(childCount === 0
+                ? []
+                : [
+                    h.span(
+                      [h.DataAttribute('subagent-count', ''), h.Class('font-mono')],
+                      [String(childCount)],
+                    ),
+                  ]),
+            ],
           ),
         ],
       ),
       ...subagentList(row, depth + 1, config, h),
     ],
   )
+}
 
 /** The card holds no nested control, so the row is one button instead of an anchor with an overlay. */
 const threadCard = (
@@ -259,9 +313,7 @@ const threadCard = (
           h.Class(
             cn(
               'group/card relative w-full rounded-md px-2.5 py-2 text-left transition-colors duration-150 ease-out',
-              config.selected
-                ? 'bg-sidebar-accent ring-1 ring-inset ring-primary/60'
-                : 'hover:bg-sidebar-accent/60',
+              config.selected ? 'bg-background shadow-sm' : 'hover:bg-sidebar-accent/60',
             ),
           ),
         ],
@@ -274,7 +326,7 @@ const threadCard = (
                 [h.Class('min-w-0 flex-1 truncate text-2xs font-medium text-muted-foreground')],
                 [row.project.name],
               ),
-              statusSlot(row, config.now, h),
+              ageSlot(row, config.now, h),
             ],
           ),
           h.div(
@@ -298,17 +350,7 @@ const threadCard = (
                   h.span([h.Class('truncate font-mono')], [row.location.name]),
                 ],
               ),
-              ...(row.activity === 0
-                ? []
-                : [
-                    h.span(
-                      [
-                        h.Class('shrink-0 rounded bg-muted px-1 font-mono text-2xs'),
-                        h.AriaLabel(`${String(row.activity)} background activities`),
-                      ],
-                      [String(row.activity)],
-                    ),
-                  ]),
+              ...activityPill(row, h),
               ...(row.pullRequest === undefined
                 ? []
                 : [h.span([h.Class('shrink-0 font-mono')], [`#${String(row.pullRequest)}`])]),
@@ -359,7 +401,7 @@ const shelf = (
             [h.Class('text-2xs font-medium text-muted-foreground/70')],
             [expanded ? section.label : `${section.label} (${String(section.rows.length)})`],
           ),
-          h.span([h.Class('h-px flex-1 bg-sidebar-border')], []),
+          h.span([h.Class('flex-1')], []),
           h.span(
             [h.Class('flex size-3.5 shrink-0 items-center justify-center')],
             [
@@ -381,12 +423,7 @@ const shelf = (
               [
                 h.AriaLabel(`${group.label} threads`),
                 h.DataAttribute('thread-group', group.project),
-                h.Class(
-                  cn(
-                    'flex flex-col gap-px',
-                    group.rows.length > 1 && 'rounded-lg border border-sidebar-border/30 p-px',
-                  ),
-                ),
+                h.Class('flex flex-col gap-1'),
               ],
               group.rows.map((row) =>
                 threadCard(row, { selected: isSelected(selected, row.id), now }, h),
@@ -400,10 +437,16 @@ const shelf = (
 const isSelected = (selected: Option.Option<string>, id: string): boolean =>
   Option.match(selected, { onNone: () => false, onSome: (current) => current === id })
 
+/** The sidebar menu mirrors the reference app's chrome. The rows stay visual until the app grows the features behind them, so they carry no messages. */
 const NAV_ROWS: ReadonlyArray<Readonly<{ id: string; label: string; icon: IconNode }>> = [
-  { id: 'threads', label: 'Threads', icon: MessagesSquare },
-  { id: 'projects', label: 'Projects', icon: Folder },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'new-thread', label: 'New thread', icon: MessageCirclePlus },
+  { id: 'plugins', label: 'Plugins', icon: Plug },
+  { id: 'skills', label: 'Skills', icon: Zap },
+  { id: 'search', label: 'Search threads', icon: Search },
+  { id: 'automations', label: 'Automations', icon: Undo2 },
+  // Lucide ships no GitHub mark, so the row takes the closest git-hosting glyph.
+  { id: 'github', label: 'GitHub+', icon: GitFork },
+  { id: 'usage', label: 'Usage', icon: ChartColumn },
 ]
 
 const navRow = (
@@ -413,23 +456,53 @@ const navRow = (
   h.div(
     [
       h.DataAttribute('nav', row.id),
-      ...(row.id === 'threads' ? [h.DataAttribute('active', 'true')] : []),
       h.Class(
-        cn(
-          'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors duration-150 ease-out',
-          row.id === 'threads'
-            ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
-            : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-        ),
+        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-foreground/80 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
       ),
     ],
     [icon(h, row.icon, 'size-4'), h.span([h.Class('truncate')], [row.label])],
   )
 
-const navFooter = (h: HtmlBuilder<Message>): Html =>
+const navMenu = (h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.Class('flex shrink-0 flex-col gap-1 border-t border-border-seam p-1.5')],
+    [h.DataAttribute('sidebar-menu', ''), h.Class('flex shrink-0 flex-col gap-px px-1.5 pt-1.5')],
     NAV_ROWS.map((row) => navRow(row, h)),
+  )
+
+const projectFilter = (h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.DataAttribute('project-filter', ''),
+      h.Class('mt-1.5 flex h-9 shrink-0 items-center gap-2 px-2.5'),
+    ],
+    [
+      h.span([h.Class('truncate text-sm font-medium text-muted-foreground')], ['All projects']),
+      h.span(
+        [h.Class('ml-auto flex shrink-0 items-center')],
+        [icon(h, ChevronDown, 'size-4 text-muted-foreground/70')],
+      ),
+    ],
+  )
+
+const bottomBar = (h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.DataAttribute('sidebar-actions', ''),
+      h.Class('flex shrink-0 items-center gap-5 px-4 py-3 text-muted-foreground'),
+    ],
+    [
+      icon(h, Settings, 'size-4'),
+      icon(h, Smartphone, 'size-4'),
+      icon(h, Bug, 'size-4'),
+      h.span(
+        [
+          h.Class(
+            'ml-auto flex items-center gap-1.5 rounded-full bg-background px-2.5 py-1 text-foreground shadow-sm',
+          ),
+        ],
+        [icon(h, Download, 'size-4'), icon(h, Asterisk, 'size-4')],
+      ),
+    ],
   )
 
 export type ViewInputs = Readonly<{
@@ -441,6 +514,8 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
   h.div(
     [h.DataAttribute('thread-list', ''), h.Class('flex h-full min-h-0 flex-col')],
     [
+      navMenu(h),
+      projectFilter(h),
       h.div(
         [h.Class('min-h-0 flex-1 overflow-y-auto px-1.5 pb-2')],
         [
@@ -458,7 +533,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
           ),
         ],
       ),
-      navFooter(h),
+      bottomBar(h),
     ],
   ),
 )

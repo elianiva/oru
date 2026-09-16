@@ -14,7 +14,6 @@ import { defineView } from 'foldkit/submodel'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { PanelLeft, PanelRight } from 'lucide'
-import { button } from '@/components/ui/button.ts'
 import * as Resizable from '@/components/ui/resizable.ts'
 import { layoutNumbersEqual } from '@/components/ui/resizable-box.ts'
 import { icon } from '@/lib/icons.ts'
@@ -199,21 +198,24 @@ export const subscriptions = Subscription.aggregate<Model, Message>()(
   layoutMirror,
 )
 
+/**
+ * A header toggle is hover-only: it keeps `aria-expanded` for assistive tech
+ * but never takes the `aria-expanded:` active wash the ghost button variant
+ * paints, so an open sidebar doesn't leave its toggle looking pressed.
+ */
 const toggleButton = (which: Side, collapsed: boolean, h: HtmlBuilder<Message>): Html =>
-  button(
-    {
-      onClick: Message.ToggledSidebar({ side: which }),
-      variant: 'ghost',
-      size: 'icon-sm',
-      className: 'text-muted-foreground',
-      attributes: [
-        h.DataAttribute('shell-toggle', which),
-        h.AriaExpanded(!collapsed),
-        h.AriaLabel(collapsed ? `Expand ${which} sidebar` : `Collapse ${which} sidebar`),
-      ],
-    },
+  h.button(
+    [
+      h.Type('button'),
+      h.OnClick(Message.ToggledSidebar({ side: which })),
+      h.Class(
+        'inline-flex size-7 shrink-0 items-center justify-center rounded-[min(var(--radius-md),12px)] text-muted-foreground transition-colors outline-none select-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+      ),
+      h.DataAttribute('shell-toggle', which),
+      h.AriaExpanded(!collapsed),
+      h.AriaLabel(collapsed ? `Expand ${which} sidebar` : `Collapse ${which} sidebar`),
+    ],
     [icon(h, which === 'left' ? PanelLeft : PanelRight, 'size-4')],
-    h,
   )
 
 export type ViewInputs = Readonly<{
@@ -232,7 +234,7 @@ const mainColumn = (model: Model, viewInputs: ViewInputs, h: HtmlBuilder<Message
     [h.Class('flex h-full min-h-0 flex-col')],
     [
       h.header(
-        [h.Class('flex h-9 shrink-0 items-center gap-1 border-b border-border-seam px-2')],
+        [h.Class('flex h-10 shrink-0 items-center gap-1 px-3')],
         [
           toggleButton('left', isCollapsed(model, 'left'), h),
           h.span([h.Class('truncate px-2 text-sm font-medium')], ['oru']),
@@ -251,25 +253,52 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
     return viewInputs.toRightPanel()
   }
   return h.div(
-    [h.Class('flex h-svh w-full flex-col overflow-hidden')],
+    [h.Class('flex h-svh w-full flex-col overflow-hidden bg-sidebar')],
     [
       h.submodel({
         slotId: 'shell-group',
         model,
         view: Resizable.view,
         viewInputs: {
-          className: 'min-h-0 flex-1',
+          className: 'min-h-0 flex-1 bg-sidebar p-3',
           handleLabel: 'Resize panels',
           panels: [
-            { className: cn('overflow-hidden!', isCollapsed(model, 'left') && 'invisible') },
-            {},
-            { className: cn('overflow-hidden!', isCollapsed(model, 'right') && 'invisible') },
+            {
+              // A collapsing sidebar fades its content while the resizable
+              // panel animates its width; `visibility` flips discretely at
+              // the end of the fade out (and at the start of the fade in).
+              className: cn(
+                'overflow-hidden! transition-[opacity,visibility] duration-200 ease-out',
+                isCollapsed(model, 'left') ? 'invisible opacity-0' : 'visible opacity-100',
+              ),
+            },
+            {
+              // The center column is the only card: a rounded fill on the
+              // frame background, separated by whitespace instead of seams.
+              className: 'rounded-xl bg-background shadow-sm',
+            },
+            {
+              className: cn(
+                'overflow-hidden! transition-[opacity,visibility] duration-200 ease-out',
+                isCollapsed(model, 'right') ? 'invisible opacity-0' : 'visible opacity-100',
+              ),
+            },
           ],
           // A collapsed panel is zero-width, so its separator keeps its place
           // rather than taking `hidden`, which would take the hit area with it.
           handles: [
-            { className: cn('bg-border-seam', isCollapsed(model, 'left') && 'w-0 opacity-0') },
-            { className: cn('bg-border-seam', isCollapsed(model, 'right') && 'w-0 opacity-0') },
+            {
+              className: cn(
+                'w-3 bg-transparent transition-opacity duration-200 ease-out',
+                isCollapsed(model, 'left') && 'w-0 opacity-0',
+              ),
+            },
+            {
+              className: cn(
+                'w-3 bg-transparent transition-opacity duration-200 ease-out',
+                isCollapsed(model, 'right') && 'w-0 opacity-0',
+              ),
+            },
           ],
           toPanelContent: (index) => column(index),
         },

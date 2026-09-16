@@ -140,11 +140,15 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
   const panel = (index: number): Html => {
     const state = model.panels[index]
     const input = viewInputs.panels[index]
+    // Toggle-driven width changes animate through `flex-grow`; while a drag
+    // is in flight the transition stays off so the seam tracks the pointer 1:1.
+    const idle = model.dragState._tag === 'Idle'
     return h.div(
       [
         h.Id(ResizableBox.panelDomId(model.id, state?.id ?? '')),
         h.DataAttribute('slot', 'resizable-panel'),
         h.Style(panelStyle(state?.size ?? 0)),
+        h.Class(cn(idle && 'transition-[flex-grow] duration-200 ease-out')),
       ],
       [
         h.div(

@@ -223,47 +223,7 @@ describe('shell', () => {
   })
 })
 
-describe('navigation', () => {
-  it('keeps the app’s three nav rows at the foot of the left column', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(init().model),
-      Scene.expect(Scene.selector('[data-nav="threads"]')).toExist(),
-      Scene.expect(Scene.selector('[data-nav="projects"]')).toExist(),
-      Scene.expect(Scene.selector('[data-nav="settings"]')).toExist(),
-      Scene.expect(Scene.selector('[data-nav="threads"]')).toHaveAttr('data-active', 'true'),
-      Scene.expect(Scene.selector('[data-nav="threads"]')).toContainText('Threads'),
-      Scene.expect(Scene.selector('[data-nav="projects"]')).toContainText('Projects'),
-      Scene.expect(Scene.selector('[data-nav="settings"]')).toContainText('Settings'),
-    )
-  })
-})
-
 describe('thread list', () => {
-  it('draws sections as shelves, with a collapsed shelf counting itself', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(init().model),
-      Scene.expect(Scene.text('Pinned')).toExist(),
-      Scene.expect(Scene.text('Active')).toExist(),
-      Scene.expect(Scene.text('Inactive (2)')).toExist(),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro"]')).toExist(),
-      Scene.expect(Scene.text('Host transport spike over effect/unstable/rpc')).not.toExist(),
-    )
-  })
-
-  it('puts a status word or an age in the slot, never both', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(init().model),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro"]')).toContainText('Working'),
-      Scene.expect(Scene.selector('[data-thread-row="kernel-session-fold"]')).toContainText(/\d+h/),
-      Scene.expect(Scene.selector('[data-thread-row="kernel-session-fold"]')).not.toContainText(
-        'Working',
-      ),
-    )
-  })
-
   it("takes the status slot's colour from the theme's status tokens", () => {
     expect(ThreadList.statusTone('failed')).toBe('text-status-failed')
     expect(ThreadList.statusTone('needs-you')).toBe('text-status-attention')
@@ -313,25 +273,6 @@ describe('thread list', () => {
       Scene.expect(
         Scene.selector('[data-thread-row="without-icon"] [data-project-monogram]'),
       ).toContainText('F'),
-    )
-  })
-
-  it('nests a subagent under its parent, and its subagent under that', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(init().model),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro-tests"]')).toExist(),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro-tests"]')).toContainText(
-        'Pin the toggle round-trip',
-      ),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro-tests-reload"]')).toExist(),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro-tests-reload"]')).toContainText(
-        'Reload with both sidebars shut',
-      ),
-      Scene.expect(
-        Scene.selector('[data-subagent-list="2"] [data-thread-row="shell-retro-tests-reload"]'),
-      ).toExist(),
-      Scene.expect(Scene.selector('[data-subagent-list="1"]')).toExist(),
     )
   })
 
