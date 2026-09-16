@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MessageAppended,
   ProjectCreated,
+  ProjectUpdated,
   SessionActivated,
   ThreadCreated,
   ThreadContextWindow,
@@ -108,6 +109,50 @@ describe('foldProjects', () => {
     expect(foldProjects([created])).toEqual([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
     expect(foldProject([created], 'p1')).toEqual({ id: 'p1', name: 'oru', cwd: '/tmp/oru' })
   })
+
+  it('lets the latest project/updated carry the whole project', () => {
+    const created = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+    })
+    const renamed = ProjectUpdated.make({
+      ...unsignedTree,
+      id: 'e2',
+      project: 'p1',
+      name: 'oru-app',
+      cwd: '/tmp/oru',
+    })
+    const moved = ProjectUpdated.make({
+      ...unsignedTree,
+      id: 'e3',
+      project: 'p1',
+      name: 'oru-app',
+      cwd: '/tmp/elsewhere',
+    })
+    expect(foldProjects([created, renamed, moved])).toEqual([
+      { id: 'p1', name: 'oru-app', cwd: '/tmp/elsewhere' },
+    ])
+    expect(foldProject([created, renamed, moved], 'p1')).toEqual({
+      id: 'p1',
+      name: 'oru-app',
+      cwd: '/tmp/elsewhere',
+    })
+  })
+
+  it('drops an update to a project the log never created', () => {
+    const stranded = ProjectUpdated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p-ghost',
+      name: 'ghost',
+      cwd: '/tmp/ghost',
+    })
+    expect(foldProjects([stranded])).toEqual([])
+    expect(foldProject([stranded], 'p-ghost')).toBeUndefined()
+  })
 })
 
 describe('foldThreadCwd', () => {
@@ -126,6 +171,30 @@ describe('foldThreadCwd', () => {
       project: 'p1',
     })
     expect(foldThreadCwd([project, thread], 't1')).toBe('/tmp/oru')
+  })
+
+  it('follows a cwd edit made after the thread was created', () => {
+    const project = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+    })
+    const thread = ThreadCreated.make({
+      ...unsignedTree,
+      id: 'e2',
+      thread: 't1',
+      project: 'p1',
+    })
+    const moved = ProjectUpdated.make({
+      ...unsignedTree,
+      id: 'e3',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/moved',
+    })
+    expect(foldThreadCwd([project, thread, moved], 't1')).toBe('/tmp/moved')
   })
 })
 

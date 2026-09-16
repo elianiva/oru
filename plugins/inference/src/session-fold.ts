@@ -55,6 +55,7 @@ export const foldThread = (events: readonly SessionEvent[], thread: ThreadId): T
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},
         'project/created': () => {},
+        'project/updated': () => {},
         'thread/created': () => {},
         'thread/compacted': () => {},
         'thread/branched': () => {},

@@ -2,6 +2,7 @@ import { Match, Schema } from 'effect'
 import { ProjectId, type PluginId, type ThreadId } from './primitives.ts'
 import {
   ProjectCreated,
+  ProjectUpdated,
   ThreadConfigured,
   ThreadContextWindow,
   ThreadCreated,
@@ -22,6 +23,7 @@ export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<
             return next
           },
           'project/created': () => active,
+          'project/updated': () => active,
           'thread/created': () => active,
           'thread/configured': () => active,
           'turn/started': () => active,
@@ -48,6 +50,7 @@ export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<T
           'plugin/activated': () => threads,
           'plugin/deactivated': () => threads,
           'project/created': () => threads,
+          'project/updated': () => threads,
           'thread/created': (event) => new Set(threads).add(event.thread),
           'thread/configured': (event) => new Set(threads).add(event.thread),
           'turn/started': (event) => new Set(threads).add(event.thread),
@@ -72,6 +75,7 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
       Match.value(event).pipe(
         Match.tagsExhaustive({
           'project/created': (event) => new Set(projects).add(event.project),
+          'project/updated': () => projects,
           'plugin/activated': () => projects,
           'plugin/deactivated': () => projects,
           'thread/created': (event) => new Set(projects).add(event.project),
@@ -99,10 +103,19 @@ export const NamedProject = Schema.Struct({
 })
 export type NamedProject = typeof NamedProject.Type
 
+/**
+ * Every project the log names, as of each project's latest fact. An update to
+ * an id the log never created names nothing, so it is dropped rather than
+ * manufacturing a project out of a fact about one.
+ */
 export const foldProjects = (events: readonly SessionEvent[]): readonly NamedProject[] => {
   const projects = new Map<ProjectId, NamedProject>()
   for (const event of events) {
-    if (Schema.is(ProjectCreated)(event) && !projects.has(event.project)) {
+    if (Schema.is(ProjectCreated)(event)) {
+      if (!projects.has(event.project)) {
+        projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
+      }
+    } else if (Schema.is(ProjectUpdated)(event) && projects.has(event.project)) {
       projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
     }
   }
@@ -206,8 +219,5 @@ export const foldThreadCwd = (
     if (Schema.is(ThreadCreated)(event) && event.thread === thread) project = event.project
   }
   if (project === undefined) return undefined
-  for (const event of events) {
-    if (Schema.is(ProjectCreated)(event) && event.project === project) return event.cwd
-  }
-  return undefined
+  return foldProject(events, project)?.cwd
 }
