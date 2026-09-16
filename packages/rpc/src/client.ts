@@ -45,6 +45,10 @@ export interface ProjectClientContract {
   ) => Effect.Effect<Project, RelativeCwd | HostUnreachable>
   readonly list: () => Effect.Effect<readonly Project[], HostUnreachable>
   readonly get: (project: ProjectId) => Effect.Effect<Project, UnknownProject | HostUnreachable>
+  readonly update: (
+    project: ProjectId,
+    change: { readonly name: string; readonly cwd: string },
+  ) => Effect.Effect<Project, RelativeCwd | UnknownProject | HostUnreachable>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientContract>()(
@@ -125,6 +129,16 @@ const reachableCwd = <A>(
     ),
   )
 
+const reachableProject = <A>(
+  operation: string,
+  effect: Effect.Effect<A, RelativeCwd | UnknownProject | RpcClientError.RpcClientError>,
+): Effect.Effect<A, RelativeCwd | UnknownProject | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): RelativeCwd | UnknownProject | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
 const reachableNew = <A>(
   operation: string,
   effect: Effect.Effect<A, UnknownProject | RpcClientError.RpcClientError>,
@@ -166,6 +180,11 @@ export const projectClientOf = (
     create: (name, cwd) => reachableCwd('CreateProject', client.CreateProject({ name, cwd })),
     list: () => reachable('ListProjects', client.ListProjects()),
     get: (project) => reachableNew('GetProject', client.GetProject({ project })),
+    update: (project, change) =>
+      reachableProject(
+        'UpdateProject',
+        client.UpdateProject({ project, name: change.name, cwd: change.cwd }),
+      ),
   })
 
 export const threadClientOf = (
