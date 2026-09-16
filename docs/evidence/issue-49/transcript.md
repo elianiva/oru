@@ -81,6 +81,7 @@ $ agent-browser get text "[data-projects-row]"
 oru
 /Users/elianiva/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fs8yguc6mj-1/oru
 Edit
+$ agent-browser screenshot 06-settings-projects-page.png
 $ agent-browser click "[data-projects-edit]"
 $ agent-browser get value "#settings-project-name"
 oru
@@ -88,6 +89,8 @@ oru
 
 The placeholder that read _"Tracked projects and their defaults will live here."_
 is gone, and the editor is seeded from the host's own row.
+
+![The Projects page](06-settings-projects-page.png)
 
 ![The editor, seeded from the host](07-settings-projects-edit-open.png)
 
