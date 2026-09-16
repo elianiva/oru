@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startScriptedProvider } from '@oru/harness-pi/testing'
 
 const e2eDir = dirname(fileURLToPath(import.meta.url))
 const appDir = dirname(e2eDir)
@@ -11,6 +12,7 @@ mkdirSync(outDir, { recursive: true })
 
 const hostLog = join(outDir, 'host.log')
 const journal = join(outDir, 'oru.db')
+const home = join(outDir, 'home')
 const hostMain = join(repoDir, 'apps/host/src/main.ts')
 const log = createWriteStream(hostLog)
 
@@ -18,9 +20,18 @@ const log = createWriteStream(hostLog)
 // can run beside a `pnpm dev` that already holds 5173.
 const appPort = process.env.ORU_E2E_PORT ?? '5173'
 
-// Each run starts from an empty log, so "a fresh host has no projects" is a
-// property of the run and not of whatever an earlier run left behind.
+// Each run starts from an empty log and an empty host home, so "a fresh host
+// has no projects" and "the default harness is pi" are properties of the run
+// and not of whatever an earlier run, or the developer's own `~/.oru`, left
+// behind.
 rmSync(journal, { force: true })
+rmSync(home, { force: true, recursive: true })
+mkdirSync(home, { recursive: true })
+
+// A scripted pi keeps the suite hermetic. The vendored pi binary is real, its
+// RPC dialect and catalogue are real; only the model endpoint is scripted, so
+// the picker has a catalogue without a global pi install or an account.
+const scripted = await startScriptedProvider()
 
 const children = []
 
@@ -28,6 +39,7 @@ const stop = () => {
   for (const child of children) {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
   }
+  void scripted.close()
 }
 
 process.on('SIGINT', stop)
@@ -36,7 +48,7 @@ process.on('SIGTERM', stop)
 // Port 0: the host picks its own, so a dev host on 7317 is not in the way. The
 // dev server is told where it landed through the proxy target.
 const host = spawn(process.execPath, [hostMain, '--port', '0', '--journal', journal], {
-  env: { ...process.env, ORU_JOURNAL: journal },
+  env: { ...process.env, ...scripted.env, ORU_HOME: home, ORU_JOURNAL: journal },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 children.push(host)
