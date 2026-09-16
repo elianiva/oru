@@ -6,21 +6,23 @@ import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { Box, Folder, GitBranch, Lock, Mic, Plus } from 'lucide'
+import { ProjectClient } from '@oru/rpc'
 import * as Composer from './composer.ts'
 import * as LeftPanel from './left-panel.ts'
+import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
 import * as General from './settings/general.ts'
 import * as SettingsLayout from './settings/layout.ts'
 import * as SettingsPages from './settings/pages.ts'
 import * as Shell from './shell.ts'
-import { AppRoute, homeRouter, titleForRoute, urlToAppRoute } from './route.ts'
-import { fakeThreadSections } from './threads.ts'
+import { AppRoute, homeRouter, threadRouter, titleForRoute, urlToAppRoute } from './route.ts'
+import { fakeThreadSections, threadById } from './threads.ts'
 
 export const Model = Schema.Struct({
   route: AppRoute,
   shell: Shell.Model,
   threads: LeftPanel.Model,
-  selectedThread: Schema.Option(Schema.String),
+  projects: Projects.Model,
   composer: Composer.Model,
   settings: General.Model,
 })
@@ -33,21 +35,19 @@ export const Message = defineMessageUnion({
   ChangedUrl: { url: Url.Url },
   GotShell: { message: Shell.Message },
   GotThreads: { message: LeftPanel.Message },
+  GotProjects: { message: Projects.Message },
   GotComposer: { message: Composer.Message },
   GotSettings: { message: General.Message },
 })
 export type Message = typeof Message.Type
 
-export const init = (url: Url.Url) => ({
-  model: {
-    route: urlToAppRoute(url),
-    shell: Shell.init(),
-    threads: LeftPanel.init(),
-    selectedThread: Option.none<string>(),
-    composer: Composer.init(),
-    settings: General.init(),
-  },
-})
+/**
+ * The selected thread is the route, never a second copy of it: a URL with a
+ * thread in it selects that thread, a reload lands on the same one, and going
+ * back leaves the conversation.
+ */
+export const selectedThread = (model: Model): Option.Option<string> =>
+  AppRoute.guards.Thread(model.route) ? Option.some(model.route.threadId) : Option.none()
 
 const NavigateInternal = Command.define('NavigateInternal', {
   args: { url: Schema.String },
@@ -62,7 +62,43 @@ const LoadExternal = Command.define('LoadExternal', {
   execute: ({ href }) => Navigation.load(href).pipe(Effect.as(Message.CompletedLoadExternal())),
 })
 
-type UpdateReturn = Update.Return<Model, Message>
+/**
+ * The app's first call, and the one the host-unreachable state answers to. A
+ * transport failure is the state this command reports, so the app renders a
+ * host that is down instead of dying on it.
+ */
+export const ListProjects = Command.define('ListProjects', {
+  messages: [Message.GotProjects],
+  execute: ProjectClient.pipe(
+    Effect.flatMap((client) => client.list()),
+    Effect.map((projects) =>
+      Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects }) }),
+    ),
+    Effect.catch((error) =>
+      Effect.succeed(
+        Message.GotProjects({
+          message: Projects.Message.HostUnreachable({
+            reason: `${error.operation}: ${error.reason}`,
+          }),
+        }),
+      ),
+    ),
+  ),
+})
+
+export const init = (url: Url.Url) => ({
+  model: {
+    route: urlToAppRoute(url),
+    shell: Shell.init(),
+    threads: LeftPanel.init(),
+    projects: Projects.init(),
+    composer: Composer.init(),
+    settings: General.init(),
+  },
+  commands: [ListProjects()],
+})
+
+type UpdateReturn = Update.Return<Model, Message, ProjectClient>
 
 const foldShell = Update.foldChild({
   update: Shell.update,
@@ -71,6 +107,10 @@ const foldShell = Update.foldChild({
   toParentMessage: (message: Shell.Message) => Message.GotShell({ message }),
 })
 
+/**
+ * Picking a row navigates. The selection lives in the URL, so the left column
+ * reports the click and the app moves instead of holding a copy.
+ */
 const foldThreads = Update.foldChild({
   update: LeftPanel.update,
   read: (model: Model) => Option.some(model.threads),
@@ -81,8 +121,23 @@ const foldThreads = Update.foldChild({
       Selected:
         ({ id }) =>
         (model) => ({
-          model: evo(model, { selectedThread: () => Option.some(id) }),
+          model,
+          commands: [NavigateInternal({ url: threadRouter({ threadId: id }) })],
         }),
+    }),
+})
+
+const foldProjects = Update.foldChild({
+  update: Projects.update,
+  read: (model: Model) => Option.some(model.projects),
+  write: (model, nextChild) => evo(model, { projects: () => nextChild }),
+  toParentMessage: (message: Projects.Message) => Message.GotProjects({ message }),
+  foldOutMessage: (outMessage: Projects.OutMessage): Update.Step<Model, Message, ProjectClient> =>
+    Projects.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
+      RequestedRetry: () => (model) => ({
+        model: evo(model, { projects: () => Projects.init() }),
+        commands: [ListProjects()],
+      }),
     }),
 })
 
@@ -125,6 +180,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     GotShell: ({ message: childMessage }) => foldShell(model, childMessage),
     GotThreads: ({ message: childMessage }) => foldThreads(model, childMessage),
+    GotProjects: ({ message: childMessage }) => foldProjects(model, childMessage),
     GotComposer: ({ message: childMessage }) => foldComposer(model, childMessage),
     GotSettings: ({ message: childMessage }) => foldSettings(model, childMessage),
   })
@@ -140,35 +196,6 @@ const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
 })
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(shellSubs, threadSubs)
-
-const homeMain = (model: Model, h: HtmlBuilder<Message>) =>
-  h.div(
-    [
-      h.Attribute('data-main', ''),
-      h.Class('flex min-h-0 flex-1 flex-col items-center justify-center p-6'),
-    ],
-    [
-      h.submodel({
-        slotId: 'composer',
-        model: model.composer,
-        view: Composer.view,
-        viewInputs: { contributions: composerContributions() },
-        toParentMessage: (childMessage) => Message.GotComposer({ message: childMessage }),
-      }),
-    ],
-  )
-
-const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.submodel({
-    slotId: 'left-panel',
-    model: model.threads,
-    view: LeftPanel.view,
-    viewInputs: { sections: fakeThreadSections, selected: model.selectedThread },
-    toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
-  })
-
-const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
-  RightPanel.view(model.selectedThread, { sections: fakeThreadSections }, h)
 
 const coreContributions = (): Composer.ComposerContributions => ({
   placeholder: 'Ask anything. @ to mention files, folders, or sections',
@@ -191,21 +218,106 @@ const contextPluginContributions = (): Composer.ComposerContributions => ({
   ],
 })
 
-const composerContributions = (): Composer.ComposerContributions =>
+const heroContributions = (): Composer.ComposerContributions =>
   Composer.mergeContributions(coreContributions(), contextPluginContributions())
 
-const homeView = (model: Model, h: HtmlBuilder<Message>): Html =>
+/** The conversation's composer keeps the actions and drops the hero's prompt. */
+const conversationContributions = (): Composer.ComposerContributions => {
+  const { placeholder, leading, trailing, chips } = heroContributions()
+  return { placeholder, leading, trailing, chips }
+}
+
+const composerSlot = (
+  model: Model,
+  contributions: Composer.ComposerContributions,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.submodel({
+    slotId: 'composer',
+    model: model.composer,
+    view: Composer.view,
+    viewInputs: { contributions },
+    toParentMessage: (childMessage) => Message.GotComposer({ message: childMessage }),
+  })
+
+const projectsSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.submodel({
+    slotId: 'projects',
+    model: model.projects,
+    view: Projects.view,
+    toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
+  })
+
+const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [
+      h.Attribute('data-main', ''),
+      h.Class('flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6'),
+    ],
+    [
+      h.div([h.Class('w-full max-w-3xl')], [projectsSlot(model, h)]),
+      composerSlot(model, heroContributions(), h),
+    ],
+  )
+
+/**
+ * A thread's conversation. The header names the thread the route selected, and
+ * the column between it and the composer holds nothing because nothing about
+ * this thread is recorded by the app yet.
+ */
+const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Attribute('data-conversation', ''), h.Class('flex min-h-0 flex-1 flex-col')],
+    [
+      h.header(
+        [h.Class('flex h-10 shrink-0 items-center px-5')],
+        [
+          h.span(
+            [h.Class('truncate text-sm font-medium')],
+            [Option.match(selectedThread(model), { onNone: () => '', onSome: threadName })],
+          ),
+        ],
+      ),
+      h.div([h.Class('min-h-0 flex-1')], []),
+      h.div(
+        [h.Class('flex shrink-0 justify-center px-6 pb-6')],
+        [composerSlot(model, conversationContributions(), h)],
+      ),
+    ],
+  )
+
+const threadName = (id: string): string => threadById(fakeThreadSections, id)?.title ?? id
+
+const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.submodel({
+    slotId: 'left-panel',
+    model: model.threads,
+    view: LeftPanel.view,
+    viewInputs: { sections: fakeThreadSections, selected: selectedThread(model) },
+    toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
+  })
+
+const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
+  RightPanel.view(selectedThread(model), { sections: fakeThreadSections }, h)
+
+const shellView = (model: Model, main: Html, h: HtmlBuilder<Message>): Html =>
   h.submodel({
     slotId: 'shell',
     model: model.shell,
     view: Shell.view,
     viewInputs: {
       toLeftPanel: () => leftPanel(model, h),
-      toMain: () => homeMain(model, h),
+      toMain: () => main,
       toRightPanel: () => rightPanel(model, h),
     },
     toParentMessage: (message) => Message.GotShell({ message }),
   })
+
+const homeView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  shellView(model, homeMain(model, h), h)
+
+const conversationView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  shellView(model, conversationMain(model, h), h)
 
 const settingsView = (
   model: Model,
@@ -241,10 +353,10 @@ const notFoundView = (path: string, h: HtmlBuilder<Message>): Html =>
  * pages tears down the old page instead of patching it. Settings arms share
  * the shell but keep per-page content functions.
  */
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: titleForRoute(model.route),
-  body: AppRoute.match(model.route, {
+const routeView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  AppRoute.match(model.route, {
     Home: () => homeView(model, h),
+    Thread: () => conversationView(model, h),
     SettingsGeneral: () => generalView(model, h),
     SettingsProviders: () =>
       settingsView(model, (contentH) => SettingsPages.providersView(contentH), h),
@@ -272,5 +384,18 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
     SettingsCommunity: () =>
       settingsView(model, (contentH) => SettingsPages.communityView(contentH), h),
     NotFound: ({ path }) => notFoundView(path, h),
-  }),
+  })
+
+/**
+ * A host that did not answer replaces the whole shell: no column can show a
+ * fact the host never gave, and the retry is the only thing that reaches it.
+ */
+export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
+  title: titleForRoute(model.route),
+  body: Projects.isUnreachable(model.projects)
+    ? h.div(
+        [h.Class('flex h-svh items-center justify-center bg-sidebar p-6')],
+        [h.div([h.Class('w-full max-w-md')], [projectsSlot(model, h)])],
+      )
+    : routeView(model, h),
 })

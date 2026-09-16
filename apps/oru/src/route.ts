@@ -27,6 +27,7 @@ import {
  */
 export const AppRoute = Route.defineRouteUnion({
   Home: {},
+  Thread: { threadId: Schema.String },
   SettingsGeneral: {},
   SettingsProviders: {},
   SettingsAppearance: {},
@@ -46,6 +47,13 @@ export const AppRoute = Route.defineRouteUnion({
 export type AppRoute = typeof AppRoute.Type
 
 export const homeRouter = pipe(Route.root, Route.mapTo(AppRoute.Home))
+
+/** A thread's own URL. The route is the only owner of the selection. */
+export const threadRouter = pipe(
+  Route.literal('thread'),
+  Route.slash(Route.string('threadId')),
+  Route.mapTo(AppRoute.Thread),
+)
 
 /** `/settings` has no page of its own; it lands on General. */
 export const settingsIndexRouter = pipe(
@@ -140,9 +148,11 @@ export const settingsCommunityRouter = pipe(
 /**
  * A router only matches when it consumes the whole URL, so the bare
  * `/settings` index never shadows a section beneath it. Specific sections
- * still come first, keeping the order obviously safe.
+ * still come first, keeping the order obviously safe; `/thread/:id` leads the
+ * list so nothing generic can ever claim its first segment.
  */
 const routeParser = Route.oneOf(
+  threadRouter,
   settingsGeneralRouter,
   settingsProvidersRouter,
   settingsAppearanceRouter,
@@ -230,6 +240,7 @@ export const settingsSections: ReadonlyArray<SettingsSection> = [
 const sectionIdForRoute = (route: AppRoute): SettingsSectionId | undefined =>
   AppRoute.match(route, {
     Home: () => undefined,
+    Thread: () => undefined,
     SettingsGeneral: () => 'general',
     SettingsProviders: () => 'providers',
     SettingsAppearance: () => 'appearance',
@@ -259,5 +270,6 @@ export const titleForRoute = (route: AppRoute): string => {
   const section = sectionForRoute(route)
   if (section !== undefined) return `${section.label} - Settings | oru`
   if (AppRoute.guards.Home(route)) return 'oru'
+  if (AppRoute.guards.Thread(route)) return 'Thread | oru'
   return 'Not found | oru'
 }
