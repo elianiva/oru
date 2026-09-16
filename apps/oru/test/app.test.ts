@@ -568,6 +568,64 @@ describe('composer', () => {
     )
   })
 
+  it('holds a draft the host owes an answer for, so the refusal reaches the form that asked', () => {
+    const submitted = update(
+      typedCreateForm(listOne()),
+      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
+    ).model
+    Scene.scene(
+      { update, view },
+      Scene.given(submitted),
+      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeDisabled(),
+      Scene.expect(Scene.selector('[data-composer-chip-cancel="project"]')).toBeDisabled(),
+    )
+
+    const abandoned = ((): Model => {
+      const walk: ReadonlyArray<Composer.Message> = [
+        Composer.Message.ClickedChipCancel({ chip: 'project' }),
+        Composer.Message.ClickedAction({ id: 'project' }),
+        Composer.Message.ClickedChipOption({ chip: 'project', option: 'new-project' }),
+        Composer.Message.ChangedChipField({ chip: 'project', field: 'name', value: 'third' }),
+      ]
+      return walk.reduce(
+        (current, message) => update(current, Message.GotComposer({ message })).model,
+        submitted,
+      )
+    })()
+    expect(abandoned.projects.panel).toEqual(submitted.projects.panel)
+
+    const refused = update(
+      abandoned,
+      Message.GotProjects({
+        message: Projects.Message.CreateRefused({
+          refusal: Projects.RelativeCwd.make({ cwd: 'tmp/second' }),
+        }),
+      }),
+    ).model
+    Scene.scene(
+      { update, view },
+      Scene.given(refused),
+      Scene.expect(Scene.selector('[data-composer-chip-error="project"]')).toContainText(
+        'tmp/second',
+      ),
+      Scene.expect(Scene.selector('[data-composer-chip-field="name"]')).toHaveValue('second'),
+      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
+      Scene.expect(Scene.selector('[data-composer-chip-cancel="project"]')).toBeEnabled(),
+    )
+  })
+
+  it('marks a project as picked only when the host answer backs the pick', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(listOne()),
+      Scene.click(Scene.selector('[data-composer-chip="project"]')),
+      Scene.expectAll(Scene.all.selector('[data-composer-chip-option-selected]')).toHaveCount(0),
+      Scene.click(Scene.selector('[data-composer-chip-option="p1"]')),
+      Scene.click(Scene.selector('[data-composer-chip="project"]')),
+      Scene.expectAll(Scene.all.selector('[data-composer-chip-option-selected]')).toHaveCount(1),
+    )
+  })
+
   it('does not offer a project id the host never answered with', () => {
     const opened = update(
       listOne(),
@@ -813,6 +871,60 @@ describe('settings', () => {
       Scene.given(listed),
       Scene.expect(Scene.selector('[data-projects-settings-empty]')).toExist(),
       Scene.expectAll(Scene.all.selector('[data-projects-row]')).toHaveCount(0),
+    )
+  })
+
+  it('cannot open another project while one save is in flight', () => {
+    const listed = update(
+      init(urlForPath('/settings/projects')).model,
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [
+            { id: 'p1', name: 'oru', cwd: '/tmp/oru' },
+            { id: 'p2', name: 'bb', cwd: '/tmp/bb' },
+          ],
+        }),
+      }),
+    ).model
+    const editP1: ReadonlyArray<Projects.Message> = [
+      Projects.Message.ClickedEdit({ project: 'p1' }),
+      Projects.Message.ChangedEditField({ field: 'name', value: 'oru-app' }),
+      Projects.Message.ClickedEditSave(),
+    ]
+    const editingP1 = editP1.reduce(
+      (current, message) => update(current, Message.GotProjects({ message })).model,
+      listed,
+    )
+
+    const switched = update(
+      editingP1,
+      Message.GotProjects({ message: Projects.Message.ClickedEdit({ project: 'p2' }) }),
+    ).model
+    expect(switched.projects.edit?.project).toBe('p1')
+
+    const canceled = update(
+      switched,
+      Message.GotProjects({ message: Projects.Message.ClickedEditCancel() }),
+    ).model
+    expect(canceled.projects.edit?.project).toBe('p1')
+
+    // The answer p1 was waiting for is the only thing that closes its editor.
+    const answered = update(
+      canceled,
+      Message.GotProjects({
+        message: Projects.Message.ProjectUpdated({
+          project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
+        }),
+      }),
+    ).model
+    expect(answered.projects.edit).toBeUndefined()
+    expect(answered.projects.host).toEqual(
+      Projects.Loaded.make({
+        projects: [
+          { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
+          { id: 'p2', name: 'bb', cwd: '/tmp/bb' },
+        ],
+      }),
     )
   })
 

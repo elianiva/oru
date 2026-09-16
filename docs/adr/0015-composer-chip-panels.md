@@ -22,4 +22,6 @@ A chip without a panel is a label and keeps its old markup. A chip with an open 
 
 - Adding a chip with a panel is: contribute the chip, add one arm per OutMessage to root's routing table, and fold the resulting message into the owning submodel. The composer does not change.
 - The panel's error line is the host's own refusal rendered where the write was attempted, so a refused write is visible instead of a silent no-op.
+- A draft the host owes an answer for cannot be dismissed, replaced, or amended until that answer arrives, and the panel renders it that way by disabling its own cancel. One draft per surface can be in flight, so an answer can only reach the draft that asked for it: a refusal never lands on a form that replaced it, and a refusal never describes text the user has already changed.
+- The chip names the project the user picked while the host still lists it, otherwise the host's first, the way the harness registry resolves `preferred()` for a thread that names no harness. Only a pick is marked in the menu, so the panel never claims a choice no fact backs.
 - #51 deletes the composer's remaining invented chips. They are labels, so the deletion touches no panel state.

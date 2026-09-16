@@ -1,21 +1,21 @@
 # Projects in a real browser
 
 One agent-browser run against the worktree's own two halves, started by hand: the
-host on 7497 with a fresh journal under `/tmp/oru-evidence`, Vite on 5299 with
+host on 7497 with a fresh journal under `/tmp/oru-evidence2`, Vite on 5299 with
 `ORU_PROXY_TARGET=http://127.0.0.1:7497`. Every value on screen below comes from
 that host's journal; the app was reloaded twice, so nothing here is a live signal.
 
 ```
-$ node apps/host/src/main.ts --port 7497 --journal /tmp/oru-evidence/oru.db &
+$ node apps/host/src/main.ts --port 7497 --journal /tmp/oru-evidence2/oru.db &
 oru host listening on http://127.0.0.1:7497
 $ ORU_PROXY_TARGET=http://127.0.0.1:7497 pnpm --filter ./apps/oru exec vite \
     --host 127.0.0.1 --port 5299 --strictPort &
   ➜  Local:   http://127.0.0.1:5299/
 
 $ agent-browser open http://127.0.0.1:5299/
-$ agent-browser snapshot -i -c
-  ...
-  - button "No project" [ref=e14]
+$ agent-browser wait --text "What should we build in oru?"
+$ agent-browser get text "[data-composer-chip=project]"
+No project
 ```
 
 A host with no projects names none: the chip is a label, not a project.
@@ -23,10 +23,8 @@ A host with no projects names none: the chip is a label, not a project.
 ![A fresh host](01-fresh-host-no-project.png)
 
 ```
-$ agent-browser click @e14
-$ agent-browser snapshot -i -c
-  - button "No project" [expanded=true, ref=e14]
-  - button "New project…" [ref=e25]
+$ agent-browser click "[data-composer-chip=project]"
+$ agent-browser screenshot 02-chip-offers-new-project.png
 ```
 
 The panel lists the host's projects — none, here — and offers the one row the app
@@ -35,9 +33,9 @@ can act on.
 ![The chip's panel](02-chip-offers-new-project.png)
 
 ```
-$ agent-browser click @e25
-$ agent-browser fill @e27 "oru"                 # Name
-$ agent-browser fill @e28 "relative/place"      # Cwd
+$ agent-browser click "[data-composer-chip-option=new-project]"
+$ agent-browser fill "[data-composer-chip-field=name]" "oru"
+$ agent-browser fill "[data-composer-chip-field=cwd]" "relative/place"
 $ agent-browser click "[data-composer-chip-submit=project]"
 $ agent-browser get text "[data-composer-chip-error=project]"
 The host needs an absolute cwd, and "relative/place" is not one.
@@ -53,12 +51,18 @@ host wrote nothing.
 ```
 $ agent-browser fill "[data-composer-chip-field=cwd]" "<the worktree>"
 $ agent-browser click "[data-composer-chip-submit=project]"
+$ agent-browser get text "[data-composer-chip=project]"
+oru
 $ agent-browser get text "[data-project]"
 oru
 /Users/elianiva/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fs8yguc6mj-1/oru
+```
 
-$ agent-browser screenshot 04-project-created-from-the-chip.png
+![Created from the chip](04-project-created-from-the-chip.png)
+
+```
 $ agent-browser reload
+$ agent-browser wait --text "What should we build in oru?"
 $ agent-browser get text "[data-composer-chip=project]"
 oru
 $ agent-browser get text "[data-project]"
@@ -73,14 +77,13 @@ same journal rather than anything the page kept.
 
 ```
 $ agent-browser open http://127.0.0.1:5299/settings/projects
-$ agent-browser click @e19                      # Edit
-$ agent-browser snapshot -i -c | grep -A 5 'region "Projects"'
-  - region "Projects" [ref=e3]
-    - heading "Projects" [level=2, ref=e18]
-    - textbox "Name" [ref=e19]: oru
-    - textbox "Cwd" [ref=e20]: <the worktree>
-    - button "Cancel" [ref=e21]
-    - button "Save" [ref=e22]
+$ agent-browser get text "[data-projects-row]"
+oru
+/Users/elianiva/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fs8yguc6mj-1/oru
+Edit
+$ agent-browser click "[data-projects-edit]"
+$ agent-browser get value "#settings-project-name"
+oru
 ```
 
 The placeholder that read _"Tracked projects and their defaults will live here."_
@@ -89,8 +92,8 @@ is gone, and the editor is seeded from the host's own row.
 ![The editor, seeded from the host](07-settings-projects-edit-open.png)
 
 ```
-$ agent-browser fill @e20 "relative/place"
-$ agent-browser click @e22                      # Save
+$ agent-browser fill "#settings-project-cwd" "relative/place"
+$ agent-browser click "[data-projects-save]"
 $ agent-browser get text "[data-projects-edit-error]"
 The host needs an absolute cwd, and "relative/place" is not one.
 ```
@@ -113,7 +116,17 @@ $ agent-browser get text "[data-projects-row]"
 oru-control-plane
 /tmp/oru-evidence/new-cwd
 Edit
+```
+
+Both the rename and the cwd edit are the host's answer, not a local intention.
+
+![Renamed and moved](09-settings-renamed-and-moved.png)
+
+![The edit survives a reload](10-settings-reload-keeps-the-edit.png)
+
+```
 $ agent-browser open http://127.0.0.1:5299/
+$ agent-browser wait --text "What should we build in oru?"
 $ agent-browser get text "[data-composer-chip=project]"
 oru-control-plane
 $ agent-browser get text "[data-project]"
@@ -121,25 +134,20 @@ oru-control-plane
 /tmp/oru-evidence/new-cwd
 ```
 
-Both the rename and the cwd edit are the host's answer after a reload, on both
-surfaces.
-
-![Renamed and moved](09-settings-renamed-and-moved.png)
-
-![The edit survives a reload](10-settings-reload-keeps-the-edit.png)
-
 ![The chip names the edited project](11-home-reload-shows-the-edited-project.png)
-
-Later in the same session, the chip's panel lists the project the host now holds:
 
 ```
 $ agent-browser click "[data-composer-chip=project]"
 $ agent-browser get text "[data-composer-chip-option]"
 oru-control-plane
 /tmp/oru-evidence/new-cwd
+$ agent-browser get count "[data-composer-chip-option-selected]"
+0
 ```
 
-Each row is the host's own name and cwd, and `New project…` follows them.
+Each row is the host's own name and cwd, and `New project…` follows them. No row
+is marked chosen: the chip named `oru-control-plane` because it is the host's
+only project, not because anything recorded a pick.
 
 ![The chip lists the host's projects](12-chip-lists-the-hosts-projects.png)
 
@@ -150,7 +158,7 @@ $ agent-browser errors
 $ agent-browser console
 [debug] [vite] connecting...
 [debug] [vite] connected.
-                                  # nothing from the app
+                                  # one such pair per load, nothing from the app
 ```
 
 ## What this run does not cover

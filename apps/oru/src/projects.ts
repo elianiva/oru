@@ -146,15 +146,18 @@ export const isUnreachable = (model: Model): boolean =>
 export const projectsOf = (model: Model): ReadonlyArray<Project> =>
   Predicate.isTagged(model.host, 'Loaded') ? model.host.projects : []
 
+/** The project the user pointed the composer at, if they have picked one yet. */
+export const chosenProject = (model: Model): Project | undefined =>
+  projectsOf(model).find((project) => project.id === model.selected)
+
 /**
- * The project the chip names: the id the user picked while the host still lists
- * it, otherwise the first project the host answered with. This is the one place
- * that changes when a thread's project becomes a real selection.
+ * The project the chip names and a thread would run in: the one the user picked
+ * while the host still lists it, otherwise the host's first, the way the harness
+ * registry resolves `preferred()` for a thread that names no harness. Nothing is
+ * stored by that fallback, so the menu marks only a pick.
  */
-export const selectedProject = (model: Model): Project | undefined => {
-  const projects = projectsOf(model)
-  return projects.find((project) => project.id === model.selected) ?? projects[0]
-}
+export const selectedProject = (model: Model): Project | undefined =>
+  chosenProject(model) ?? projectsOf(model)[0]
 
 /** Replaces a listed project, or states a newly answered one. */
 const upsert = (projects: ReadonlyArray<Project>, project: Project): ReadonlyArray<Project> =>
@@ -196,6 +199,17 @@ const settled = (model: Model): Model =>
   })
 
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>
+
+/**
+ * A draft the host owes an answer for. It cannot be dismissed, replaced, or
+ * amended while the write is in flight, so an answer can only reach the draft
+ * that made the request: a refusal lands on the form that asked for it and never
+ * on one that replaced it.
+ */
+const isPending = (panel: CreatePanel): boolean =>
+  Predicate.isTagged(panel, 'PanelComposing') && panel.isSaving
+
+const editIsPending = (model: Model): boolean => model.edit?.isSaving === true
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
@@ -245,14 +259,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }
     },
 
-    ToggledCreatePanel: () => ({
-      model: evo(model, {
-        panel: (panel) =>
-          Predicate.isTagged(panel, 'PanelClosed') ? PanelBrowsing.make({}) : PanelClosed.make({}),
-      }),
-    }),
+    ToggledCreatePanel: () => {
+      if (isPending(model.panel)) return { model }
+      return {
+        model: evo(model, {
+          panel: (panel) =>
+            Predicate.isTagged(panel, 'PanelClosed')
+              ? PanelBrowsing.make({})
+              : PanelClosed.make({}),
+        }),
+      }
+    },
     ChangedCreateField: ({ field, value }) => {
-      if (!isField(field)) return { model }
+      if (!isField(field) || isPending(model.panel)) return { model }
       return Match.value(model.panel).pipe(
         Match.tagsExhaustive({
           // The refusal answered the old text, so editing retires it.
@@ -272,6 +291,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       )
     },
     SelectedCreateOption: ({ option }) => {
+      if (isPending(model.panel)) return { model }
       if (option === CREATE_ROW) {
         return {
           model: evo(model, {
@@ -284,7 +304,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       if (!projectsOf(model).some((project) => project.id === option)) return { model }
       return { model: evo(model, { selected: () => option, panel: () => PanelClosed.make({}) }) }
     },
-    CanceledCreate: () => ({ model: evo(model, { panel: () => PanelClosed.make({}) }) }),
+    CanceledCreate: () => {
+      if (isPending(model.panel)) return { model }
+      return { model: evo(model, { panel: () => PanelClosed.make({}) }) }
+    },
     SubmittedCreate: () =>
       Match.value(model.panel).pipe(
         Match.tagsExhaustive({
@@ -293,7 +316,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             const cwd = composing.cwd.trim()
             // The wire's own precondition, not a second opinion about what a
             // host accepts: which cwd *is* acceptable stays the host's answer.
-            if (name.length === 0 || cwd.length === 0) return { model }
+            if (composing.isSaving || name.length === 0 || cwd.length === 0) return { model }
             return {
               model: evo(model, {
                 panel: () =>
@@ -308,6 +331,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       ),
 
     ClickedEdit: ({ project }) => {
+      if (editIsPending(model)) return { model }
       const row = projectsOf(model).find((candidate) => candidate.id === project)
       // The editor opens on the host's row, so it cannot drift from it before
       // the first keystroke.
@@ -327,7 +351,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     },
     ChangedEditField: ({ field, value }) => {
       const edit = model.edit
-      if (edit === undefined || !isField(field)) return { model }
+      if (edit === undefined || edit.isSaving || !isField(field)) return { model }
       return {
         model: evo(model, {
           edit: () => ({
@@ -340,7 +364,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     },
     ClickedEditSave: () => {
       const edit = model.edit
-      if (edit === undefined) return { model }
+      if (edit === undefined || edit.isSaving) return { model }
       const name = edit.name.trim()
       const cwd = edit.cwd.trim()
       if (name.length === 0 || cwd.length === 0) return { model }
@@ -349,7 +373,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         outMessage: OutMessage.RequestedUpdate({ project: edit.project, name, cwd }),
       }
     },
-    ClickedEditCancel: () => ({ model: evo(model, { edit: () => undefined }) }),
+    ClickedEditCancel: () => {
+      if (editIsPending(model)) return { model }
+      return { model: evo(model, { edit: () => undefined }) }
+    },
 
     ClickedRetry: () => ({ model: retrying(model), outMessage: OutMessage.RequestedRetry() }),
   })
@@ -365,7 +392,7 @@ type ChipRow = Readonly<{
 
 const chipRows = (model: Model): ReadonlyArray<ChipRow> => {
   if (!Predicate.isTagged(model.host, 'Loaded')) return []
-  const chosen = selectedProject(model)
+  const chosen = chosenProject(model)
   return [
     ...model.host.projects.map((project): ChipRow => ({
       id: project.id,
@@ -417,6 +444,7 @@ const newProjectForm = (composing: typeof PanelComposing.Type): ComposerChipPane
   ],
   submitLabel: composing.isSaving ? 'Creating…' : 'Create project',
   cancelLabel: 'Cancel',
+  isCancelDisabled: composing.isSaving,
   isSubmitDisabled:
     composing.isSaving || composing.name.trim().length === 0 || composing.cwd.trim().length === 0,
   error: composing.refusal === undefined ? undefined : cwdRefusalText(composing.refusal),

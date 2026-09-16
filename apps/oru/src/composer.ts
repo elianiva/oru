@@ -107,6 +107,8 @@ export type ComposerChipForm = Readonly<{
   cancelLabel: string
   error?: string | undefined
   isSubmitDisabled: boolean
+  /** A write in flight owns the form until its answer arrives. */
+  isCancelDisabled: boolean
 }>
 
 /**
@@ -296,6 +298,7 @@ const formBody = (
           onClick: Message.ClickedChipCancel({ chip: chip.id }),
           variant: 'ghost',
           size: 'sm',
+          isDisabled: panel.isCancelDisabled,
           attributes: [h.DataAttribute('composer-chip-cancel', chip.id)],
         },
         panel.cancelLabel,
