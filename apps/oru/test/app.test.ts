@@ -1,10 +1,12 @@
-import { Option } from 'effect'
+import { Option, Predicate } from 'effect'
 import { Navigation, Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Project } from '@oru/rpc'
+import type { HarnessHealth } from '@oru/harness'
+import type { Project, ThreadOptions } from '@oru/rpc'
 import * as Resizable from '../src/components/ui/resizable.ts'
 import * as Composer from '../src/composer.ts'
+import * as ModelPicker from '../src/model-picker.ts'
 import {
   CreateProject,
   Message,
@@ -449,7 +451,7 @@ describe('composer', () => {
       Scene.expect(Scene.text('What should we build in oru?')).toExist(),
       Scene.expect(Scene.selector('[data-composer-input]')).toExist(),
       Scene.expect(Scene.selector('[data-composer-submit]')).toExist(),
-      Scene.expect(Scene.text('Medium')).toExist(),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Model'),
       // A cold load has no host answer, so the chip names no project; the
       // shell header renders the brand 'oru' all the same, which is why this is
       // asserted against the chip rather than against the literal.
@@ -690,6 +692,124 @@ describe('composer', () => {
     expect(merged.headline).toBe('Build something')
     expect(merged.leading).toHaveLength(1)
     expect(merged.chips).toHaveLength(1)
+  })
+})
+
+describe('model picker', () => {
+  const catalogue: ThreadOptions['models'] = [
+    { id: 'deepseek/deepseek-flash', label: 'DeepSeek Flash', provider: 'deepseek' },
+    { id: 'github-copilot/gpt-5', label: 'Copilot Five', provider: 'github-copilot' },
+  ]
+
+  const ready: HarnessHealth = { status: 'ready' }
+
+  const notInstalled: HarnessHealth = {
+    status: 'not_installed',
+    message: 'pi is not on PATH',
+    installCommand: 'pi update self',
+  }
+
+  const optionsFor = (health: HarnessHealth, model: string | undefined): ThreadOptions => ({
+    config: { harness: 'pi', model, reasoning: undefined },
+    harness: 'pi',
+    harnesses: [{ id: 'pi', label: 'pi', health }],
+    models: catalogue,
+  })
+
+  const loaded = (url: Url.Url, health: HarnessHealth, model: string | undefined) =>
+    update(
+      init(url).model,
+      Message.GotPicker({
+        message: ModelPicker.Message.OptionsArrived({ options: optionsFor(health, model) }),
+      }),
+    ).model
+
+  it('asks the host for the options of the route it loaded', () => {
+    expect(
+      init(urlForPath('/thread/shell-retro')).commands?.map((command) => command.name),
+    ).toEqual(['ListProjects', 'LoadThreadOptions'])
+    expect(init(homeUrl).commands?.map((command) => command.name)).toEqual(['ListProjects'])
+    expect(init(urlForPath('/settings/general')).commands?.map((command) => command.name)).toEqual([
+      'ListProjects',
+    ])
+  })
+
+  it('loads the picker for the route a navigation lands on, and resets it', () => {
+    const loadedHome = loaded(homeUrl, ready, 'deepseek/deepseek-flash')
+
+    const atThread = update(
+      loadedHome,
+      Message.ChangedUrl({ url: urlForPath('/thread/shell-retro') }),
+    )
+    expect(atThread.commands?.map((command) => command.name)).toEqual(['LoadThreadOptions'])
+    expect(atThread.commands?.[0]?.args).toEqual({ threadId: 'shell-retro', refresh: false })
+    expect(Predicate.isTagged(atThread.model.picker.options, 'Loading')).toBe(true)
+
+    const atHome = update(atThread.model, Message.ChangedUrl({ url: urlForPath('/') }))
+    expect(atHome.commands?.[0]?.args).toEqual({ threadId: undefined, refresh: false })
+
+    const atSettings = update(
+      atHome.model,
+      Message.ChangedUrl({ url: urlForPath('/settings/appearance') }),
+    )
+    expect(atSettings.commands).toEqual([])
+  })
+
+  it('names the configured model in the composer, and opens its panel from there', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(loaded(homeUrl, ready, 'deepseek/deepseek-flash')),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText(
+        'DeepSeek Flash',
+      ),
+      Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
+      Scene.click(Scene.selector('[data-composer-action="model"]')),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).toHaveAttr(
+        'aria-expanded',
+        'true',
+      ),
+      Scene.expect(Scene.selector('[data-model-panel]')).toExist(),
+      Scene.expect(Scene.selector('[data-model-search]')).toExist(),
+      Scene.click(Scene.selector('[data-model-row="github-copilot/gpt-5"]')),
+      Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Copilot Five'),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).not.toHaveAttr(
+        'aria-expanded',
+        'true',
+      ),
+    )
+  })
+
+  it('renders a harness that is not ready with the command that fixes it', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(loaded(homeUrl, notInstalled, undefined)),
+      Scene.expect(Scene.selector('[data-main]')).toExist(),
+      Scene.expect(Scene.selector('[data-harness-status]')).toContainText('not_installed'),
+      Scene.expect(Scene.selector('[data-harness-message]')).toContainText('pi is not on PATH'),
+      Scene.expect(Scene.selector('[data-harness-install]')).toContainText('pi update self'),
+      Scene.expect(Scene.selector('[data-harness-copy]')).toExist(),
+      Scene.expect(Scene.selector('[data-harness-refresh]')).toExist(),
+    )
+  })
+
+  it('shows a thread’s own harness health above its composer', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(loaded(urlForPath('/thread/shell-retro'), notInstalled, undefined)),
+      Scene.expect(Scene.selector('[data-conversation]')).toExist(),
+      Scene.expect(Scene.selector('[data-harness-install]')).toContainText('pi update self'),
+    )
+  })
+
+  it('renders no install command while the harness is ready', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(loaded(homeUrl, ready, undefined)),
+      Scene.expect(Scene.selector('[data-harness-install]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-model-picker]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Model'),
+    )
   })
 })
 

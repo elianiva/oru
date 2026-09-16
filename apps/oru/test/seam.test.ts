@@ -16,10 +16,11 @@ import { Effect, Option, Predicate, Schema } from 'effect'
 import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { describe, expect, it } from 'vitest'
-import { ProjectClient, clientsFor } from '@oru/rpc'
+import { ProjectClient, ThreadClient, clientsFor } from '@oru/rpc'
 import * as Projects from '../src/projects.ts'
 import {
   ListProjects,
+  LoadThreadOptions,
   CreateProject,
   UpdateProject,
   Message,
@@ -43,9 +44,11 @@ const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-seam-')),
 
 type StartedHost = Readonly<{ url: string; output: string; stop: () => void }>
 
-/** A real host process, with a journal of its own, on a port the kernel picks. */
+/** A real host process, with a journal and a home of its own, on a port the kernel picks. */
 const startHost = async (): Promise<StartedHost> => {
+  const home = mkdtempSync(join(tmpdir(), 'oru-seam-home-'))
   const child = spawn(process.execPath, [hostMain, '--port', '0', '--journal', sessionFile()], {
+    env: { ...process.env, ORU_HOME: home },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
@@ -77,8 +80,10 @@ const closedPort = async (): Promise<string> => {
   return `http://127.0.0.1:${String(port)}`
 }
 
-const runEffect = <A, E>(hostUrl: string, effect: Effect.Effect<A, E, ProjectClient>): Promise<A> =>
-  Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(clientsFor(hostUrl)))))
+const runEffect = <A, E>(
+  hostUrl: string,
+  effect: Effect.Effect<A, E, ProjectClient | ThreadClient>,
+): Promise<A> => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(clientsFor(hostUrl)))))
 
 const listProjects = (hostUrl: string) => runEffect(hostUrl, ListProjects().effect)
 
@@ -145,6 +150,32 @@ describe('the app’s seam to a running host', () => {
         Scene.expect(Scene.selector(`[data-project="${created.id}"]`)).toContainText(cwd),
         Scene.expect(Scene.selector('[data-projects-empty]')).not.toExist(),
       )
+    })
+  })
+
+  it('reloads the model a thread was created with', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-project-'))
+
+    await withHost(async (hostUrl) => {
+      const created = await runEffect(
+        hostUrl,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const threads = yield* ThreadClient
+          const project = yield* projects.create('oru', cwd)
+          return yield* threads.create(project.id, { harness: 'oru', model: 'claude-sonnet-4' })
+        }),
+      )
+
+      const command = LoadThreadOptions({ threadId: created.threadId, refresh: false })
+      const message = await runEffect(hostUrl, command.effect)
+      const model = update(init(homeUrl).model, message).model
+
+      expect(model.picker.selection).toEqual({
+        harness: 'oru',
+        model: 'claude-sonnet-4',
+        reasoning: undefined,
+      })
     })
   })
 
