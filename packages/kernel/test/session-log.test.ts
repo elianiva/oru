@@ -53,6 +53,7 @@ const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>
       'thread/created': () => '',
       'thread/configured': () => '',
       'project/created': () => '',
+      'project/updated': () => '',
       'turn/started': () => '',
       'turn/failed': () => '',
       'turn/usage': () => '',
