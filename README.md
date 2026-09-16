@@ -114,23 +114,29 @@ Unit tests assert the view tree; only a browser shows the composed app, and the 
 pnpm dev
 ```
 
-Open the printed URL and check these, in order. The picker defaults to `Oru (effect-uai)` with `Demo (mock)`, whose script is what the turn steps below rely on.
+Open the printed URL and check these, in order.
 
-1. The rail lists one row per plugin that carries a panel (`Log`, `Greet`), and the info pane lists the services the host provides (`oru/logger`, `oru/harnesses`, `oru/inference`, `oru/greeter`).
-2. Click `Turn logging off`. `Log`, `Greet`, `oru/logger`, and `oru/greeter` all disappear, because `greeter` is a consumer of `Logger`.
-3. Click `Turn logging on`. All four come back.
-4. Type a message into the pane and click `Send`. The transcript shows `user: ...`, `turn/started`, `tool/requested echo`, `tool/completed echo`, and `assistant: done`, with no leftover live lines from the stream.
-5. Send a second message. The demo model scripts two turns, so the next turn fails and the transcript shows a `turn/failed ...` line.
-6. Click `New thread`. The transcript empties and the pane starts a fresh thread.
+1. Three columns: the thread list on the left, the composer in the middle, `Details` on the right.
+2. Drag the seam between the thread list and the composer. The list widens, the middle column narrows by the same amount, and `Details` keeps its width.
+3. Click the panel icon on the left of the header. The thread list closes and the middle column takes the room. Click it again. The list reopens at the width it had.
+4. Click the panel icon on the right of the header, then reload the page. `Details` stays closed and every other width comes back.
+5. Click a thread row. The row keeps a ring and `Details` lists the thread's project, location, status, and pull request.
+6. Click the `Inactive (2)` header. The shelf closes and its header keeps the row count.
+7. Type a message in the composer and click the send button. The box clears and the send button returns to disabled.
 
-CI runs steps 2 and 4 in a real Chromium through Playwright (`pnpm --filter ./apps/oru e2e`). A failure keeps a screenshot and the last 8000 bytes of `apps/oru/test-results/host.log`.
+Sidebar widths are percentages of the window, so every column grows when you widen the window. A sidebar stops at its own minimum and maximum at a 1440px window.
 
-`docs/evidence/issue-11` holds the screenshots from one run of these steps, taken with the agent-browser CLI:
+CI runs these steps in a real Chromium through Playwright (`pnpm --filter ./apps/oru e2e`), driven by `apps/oru/e2e/browser.spec.ts`. A failure keeps a screenshot and the last 8000 bytes of `apps/oru/test-results/host.log`.
+
+`docs/evidence/panel-shell` holds the screenshots from one run, taken with the agent-browser CLI:
 
 ```
 agent-browser open <url>
-agent-browser snapshot -i
-agent-browser click @e13
+agent-browser set viewport 1440 900
+agent-browser mouse move 320 450
+agent-browser mouse down left
+agent-browser mouse move 450 450
+agent-browser mouse up left
 agent-browser screenshot shot.png
 ```
 
