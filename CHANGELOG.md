@@ -21,4 +21,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - `@oru/rpc` facades fail with `HostUnreachable` instead of dying, so a client renders a host that is down ([ADR-0013](./docs/adr/0013-host-unreachable-is-a-state.md)).
 - The browser suite starts its own host on a port the kernel picks and takes its dev-server port from `ORU_E2E_PORT`, so it runs beside a `pnpm dev`; a dev server proxies to `ORU_PROXY_TARGET` when one is set. It also owns an `ORU_HOME` and runs the vendored pi against a scripted model endpoint, so the picker has a real catalogue without a global install.
-- `ThreadOptions` reports the effective harness and answers for a thread that does not exist yet; `CreateThread` carries `harness`, `model`, and `reasoning`, so a created thread is born configured ([ADR-0014](./docs/adr/0014-harness-is-a-fact.md)).
+- `ThreadOptions` reports the effective harness and answers for a thread that does not exist yet; `CreateThread` carries `harness`, `model`, and `reasoning`, so a created thread is born configured ([ADR-0016](./docs/adr/0016-harness-is-a-fact.md)).
