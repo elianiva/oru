@@ -8,6 +8,7 @@ export {
   projectClientOf,
   threadClientOf,
   GraphRpc,
+  HostUnreachable,
   ProjectClient,
   ThreadClient,
   type GraphRpcContract,

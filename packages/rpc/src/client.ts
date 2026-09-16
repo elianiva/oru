@@ -1,7 +1,15 @@
-import { Context, Effect, Layer, Stream } from 'effect'
+import { Context, Effect, Layer, Schema, Stream } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { RpcClient, RpcClientError } from 'effect/unstable/rpc'
-import type { PluginId, ProjectId, SessionEvent, ThreadId } from '@oru/kernel'
+import type {
+  PluginId,
+  ProjectId,
+  RelativeCwd,
+  SessionEvent,
+  ThreadId,
+  UnknownProject,
+  UnknownThread,
+} from '@oru/kernel'
 import { HostRpc } from './host-rpc.ts'
 import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
@@ -11,18 +19,32 @@ import type { ThreadConfig, ThreadOptions } from './thread-options.ts'
 import type { ThreadSignal } from './thread-signal.ts'
 import type { ViewGraph } from './view-graph.ts'
 
+/**
+ * The host did not answer a call: the transport failed, or the answer could not
+ * be framed. That is a state a client renders, not a broken invariant, so a
+ * facade call fails with this error instead of dying. A bug in this process is
+ * still a defect, and still dies.
+ */
+export class HostUnreachable extends Schema.TaggedError<HostUnreachable>()('HostUnreachable', {
+  operation: Schema.String,
+  reason: Schema.String,
+}) {}
+
 /** What a panel sees of the kernel graph, and the one command it can send. */
 export interface GraphRpcContract {
-  readonly watch: Stream.Stream<ViewGraph>
-  readonly setLive: (plugin: PluginId, live: boolean) => Effect.Effect<ViewGraph>
+  readonly watch: Stream.Stream<ViewGraph, HostUnreachable>
+  readonly setLive: (plugin: PluginId, live: boolean) => Effect.Effect<ViewGraph, HostUnreachable>
 }
 
 export class GraphRpc extends Context.Service<GraphRpc, GraphRpcContract>()('oru/GraphRpc') {}
 
 export interface ProjectClientContract {
-  readonly create: (name: string, cwd: string) => Effect.Effect<Project>
-  readonly list: () => Effect.Effect<readonly Project[]>
-  readonly get: (project: ProjectId) => Effect.Effect<Project>
+  readonly create: (
+    name: string,
+    cwd: string,
+  ) => Effect.Effect<Project, RelativeCwd | HostUnreachable>
+  readonly list: () => Effect.Effect<readonly Project[], HostUnreachable>
+  readonly get: (project: ProjectId) => Effect.Effect<Project, UnknownProject | HostUnreachable>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientContract>()(
@@ -33,29 +55,38 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientC
 export interface ThreadClientContract {
   readonly create: (
     project: ProjectId,
-  ) => Effect.Effect<{ readonly threadId: ThreadId; readonly project: Project }>
-  readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void>
-  readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent>
+  ) => Effect.Effect<
+    { readonly threadId: ThreadId; readonly project: Project },
+    UnknownProject | HostUnreachable
+  >
+  readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void, HostUnreachable>
+  readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent, HostUnreachable>
   readonly options: (
     threadId: ThreadId,
     options?: { readonly refresh?: boolean },
-  ) => Effect.Effect<ThreadOptions>
+  ) => Effect.Effect<ThreadOptions, HostUnreachable>
   readonly configure: (
     threadId: ThreadId,
     configuration: ThreadConfig,
-  ) => Effect.Effect<ThreadOptions>
-  readonly watchSignals: (threadId: ThreadId) => Stream.Stream<ThreadSignal>
-  readonly stop: (threadId: ThreadId) => Effect.Effect<void>
-  readonly compact: (threadId: ThreadId, instructions?: string) => Effect.Effect<void>
+  ) => Effect.Effect<ThreadOptions, HostUnreachable>
+  readonly watchSignals: (threadId: ThreadId) => Stream.Stream<ThreadSignal, HostUnreachable>
+  readonly stop: (threadId: ThreadId) => Effect.Effect<void, HostUnreachable>
+  readonly compact: (
+    threadId: ThreadId,
+    instructions?: string,
+  ) => Effect.Effect<void, HostUnreachable>
   readonly fork: (
     sourceThreadId: ThreadId,
     cwd?: string,
-  ) => Effect.Effect<{ readonly threadId: ThreadId }>
+  ) => Effect.Effect<
+    { readonly threadId: ThreadId },
+    UnknownThread | UnknownProject | HostUnreachable
+  >
   readonly decide: (
     threadId: ThreadId,
     request: string,
     decision: 'approve' | 'deny',
-  ) => Effect.Effect<void>
+  ) => Effect.Effect<void, HostUnreachable>
 }
 
 export class ThreadClient extends Context.Service<ThreadClient, ThreadClientContract>()(
@@ -69,50 +100,106 @@ const protocolFor = (url: string) =>
     Layer.provide(FetchHttpClient.layer),
   )
 
+/**
+ * The host's own refusal travels with its tag; only the transport failure is
+ * renamed, so a caller reads the refusals its call actually declares.
+ */
+const lostHost = (operation: string, error: RpcClientError.RpcClientError): HostUnreachable =>
+  new HostUnreachable({ operation, reason: error.message })
+
+const isTransportError = Schema.is(RpcClientError.RpcClientError)
+
+const reachable = <A>(
+  operation: string,
+  effect: Effect.Effect<A, RpcClientError.RpcClientError>,
+): Effect.Effect<A, HostUnreachable> =>
+  effect.pipe(Effect.mapError((error): HostUnreachable => lostHost(operation, error)))
+
+const reachableCwd = <A>(
+  operation: string,
+  effect: Effect.Effect<A, RelativeCwd | RpcClientError.RpcClientError>,
+): Effect.Effect<A, RelativeCwd | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): RelativeCwd | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+const reachableNew = <A>(
+  operation: string,
+  effect: Effect.Effect<A, UnknownProject | RpcClientError.RpcClientError>,
+): Effect.Effect<A, UnknownProject | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): UnknownProject | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+const reachableFork = <A>(
+  operation: string,
+  effect: Effect.Effect<A, UnknownThread | UnknownProject | RpcClientError.RpcClientError>,
+): Effect.Effect<A, UnknownThread | UnknownProject | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): UnknownThread | UnknownProject | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+const reachableStream = <A>(
+  operation: string,
+  stream: Stream.Stream<A, RpcClientError.RpcClientError>,
+): Stream.Stream<A, HostUnreachable> =>
+  stream.pipe(Stream.mapError((error): HostUnreachable => lostHost(operation, error)))
+
 export const graphRpcOf = (
   client: RpcClient.FromGroup<typeof HostRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<GraphRpc> =>
   Layer.succeed(GraphRpc, {
-    watch: client.WatchGraph().pipe(Stream.orDie),
-    setLive: (plugin, live) => client.SetLive({ plugin, live }).pipe(Effect.orDie),
+    watch: reachableStream('WatchGraph', client.WatchGraph()),
+    setLive: (plugin, live) => reachable('SetLive', client.SetLive({ plugin, live })),
   })
 
 export const projectClientOf = (
   client: RpcClient.FromGroup<typeof ProjectRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ProjectClient> =>
   Layer.succeed(ProjectClient, {
-    create: (name, cwd) => client.CreateProject({ name, cwd }).pipe(Effect.orDie),
-    list: () => client.ListProjects().pipe(Effect.orDie),
-    get: (project) => client.GetProject({ project }).pipe(Effect.orDie),
+    create: (name, cwd) => reachableCwd('CreateProject', client.CreateProject({ name, cwd })),
+    list: () => reachable('ListProjects', client.ListProjects()),
+    get: (project) => reachableNew('GetProject', client.GetProject({ project })),
   })
 
 export const threadClientOf = (
   client: RpcClient.FromGroup<typeof ThreadRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ThreadClient> =>
   Layer.succeed(ThreadClient, {
-    create: (project) => client.CreateThread({ project }).pipe(Effect.orDie),
-    send: (threadId, text) => client.SendMessage({ threadId, text }).pipe(Effect.orDie),
-    watch: (threadId) => client.WatchThread({ threadId }).pipe(Stream.orDie),
+    create: (project) => reachableNew('CreateThread', client.CreateThread({ project })),
+    send: (threadId, text) => reachable('SendMessage', client.SendMessage({ threadId, text })),
+    watch: (threadId) => reachableStream('WatchThread', client.WatchThread({ threadId })),
     options: (threadId, options) =>
-      client
-        .ThreadOptions(options?.refresh === true ? { threadId, refresh: true } : { threadId })
-        .pipe(Effect.orDie),
+      reachable(
+        'ThreadOptions',
+        client.ThreadOptions(
+          options?.refresh === true ? { threadId, refresh: true } : { threadId },
+        ),
+      ),
     configure: (threadId, configuration) =>
-      client
-        .ConfigureThread({
+      reachable(
+        'ConfigureThread',
+        client.ConfigureThread({
           threadId,
           harness: configuration.harness,
           model: configuration.model,
           reasoning: configuration.reasoning,
-        })
-        .pipe(Effect.orDie),
-    watchSignals: (threadId) => client.WatchSignals({ threadId }).pipe(Stream.orDie),
-    stop: (threadId) => client.StopThread({ threadId }).pipe(Effect.orDie),
+        }),
+      ),
+    watchSignals: (threadId) => reachableStream('WatchSignals', client.WatchSignals({ threadId })),
+    stop: (threadId) => reachable('StopThread', client.StopThread({ threadId })),
     compact: (threadId, instructions) =>
-      client.CompactThread({ threadId, instructions }).pipe(Effect.orDie),
-    fork: (sourceThreadId, cwd) => client.ForkThread({ sourceThreadId, cwd }).pipe(Effect.orDie),
+      reachable('CompactThread', client.CompactThread({ threadId, instructions })),
+    fork: (sourceThreadId, cwd) =>
+      reachableFork('ForkThread', client.ForkThread({ sourceThreadId, cwd })),
     decide: (threadId, request, decision) =>
-      client.DecideApproval({ threadId, request, decision }).pipe(Effect.orDie),
+      reachable('DecideApproval', client.DecideApproval({ threadId, request, decision })),
   })
 
 /**
