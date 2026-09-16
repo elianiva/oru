@@ -5,8 +5,8 @@ import { defineMessageUnion } from 'foldkit/message'
 import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { Box, Folder, GitBranch, Lock, Mic, Plus } from 'lucide'
-import { ProjectClient } from '@oru/rpc'
+import { Box, GitBranch, Lock, Mic, Plus } from 'lucide'
+import { ProjectClient, type HostUnreachable } from '@oru/rpc'
 import * as Composer from './composer.ts'
 import * as LeftPanel from './left-panel.ts'
 import * as Projects from './projects.ts'
@@ -63,6 +63,16 @@ const LoadExternal = Command.define('LoadExternal', {
 })
 
 /**
+ * The host's own words for "I did not answer", formatted in one place.
+ */
+const didNotAnswer = (error: HostUnreachable) =>
+  Message.GotProjects({
+    message: Projects.Message.HostUnreachable({
+      reason: `${error.operation}: ${error.reason}`,
+    }),
+  })
+
+/**
  * The app's first call, and the one the host-unreachable state answers to. A
  * transport failure is the state this command reports, so the app renders a
  * host that is down instead of dying on it.
@@ -74,16 +84,70 @@ export const ListProjects = Command.define('ListProjects', {
     Effect.map((projects) =>
       Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects }) }),
     ),
-    Effect.catch((error) =>
-      Effect.succeed(
-        Message.GotProjects({
-          message: Projects.Message.HostUnreachable({
-            reason: `${error.operation}: ${error.reason}`,
-          }),
-        }),
-      ),
-    ),
+    Effect.catch((error) => Effect.succeed(didNotAnswer(error))),
   ),
+})
+
+/**
+ * Creating a project is the host recording a fact, so the created row is what
+ * reaches the screen — never the draft that asked for it.
+ */
+export const CreateProject = Command.define('CreateProject', {
+  args: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
+  messages: [Message.GotProjects],
+  execute: ({ name, cwd }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.create(name, cwd)),
+      Effect.map((created) =>
+        Message.GotProjects({ message: Projects.Message.ProjectCreated({ project: created }) }),
+      ),
+      Effect.catchTags({
+        RelativeCwd: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.CreateRefused({
+                refusal: Projects.RelativeCwd.make({ cwd: error.cwd }),
+              }),
+            }),
+          ),
+        HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
+      }),
+    ),
+})
+
+export const UpdateProject = Command.define('UpdateProject', {
+  args: {
+    project: Schema.NonEmptyString,
+    name: Schema.NonEmptyString,
+    cwd: Schema.NonEmptyString,
+  },
+  messages: [Message.GotProjects],
+  execute: ({ project, name, cwd }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.update(project, { name, cwd })),
+      Effect.map((updated) =>
+        Message.GotProjects({ message: Projects.Message.ProjectUpdated({ project: updated }) }),
+      ),
+      Effect.catchTags({
+        RelativeCwd: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.UpdateRefused({
+                refusal: Projects.RelativeCwd.make({ cwd: error.cwd }),
+              }),
+            }),
+          ),
+        UnknownProject: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.UpdateRefused({
+                refusal: Projects.UnknownProject.make({ project: error.project }),
+              }),
+            }),
+          ),
+        HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
+      }),
+    ),
 })
 
 export const init = (url: Url.Url) => ({
@@ -135,9 +199,17 @@ const foldProjects = Update.foldChild({
   foldOutMessage: (outMessage: Projects.OutMessage): Update.Step<Model, Message, ProjectClient> =>
     Projects.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
       RequestedRetry: () => (model) => ({
-        model: evo(model, { projects: () => Projects.init() }),
+        // Only the host member goes back to `Loading`. A draft the user typed is
+        // not the answer that failed, so it survives the retry.
+        model: evo(model, { projects: (projects) => Projects.retrying(projects) }),
         commands: [ListProjects()],
       }),
+      RequestedCreate:
+        ({ name, cwd }) =>
+        (model) => ({ model, commands: [CreateProject({ name, cwd })] }),
+      RequestedUpdate:
+        ({ project, name, cwd }) =>
+        (model) => ({ model, commands: [UpdateProject({ project, name, cwd })] }),
     }),
 })
 
@@ -146,10 +218,41 @@ const foldComposer = Update.foldChild({
   read: (model: Model) => Option.some(model.composer),
   write: (model, nextChild) => evo(model, { composer: () => nextChild }),
   toParentMessage: (message: Composer.Message) => Message.GotComposer({ message }),
-  foldOutMessage: (outMessage: Composer.OutMessage): Update.Step<Model, Message> =>
-    Composer.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+  foldOutMessage: (outMessage: Composer.OutMessage): Update.Step<Model, Message, ProjectClient> =>
+    Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
       Submitted: () => (model) => ({ model }),
-      RequestedAction: () => (model) => ({ model }),
+      // Composer chrome is generic; the id says which submodel owns the click,
+      // and this table is the only place that mapping lives.
+      RequestedAction:
+        ({ id }) =>
+        (model) =>
+          id === Projects.CHIP_ID
+            ? foldProjects(model, Projects.Message.ToggledCreatePanel())
+            : { model },
+      ChangedChipField:
+        ({ chip, field, value }) =>
+        (model) =>
+          chip === Projects.CHIP_ID
+            ? foldProjects(model, Projects.Message.ChangedCreateField({ field, value }))
+            : { model },
+      SelectedChipOption:
+        ({ chip, option }) =>
+        (model) =>
+          chip === Projects.CHIP_ID
+            ? foldProjects(model, Projects.Message.SelectedCreateOption({ option }))
+            : { model },
+      CanceledChip:
+        ({ chip }) =>
+        (model) =>
+          chip === Projects.CHIP_ID
+            ? foldProjects(model, Projects.Message.CanceledCreate())
+            : { model },
+      SubmittedChipForm:
+        ({ chip }) =>
+        (model) =>
+          chip === Projects.CHIP_ID
+            ? foldProjects(model, Projects.Message.SubmittedCreate())
+            : { model },
     }),
 })
 
@@ -208,22 +311,22 @@ const coreContributions = (): Composer.ComposerContributions => ({
   chips: [],
 })
 
-const contextPluginContributions = (): Composer.ComposerContributions => ({
+const contextPluginContributions = (projects: Projects.Model): Composer.ComposerContributions => ({
   ...Composer.emptyContributions(''),
   chips: [
-    { id: 'repo', label: 'oru', icon: Folder },
+    Projects.chip(projects),
     { id: 'worktree', label: 'Worktree', icon: Box },
     { id: 'branch', label: 'Branch from: origin/master', icon: GitBranch },
     { id: 'access', label: 'Full Access', icon: Lock, align: 'right' },
   ],
 })
 
-const heroContributions = (): Composer.ComposerContributions =>
-  Composer.mergeContributions(coreContributions(), contextPluginContributions())
+const heroContributions = (projects: Projects.Model): Composer.ComposerContributions =>
+  Composer.mergeContributions(coreContributions(), contextPluginContributions(projects))
 
 /** The conversation's composer keeps the actions and drops the hero's prompt. */
-const conversationContributions = (): Composer.ComposerContributions => {
-  const { placeholder, leading, trailing, chips } = heroContributions()
+const conversationContributions = (projects: Projects.Model): Composer.ComposerContributions => {
+  const { placeholder, leading, trailing, chips } = heroContributions(projects)
   return { placeholder, leading, trailing, chips }
 }
 
@@ -256,7 +359,7 @@ const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
     [
       h.div([h.Class('w-full max-w-3xl')], [projectsSlot(model, h)]),
-      composerSlot(model, heroContributions(), h),
+      composerSlot(model, heroContributions(model.projects), h),
     ],
   )
 
@@ -281,7 +384,7 @@ const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
       h.div([h.Class('min-h-0 flex-1')], []),
       h.div(
         [h.Class('flex shrink-0 justify-center px-6 pb-6')],
-        [composerSlot(model, conversationContributions(), h)],
+        [composerSlot(model, conversationContributions(model.projects), h)],
       ),
     ],
   )
@@ -324,6 +427,19 @@ const settingsView = (
   toContent: (h: HtmlBuilder<Message>) => Html,
   h: HtmlBuilder<Message>,
 ): Html => SettingsLayout.view(model.route, toContent(h), h)
+
+const settingsProjectsView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  settingsView(
+    model,
+    (contentH) =>
+      contentH.submodel({
+        slotId: 'settings-projects',
+        model: model.projects,
+        view: Projects.settingsView,
+        toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
+      }),
+    h,
+  )
 
 const generalView = (model: Model, h: HtmlBuilder<Message>): Html =>
   settingsView(
@@ -369,8 +485,7 @@ const routeView = (model: Model, h: HtmlBuilder<Message>): Html =>
     SettingsUsageLimits: () =>
       settingsView(model, (contentH) => SettingsPages.usageLimitsView(contentH), h),
     SettingsFiles: () => settingsView(model, (contentH) => SettingsPages.filesView(contentH), h),
-    SettingsProjects: () =>
-      settingsView(model, (contentH) => SettingsPages.projectsView(contentH), h),
+    SettingsProjects: () => settingsProjectsView(model, h),
     SettingsMachines: () =>
       settingsView(model, (contentH) => SettingsPages.machinesView(contentH), h),
     SettingsUpdates: () =>

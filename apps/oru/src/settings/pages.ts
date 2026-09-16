@@ -38,9 +38,6 @@ export const usageLimitsView = <M>(h: HtmlBuilder<M>): Html =>
 export const filesView = <M>(h: HtmlBuilder<M>): Html =>
   placeholder('files', 'Files', 'File watching and ignore rules will live here.', h)
 
-export const projectsView = <M>(h: HtmlBuilder<M>): Html =>
-  placeholder('projects', 'Projects', 'Tracked projects and their defaults will live here.', h)
-
 export const machinesView = <M>(h: HtmlBuilder<M>): Html =>
   placeholder('machines', 'Machines', 'Connected machines and remote executors will live here.', h)
 

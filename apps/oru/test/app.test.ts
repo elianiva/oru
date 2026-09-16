@@ -2,9 +2,19 @@ import { Option } from 'effect'
 import { Navigation, Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { Project } from '@oru/rpc'
 import * as Resizable from '../src/components/ui/resizable.ts'
 import * as Composer from '../src/composer.ts'
-import { Message, init, selectedThread, update, view } from '../src/root.ts'
+import {
+  CreateProject,
+  Message,
+  Model,
+  UpdateProject,
+  init,
+  selectedThread,
+  update,
+  view,
+} from '../src/root.ts'
 import {
   AppRoute,
   homeRouter,
@@ -18,6 +28,7 @@ import {
   urlToAppRoute,
 } from '../src/route.ts'
 import * as General from '../src/settings/general.ts'
+import * as Projects from '../src/projects.ts'
 import * as Shell from '../src/shell.ts'
 import {
   fakeThreadSections,
@@ -408,6 +419,28 @@ describe('thread list', () => {
 })
 
 describe('composer', () => {
+  const withProjects = (projects: ReadonlyArray<Project>): Model =>
+    update(
+      init(homeUrl).model,
+      Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects }) }),
+    ).model
+
+  const listOne = (): Model => withProjects([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
+
+  /** The composer's own path to a filled-in create form, as the browser walks it. */
+  const typedCreateForm = (model: Model): Model => {
+    const walk: ReadonlyArray<Composer.Message> = [
+      Composer.Message.ClickedAction({ id: 'project' }),
+      Composer.Message.ClickedChipOption({ chip: 'project', option: 'new-project' }),
+      Composer.Message.ChangedChipField({ chip: 'project', field: 'name', value: 'second' }),
+      Composer.Message.ChangedChipField({ chip: 'project', field: 'cwd', value: 'tmp/second' }),
+    ]
+    return walk.reduce(
+      (current, message) => update(current, Message.GotComposer({ message })).model,
+      model,
+    )
+  }
+
   it('renders centered with headline, input, actions, and context chips', () => {
     Scene.scene(
       { update, view },
@@ -417,11 +450,91 @@ describe('composer', () => {
       Scene.expect(Scene.selector('[data-composer-input]')).toExist(),
       Scene.expect(Scene.selector('[data-composer-submit]')).toExist(),
       Scene.expect(Scene.text('Medium')).toExist(),
-      Scene.expect(Scene.text('oru')).toExist(),
+      // A cold load has no host answer, so the chip names no project; the
+      // shell header renders the brand 'oru' all the same, which is why this is
+      // asserted against the chip rather than against the literal.
+      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('Project'),
+      Scene.expect(Scene.selector('[data-composer-chip="project"]')).not.toContainText('oru'),
       Scene.expect(Scene.text('Worktree')).toExist(),
       Scene.expect(Scene.text('Branch from: origin/master')).toExist(),
       Scene.expect(Scene.text('Full Access')).toExist(),
     )
+  })
+
+  it('names the composer’s project from the host’s answer', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(listOne()),
+      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('oru'),
+      Scene.expect(Scene.selector('[data-composer-chip-panel="project"]')).not.toExist(),
+    )
+  })
+
+  it('lists the host’s projects in the chip and creates from its form', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(listOne()),
+      Scene.click(Scene.selector('[data-composer-chip="project"]')),
+      Scene.expect(Scene.selector('[data-composer-chip-option="p1"]')).toContainText('/tmp/oru'),
+      Scene.expect(Scene.selector('[data-composer-chip-option="new-project"]')).toExist(),
+      Scene.click(Scene.selector('[data-composer-chip-option="new-project"]')),
+      Scene.type(Scene.selector('[data-composer-chip-field="name"]'), 'second'),
+      Scene.type(Scene.selector('[data-composer-chip-field="cwd"]'), '/tmp/second'),
+      Scene.click(Scene.selector('[data-composer-chip-submit]')),
+      Scene.Command.expectHas(CreateProject),
+      // The host's own row is what closes the form, so the chip names an
+      // answered project and never the text that was typed.
+      Scene.Command.resolve(
+        CreateProject,
+        Message.GotProjects({
+          message: Projects.Message.ProjectCreated({
+            project: { id: 'p2', name: 'second', cwd: '/tmp/second' },
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-composer-chip-panel="project"]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('second'),
+    )
+  })
+
+  it('asks the host to create what the form describes, then shows its refusal inline', () => {
+    const submitted = update(
+      typedCreateForm(listOne()),
+      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
+    )
+    expect(submitted.commands?.map((command) => command.name)).toEqual(['CreateProject'])
+    expect(submitted.commands?.[0]?.args).toEqual({ name: 'second', cwd: 'tmp/second' })
+
+    const refused = update(
+      submitted.model,
+      Message.GotProjects({
+        message: Projects.Message.CreateRefused({
+          refusal: Projects.RelativeCwd.make({ cwd: 'tmp/second' }),
+        }),
+      }),
+    )
+    Scene.scene(
+      { update, view },
+      Scene.given(refused.model),
+      Scene.expect(Scene.selector('[data-composer-chip-error="project"]')).toContainText(
+        'absolute',
+      ),
+      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
+    )
+  })
+
+  it('does not offer a project id the host never answered with', () => {
+    const opened = update(
+      listOne(),
+      Message.GotComposer({ message: Composer.Message.ClickedAction({ id: 'project' }) }),
+    ).model
+    const picked = update(
+      opened,
+      Message.GotComposer({
+        message: Composer.Message.ClickedChipOption({ chip: 'project', option: 'p-ghost' }),
+      }),
+    ).model
+    expect(Projects.selectedProject(picked.projects)?.id).toBe('p1')
   })
 
   it('submits a draft through the root loop, clearing the box', () => {
@@ -467,7 +580,7 @@ describe('composer', () => {
       },
       {
         ...Composer.emptyContributions(''),
-        chips: [{ id: 'repo', label: 'oru' }],
+        chips: [{ id: 'project', label: 'oru' }],
       },
     )
     expect(merged.placeholder).toBe('Ask anything')
@@ -607,6 +720,54 @@ describe('settings', () => {
         'aria-current',
         'page',
       ),
+    )
+  })
+
+  it('lists the host’s projects on the Projects page and renames one through the host', () => {
+    const listed = update(
+      init(urlForPath('/settings/projects')).model,
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }],
+        }),
+      }),
+    ).model
+
+    Scene.scene(
+      { update, view },
+      Scene.given(listed),
+      Scene.expect(Scene.selector('[data-settings-page="projects"]')).toExist(),
+      Scene.expect(Scene.selector('[data-projects-row="p1"]')).toContainText('oru'),
+      Scene.expect(Scene.selector('[data-projects-row="p1"]')).toContainText('/tmp/oru'),
+      Scene.click(Scene.selector('[data-projects-edit="p1"]')),
+      Scene.expect(Scene.selector('#settings-project-name')).toHaveValue('oru'),
+      Scene.type(Scene.selector('#settings-project-name'), 'oru-app'),
+      Scene.click(Scene.selector('[data-projects-save="p1"]')),
+      Scene.Command.expectHas(UpdateProject),
+      Scene.Command.resolve(
+        UpdateProject,
+        Message.GotProjects({
+          message: Projects.Message.ProjectUpdated({
+            project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-projects-row="p1"]')).toContainText('oru-app'),
+      Scene.expect(Scene.selector('[data-projects-edit-form="p1"]')).not.toExist(),
+    )
+  })
+
+  it('renders the Projects page empty rather than with a plausible row', () => {
+    const listed = update(
+      init(urlForPath('/settings/projects')).model,
+      Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects: [] }) }),
+    ).model
+
+    Scene.scene(
+      { update, view },
+      Scene.given(listed),
+      Scene.expect(Scene.selector('[data-projects-settings-empty]')).toExist(),
+      Scene.expectAll(Scene.all.selector('[data-projects-row]')).toHaveCount(0),
     )
   })
 

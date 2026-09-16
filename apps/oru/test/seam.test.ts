@@ -12,13 +12,21 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Effect, Option, Predicate } from 'effect'
+import { Effect, Option, Predicate, Schema } from 'effect'
 import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { describe, expect, it } from 'vitest'
 import { ProjectClient, clientsFor } from '@oru/rpc'
 import * as Projects from '../src/projects.ts'
-import { ListProjects, Message, init, update, view } from '../src/root.ts'
+import {
+  ListProjects,
+  CreateProject,
+  UpdateProject,
+  Message,
+  init,
+  update,
+  view,
+} from '../src/root.ts'
 
 const hostMain = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'host', 'src', 'main.ts')
 
@@ -148,7 +156,7 @@ describe('the app’s seam to a running host', () => {
       expect(Predicate.isTagged(message, 'GotProjects')).toBe(true)
 
       const unreachable = update(init(homeUrl).model, message).model
-      expect(Predicate.isTagged(unreachable.projects, 'Unreachable')).toBe(true)
+      expect(Predicate.isTagged(unreachable.projects.host, 'Unreachable')).toBe(true)
       Scene.scene(
         { update, view },
         Scene.given(unreachable),
@@ -162,7 +170,7 @@ describe('the app’s seam to a running host', () => {
         unreachable,
         Message.GotProjects({ message: Projects.Message.ClickedRetry() }),
       )
-      expect(Predicate.isTagged(retried.model.projects, 'Loading')).toBe(true)
+      expect(Predicate.isTagged(retried.model.projects.host, 'Loading')).toBe(true)
       expect(retried.commands?.map((command) => command.name)).toEqual(['ListProjects'])
 
       const command = retried.commands?.[0]
@@ -175,6 +183,108 @@ describe('the app’s seam to a running host', () => {
         Scene.expect(Scene.selector('[data-host-unreachable]')).not.toExist(),
         Scene.expect(Scene.selector('[data-main]')).toExist(),
         Scene.expect(Scene.selector('[data-projects-empty]')).toExist(),
+      )
+    })
+  })
+
+  it('creates a project through the app’s own command and renders the host’s row', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-create-'))
+
+    await withHost(async (hostUrl) => {
+      const listed = await runEffect(hostUrl, ListProjects().effect)
+      const loaded = update(init(homeUrl).model, listed).model
+      const message = await runEffect(hostUrl, CreateProject({ name: 'oru', cwd }).effect)
+      if (!Predicate.isTagged(message, 'GotProjects')) expect.fail('the create produced no answer')
+      const created = message.message
+      if (!Schema.is(Projects.Message.ProjectCreated)(created)) {
+        expect.fail(`the host refused a create it should have accepted: ${created._tag}`)
+      }
+
+      const model = update(loaded, message).model
+      Scene.scene(
+        { update, view },
+        Scene.given(model),
+        Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText('oru'),
+        Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText(cwd),
+        Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('oru'),
+      )
+    })
+  })
+
+  it('renames a project through the app’s own command and renders the host’s new name', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-rename-'))
+
+    await withHost(async (hostUrl) => {
+      const listed = await runEffect(hostUrl, ListProjects().effect)
+      const created = await runEffect(hostUrl, CreateProject({ name: 'before', cwd }).effect)
+      if (!Predicate.isTagged(created, 'GotProjects')) expect.fail('the create produced no answer')
+      if (!Schema.is(Projects.Message.ProjectCreated)(created.message)) {
+        expect.fail('the host refused a create it should have accepted')
+      }
+      const project = created.message.project
+
+      const updated = await runEffect(
+        hostUrl,
+        UpdateProject({ project: project.id, name: 'after', cwd }).effect,
+      )
+      expect(updated).toEqual(
+        Message.GotProjects({
+          message: Projects.Message.ProjectUpdated({
+            project: { id: project.id, name: 'after', cwd },
+          }),
+        }),
+      )
+
+      const model = update(update(init(homeUrl).model, listed).model, updated).model
+      Scene.scene(
+        { update, view },
+        Scene.given(model),
+        Scene.expect(Scene.selector(`[data-project="${project.id}"]`)).toContainText('after'),
+        Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('after'),
+      )
+    })
+  })
+
+  it('carries the host’s own refusal for a relative cwd, for both write paths', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-refused-'))
+
+    await withHost(async (hostUrl) => {
+      const refusedCreate = await runEffect(
+        hostUrl,
+        CreateProject({ name: 'oru', cwd: 'relative/place' }).effect,
+      )
+      expect(refusedCreate).toEqual(
+        Message.GotProjects({
+          message: Projects.Message.CreateRefused({
+            refusal: Projects.RelativeCwd.make({ cwd: 'relative/place' }),
+          }),
+        }),
+      )
+
+      const created = await runEffect(hostUrl, CreateProject({ name: 'oru', cwd }).effect)
+      if (!Predicate.isTagged(created, 'GotProjects')) expect.fail('the create produced no answer')
+      if (!Schema.is(Projects.Message.ProjectCreated)(created.message)) {
+        expect.fail('the host refused a create it should have accepted')
+      }
+
+      const refusedUpdate = await runEffect(
+        hostUrl,
+        UpdateProject({ project: created.message.project.id, name: 'oru', cwd: 'relative/place' })
+          .effect,
+      )
+      expect(refusedUpdate).toEqual(
+        Message.GotProjects({
+          message: Projects.Message.UpdateRefused({
+            refusal: Projects.RelativeCwd.make({ cwd: 'relative/place' }),
+          }),
+        }),
+      )
+
+      // The host wrote nothing, so neither refusal changed the list it answers.
+      const listed = await runEffect(hostUrl, ListProjects().effect)
+      if (!Predicate.isTagged(listed, 'GotProjects')) expect.fail('the list produced no answer')
+      expect(listed.message).toEqual(
+        Projects.Message.ProjectsArrived({ projects: [created.message.project] }),
       )
     })
   })

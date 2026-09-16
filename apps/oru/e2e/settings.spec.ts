@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 test('the sidebar settings icon opens settings at /settings', async ({ page }) => {
   await page.goto('/')
@@ -44,4 +46,26 @@ test('an unknown path explains itself with a way back', async ({ page }) => {
   await page.goto('/nope')
   await expect(page.locator('[data-settings]')).toHaveCount(0)
   await expect(page.locator('text=Nothing here')).toBeVisible()
+})
+
+test('the Projects page renames a project the host recorded', async ({ page }) => {
+  const cwd = dirname(fileURLToPath(import.meta.url))
+  await page.goto('/')
+  await page.locator('[data-composer-chip="project"]').click()
+  await page.locator('[data-composer-chip-option="new-project"]').click()
+  await page.locator('[data-composer-chip-field="name"]').fill('rename-me')
+  await page.locator('[data-composer-chip-field="cwd"]').fill(cwd)
+  await page.locator('[data-composer-chip-submit="project"]').click()
+  await expect(page.locator('[data-composer-chip="project"]')).toContainText('rename-me')
+
+  await page.goto('/settings/projects')
+  const row = page.locator('[data-projects-row]', { hasText: 'rename-me' })
+  await expect(row).toContainText(cwd)
+  await row.locator('[data-projects-edit]').click()
+  await page.locator('#settings-project-name').fill('renamed')
+  await page.locator('[data-projects-save]').click()
+
+  await expect(page.locator('[data-projects-row]', { hasText: 'renamed' })).toContainText(cwd)
+  await page.reload()
+  await expect(page.locator('[data-projects-row]', { hasText: 'renamed' })).toContainText(cwd)
 })
