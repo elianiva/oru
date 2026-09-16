@@ -1,9 +1,22 @@
 import { Option } from 'effect'
+import { Navigation, Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Resizable from '../src/components/ui/resizable.ts'
 import * as Composer from '../src/composer.ts'
 import { Message, init, update, view } from '../src/root.ts'
+import {
+  AppRoute,
+  homeRouter,
+  settingsAppearanceRouter,
+  settingsGeneralRouter,
+  settingsIndexRouter,
+  settingsProvidersRouter,
+  settingsSections,
+  titleForRoute,
+  urlToAppRoute,
+} from '../src/route.ts'
+import * as General from '../src/settings/general.ts'
 import * as Shell from '../src/shell.ts'
 import {
   fakeThreadSections,
@@ -14,6 +27,18 @@ import {
 import * as ThreadList from '../src/thread-list.ts'
 
 const sizes = (model: Shell.Model): ReadonlyArray<number> => model.panels.map((panel) => panel.size)
+
+/** The cold-load URL for `/`: routing `init` parses its starting route from it. */
+const homeUrl: Url.Url = {
+  protocol: 'http:',
+  host: 'localhost',
+  port: Option.none(),
+  pathname: '/',
+  search: Option.none(),
+  hash: Option.none(),
+}
+
+const urlForPath = (pathname: string): Url.Url => ({ ...homeUrl, pathname })
 
 const panelSize = (model: Shell.Model, id: string): number => {
   const panel = model.panels.find((candidate) => candidate.id === id)
@@ -92,7 +117,7 @@ describe('shell', () => {
   it('renders three columns with a splitter between them', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.expectAll(Scene.all.selector('[data-slot="resizable-panel"]')).toHaveCount(3),
       Scene.expectAll(Scene.all.selector('[data-slot="resizable-handle"]')).toHaveCount(2),
       Scene.expect(Scene.selector('#oru-shell-panel-left')).toExist(),
@@ -107,7 +132,7 @@ describe('shell', () => {
   it('collapses the left sidebar from the header toggle', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.expect(Scene.selector('[data-shell-toggle="left"]')).toHaveAttr(
         'aria-expanded',
         'true',
@@ -128,7 +153,7 @@ describe('shell', () => {
   })
 
   it('lands the toolbar toggle on exactly the layout the engine gestures reach', () => {
-    const { model } = init()
+    const { model } = init(homeUrl)
     const shell = model.shell
     const enterLeft = enterOn(shell, 0)
     const dragLeft = dragged(shell, 0, -30)
@@ -141,7 +166,7 @@ describe('shell', () => {
   })
 
   it('closes the gap the engine’s Enter gesture leaves: the last panel', () => {
-    const { model } = init()
+    const { model } = init(homeUrl)
     const shell = model.shell
 
     expect(sizes(enterOn(shell, 1))).toEqual(sizes(shell))
@@ -154,7 +179,7 @@ describe('shell', () => {
   })
 
   it('returns a collapsed sidebar to the size it had, and holds both at once', () => {
-    const { model } = init()
+    const { model } = init(homeUrl)
     const shell = model.shell
     const before = sizes(shell)
 
@@ -170,7 +195,7 @@ describe('shell', () => {
   })
 
   it('reports a sidebar as collapsed from the model, never from a flag', () => {
-    const { model } = init()
+    const { model } = init(homeUrl)
     const shell = model.shell
     expect(Shell.isCollapsed(shell, 'left')).toBe(false)
     expect(Shell.isCollapsed(Shell.togglePanel(shell, 'left'), 'left')).toBe(true)
@@ -181,7 +206,7 @@ describe('shell', () => {
   it('mirrors the settled layout to storage and stays quiet during a drag', () => {
     const restore = withStorage({})
     try {
-      const { model } = init()
+      const { model } = init(homeUrl)
       expect(Option.isSome(Shell.storableLayout(model.shell))).toBe(true)
 
       const pressed = Resizable.update(
@@ -237,7 +262,7 @@ describe('thread list', () => {
   it('encloses a project group of more than one row, and only that one', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.expect(
         Scene.selector('[data-thread-section="active"] [data-thread-group="oru"]'),
       ).toHaveClass('rounded-lg'),
@@ -303,7 +328,7 @@ describe('thread list', () => {
   it('collapses a section from its header', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.click(Scene.selector('[data-section-toggle="active"]')),
       Scene.expect(Scene.text('Active (3)')).toExist(),
       Scene.expect(Scene.selector('[data-thread-row="shell-retro"]')).not.toExist(),
@@ -321,7 +346,7 @@ describe('thread list', () => {
     )
 
     const selected = update(
-      init().model,
+      init(homeUrl).model,
       Message.GotThreads({ message: ThreadList.Message.ClickedThread({ id: 'sidebar-rows' }) }),
     )
     expect(selected.model.selectedThread).toEqual(Option.some('sidebar-rows'))
@@ -330,7 +355,7 @@ describe('thread list', () => {
   it('carries the selection into the right column through the shell’s slot callback', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.expect(Scene.selector('[data-detail]')).toContainText('No thread selected'),
       Scene.click(Scene.selector('[data-thread-row="shell-retro"]')),
       Scene.expect(Scene.selector('[data-detail]')).toContainText(
@@ -368,7 +393,7 @@ describe('composer', () => {
   it('renders centered with headline, input, actions, and context chips', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init().model),
+      Scene.given(init(homeUrl).model),
       Scene.expect(Scene.selector('[data-composer]')).toExist(),
       Scene.expect(Scene.text('What should we build in oru?')).toExist(),
       Scene.expect(Scene.selector('[data-composer-input]')).toExist(),
@@ -383,7 +408,7 @@ describe('composer', () => {
 
   it('submits a draft through the root loop, clearing the box', () => {
     const typed = update(
-      init().model,
+      init(homeUrl).model,
       Message.GotComposer({
         message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
       }),
@@ -431,5 +456,143 @@ describe('composer', () => {
     expect(merged.headline).toBe('Build something')
     expect(merged.leading).toHaveLength(1)
     expect(merged.chips).toHaveLength(1)
+  })
+})
+
+describe('routing', () => {
+  it('builds each page back to its own URL', () => {
+    expect(homeRouter()).toBe('/')
+    expect(settingsIndexRouter()).toBe('/settings')
+    expect(settingsGeneralRouter()).toBe('/settings/general')
+    expect(settingsProvidersRouter()).toBe('/settings/providers')
+    expect(settingsAppearanceRouter()).toBe('/settings/appearance')
+  })
+
+  it('parses every settings section to its own route, with a fallback', () => {
+    expect(urlToAppRoute(urlForPath('/'))).toEqual(AppRoute.Home())
+    expect(urlToAppRoute(urlForPath('/settings'))).toEqual(AppRoute.SettingsGeneral())
+    expect(urlToAppRoute(urlForPath('/settings/general'))).toEqual(AppRoute.SettingsGeneral())
+    expect(urlToAppRoute(urlForPath('/settings/providers'))).toEqual(AppRoute.SettingsProviders())
+    expect(urlToAppRoute(urlForPath('/settings/appearance'))).toEqual(AppRoute.SettingsAppearance())
+    expect(urlToAppRoute(urlForPath('/nope'))).toEqual(AppRoute.NotFound({ path: '/nope' }))
+  })
+
+  it('titles each route from the section list', () => {
+    expect(titleForRoute(AppRoute.Home())).toBe('oru')
+    expect(titleForRoute(AppRoute.SettingsGeneral())).toBe('General - Settings | oru')
+    expect(titleForRoute(AppRoute.SettingsProviders())).toBe('Providers - Settings | oru')
+    expect(titleForRoute(AppRoute.NotFound({ path: '/nope' }))).toBe('Not found | oru')
+  })
+
+  it('reaches a settings route through ChangedUrl', () => {
+    const moved = update(
+      init(homeUrl).model,
+      Message.ChangedUrl({ url: urlForPath('/settings/providers') }),
+    )
+    expect(moved.model.route).toEqual(AppRoute.SettingsProviders())
+  })
+
+  it('sends internal link clicks to pushUrl and leaves the model alone', () => {
+    const before = init(homeUrl).model
+    const internal = Navigation.UrlRequest.Internal({ url: urlForPath('/settings') })
+    const after = update(before, Message.ClickedLink({ request: internal }))
+    expect(after.model).toEqual(before)
+    expect(after.commands).toHaveLength(1)
+  })
+})
+
+describe('settings', () => {
+  it('wires the sidebar settings icon at /settings', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(homeUrl).model),
+      Scene.expect(Scene.selector('[data-nav="settings"]')).toHaveAttr('href', '/settings'),
+    )
+  })
+
+  it('lists every section in the sidebar, with the current one marked', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(urlForPath('/settings/providers')).model),
+      Scene.expect(Scene.selector('[data-settings]')).toExist(),
+      Scene.expect(Scene.selector('[data-settings-back]')).toHaveAttr('href', '/'),
+      ...settingsSections.map((section) =>
+        Scene.expect(Scene.selector(`[data-settings-link="${section.id}"]`)).toContainText(
+          section.label,
+        ),
+      ),
+      Scene.expect(Scene.selector('[data-settings-link="providers"]')).toHaveAttr(
+        'aria-current',
+        'page',
+      ),
+      Scene.expect(Scene.selector('[data-settings-link="general"]')).not.toHaveAttr(
+        'aria-current',
+        'page',
+      ),
+    )
+  })
+
+  it('renders the General skeleton: toggles, followup select, branch prefix', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(urlForPath('/settings')).model),
+      Scene.expect(Scene.selector('[data-settings-page="general"]')).toExist(),
+      Scene.expect(Scene.text('Navigate to threads on creation')).toExist(),
+      Scene.expect(Scene.text('Default thread followup behavior')).toExist(),
+      Scene.expect(Scene.selector('#settings-branch-prefix')).toHaveValue('elianiva/'),
+      Scene.expect(Scene.text('bb CLI skills')).toExist(),
+      Scene.expect(Scene.text('Voice Input')).toExist(),
+      Scene.expect(Scene.text('Show diagnostic events')).toExist(),
+    )
+  })
+
+  it('toggles a General switch through the root loop', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(urlForPath('/settings/general')).model),
+      Scene.expect(Scene.selector('#settings-navigate-to-threads')).toHaveAttr(
+        'aria-checked',
+        'true',
+      ),
+      Scene.click(Scene.selector('#settings-navigate-to-threads')),
+      Scene.expect(Scene.selector('#settings-navigate-to-threads')).toHaveAttr(
+        'aria-checked',
+        'false',
+      ),
+    )
+  })
+
+  it('stores General control state in its own submodel', () => {
+    const toggled = General.update(
+      General.init(),
+      General.Message.ToggledStreamerMode({ isChecked: true }),
+    )
+    expect(toggled.model.streamerMode).toBe(true)
+    const renamed = General.update(
+      toggled.model,
+      General.Message.ChangedBranchPrefix({ value: 'wip/' }),
+    )
+    expect(renamed.model.branchPrefix).toBe('wip/')
+  })
+
+  it('renders a placeholder page per section behind its own route', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(urlForPath('/settings/appearance')).model),
+      Scene.expect(Scene.selector('[data-settings-page="appearance"]')).toExist(),
+      Scene.expect(Scene.selector('[data-settings-link="appearance"]')).toHaveAttr(
+        'aria-current',
+        'page',
+      ),
+    )
+  })
+
+  it('explains an unknown path with a way back', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(init(urlForPath('/nope')).model),
+      Scene.expect(Scene.text('Nothing here')).toExist(),
+      Scene.expect(Scene.selector('[data-settings]')).not.toExist(),
+    )
   })
 })

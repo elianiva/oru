@@ -33,6 +33,7 @@ import {
 } from 'lucide'
 import { icon } from '@/lib/icons.ts'
 import { cn } from '@/lib/utils.ts'
+import { settingsIndexRouter } from './route.ts'
 import type { ThreadProject, ThreadRow, ThreadSection, ThreadStatus } from './threads.ts'
 
 const CLOCK_INTERVAL_MS = 30_000
@@ -491,7 +492,17 @@ const bottomBar = (h: HtmlBuilder<Message>): Html =>
       h.Class('flex shrink-0 items-center gap-5 px-4 py-3 text-muted-foreground'),
     ],
     [
-      icon(h, Settings, 'size-4'),
+      h.a(
+        [
+          h.Href(settingsIndexRouter()),
+          h.AriaLabel('Settings'),
+          h.DataAttribute('nav', 'settings'),
+          h.Class(
+            'flex size-7 items-center justify-center rounded-md transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+          ),
+        ],
+        [icon(h, Settings, 'size-4')],
+      ),
       icon(h, Smartphone, 'size-4'),
       icon(h, Bug, 'size-4'),
       h.span(
