@@ -19,20 +19,21 @@ Status: active development.
 
 ## Decisions
 
-| #                                                     | Decision                                                                      |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [0001](./docs/adr/0001-kernel-composition.md)         | Effect-native kernel, data-shaped declarations, generation reload             |
-| [0002](./docs/adr/0002-plugin-facets-and-scope.md)    | A plugin is one identity with facets, activated host-wide or per thread       |
-| [0003](./docs/adr/0003-session-log.md)                | The session is an immutable event log, projected as state, stored as a tree   |
-| [0004](./docs/adr/0004-presentation-seam.md)          | Typed RPC to the server; the view mirrors the active graph                    |
-| [0005](./docs/adr/0005-inference-runtime.md)          | Inference is an ordinary plugin: effect-uai, model as plugin, tools as JSON   |
-| [0006](./docs/adr/0006-harness-layer.md)              | Many harnesses on one host: registry, session ownership, thread configuration |
-| [0007](./docs/adr/0007-pi-bridge.md)                  | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
-| [0008](./docs/adr/0008-monorepo-unpublished.md)       | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
-| [0009](./docs/adr/0009-node-host-and-transport.md)    | A node host process serves the kernel over HTTP, and the app is its client    |
-| [0010](./docs/adr/0010-durable-sessions.md)           | Durable sessions in the host: the log is opened, resumed, and reprojected     |
-| [0011](./docs/adr/0011-mit-license-and-agent-docs.md) | MIT license; no AGENTS.md                                                     |
-| [0012](./docs/adr/0012-config-precedence.md)          | Effect Config, one file, flags then file then env then defaults               |
+| #                                                      | Decision                                                                      |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| [0001](./docs/adr/0001-kernel-composition.md)          | Effect-native kernel, data-shaped declarations, generation reload             |
+| [0002](./docs/adr/0002-plugin-facets-and-scope.md)     | A plugin is one identity with facets, activated host-wide or per thread       |
+| [0003](./docs/adr/0003-session-log.md)                 | The session is an immutable event log, projected as state, stored as a tree   |
+| [0004](./docs/adr/0004-presentation-seam.md)           | Typed RPC to the server; the view mirrors the active graph                    |
+| [0005](./docs/adr/0005-inference-runtime.md)           | Inference is an ordinary plugin: effect-uai, model as plugin, tools as JSON   |
+| [0006](./docs/adr/0006-harness-layer.md)               | Many harnesses on one host: registry, session ownership, thread configuration |
+| [0007](./docs/adr/0007-pi-bridge.md)                   | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
+| [0008](./docs/adr/0008-monorepo-unpublished.md)        | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
+| [0009](./docs/adr/0009-node-host-and-transport.md)     | A node host process serves the kernel over HTTP, and the app is its client    |
+| [0010](./docs/adr/0010-durable-sessions.md)            | Durable sessions in the host: the log is opened, resumed, and reprojected     |
+| [0011](./docs/adr/0011-mit-license-and-agent-docs.md)  | MIT license; no AGENTS.md                                                     |
+| [0012](./docs/adr/0012-config-precedence.md)           | Effect Config, one file, flags then file then env then defaults               |
+| [0013](./docs/adr/0013-host-unreachable-is-a-state.md) | A host that does not answer is a rendered state, not a defect                 |
 
 ## Development
 
@@ -116,19 +117,36 @@ pnpm dev
 
 Open the printed URL and check these, in order.
 
-1. Three columns: the thread list on the left, the composer in the middle, `Details` on the right.
-2. Drag the seam between the thread list and the composer. The list widens, the middle column narrows by the same amount, and `Details` keeps its width.
-3. Click the panel icon on the left of the header. The thread list closes and the middle column takes the room. Click it again. The list reopens at the width it had.
-4. Click the panel icon on the right of the header, then reload the page. `Details` stays closed and every other width comes back.
-5. Click a thread row. The row keeps a ring and `Details` lists the thread's project, location, status, and pull request.
-6. Click the `Inactive (2)` header. The shelf closes and its header keeps the row count.
-7. Type a message in the composer and click the send button. The box clears and the send button returns to disabled.
+1. The middle column lists the host's projects under the composer, or says `No projects yet` — an empty state, not an empty list.
+2. Three columns: the thread list on the left, the composer in the middle, `Details` on the right.
+3. Drag the seam between the thread list and the composer. The list widens, the middle column narrows by the same amount, and `Details` keeps its width.
+4. Click the panel icon on the left of the header. The thread list closes and the middle column takes the room. Click it again. The list reopens at the width it had.
+5. Click the panel icon on the right of the header, then reload the page. `Details` stays closed and every other width comes back.
+6. Click a thread row. The URL becomes `/thread/<id>`, the row keeps a ring, `Details` lists the thread's project, location, status, and pull request, and the middle column is the conversation rather than the hero composer. Reload: you are in the same thread. Go back: the hero composer returns.
+7. Click the `Inactive (2)` header. The shelf closes and its header keeps the row count.
+8. Type a message in the composer and click the send button. The box clears and the send button returns to disabled.
+9. Stop the host and reload. The app says `Host unreachable` with the reason and a `Retry`, and no column pretends to hold a fact. Start the host again and click `Retry`: the app comes back.
 
 Sidebar widths are percentages of the window, so every column grows when you widen the window. A sidebar stops at its own minimum and maximum at a 1440px window.
 
 CI runs these steps in a real Chromium through Playwright (`pnpm --filter ./apps/oru e2e`), driven by `apps/oru/e2e/browser.spec.ts`. A failure keeps a screenshot and the last 8000 bytes of `apps/oru/test-results/host.log`.
 
-`docs/evidence/panel-shell` holds the screenshots from one run, taken with the agent-browser CLI:
+The suite starts its own host on a port the kernel picks and its own dev server, so it runs beside a `pnpm dev`: set `ORU_E2E_PORT` to move the dev server off 5173. `ORU_PROXY_TARGET` points a dev server at a host somewhere else, which is what the suite uses to follow the host it started.
+
+`docs/evidence/issue-48` holds the screenshots from one run of the seam, taken with the agent-browser CLI:
+
+```
+agent-browser open <url>
+agent-browser set viewport 1440 900
+agent-browser wait --text "No projects yet"
+agent-browser screenshot 01-fresh-host-empty-projects.png
+agent-browser open <url>/thread/shell-retro
+agent-browser screenshot 03-thread-url-conversation.png
+agent-browser click "[data-host-retry]"
+agent-browser screenshot 05-retry-recovered.png
+```
+
+`docs/evidence/panel-shell` holds the screenshots from the three-column shell:
 
 ```
 agent-browser open <url>
