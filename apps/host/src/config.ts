@@ -55,6 +55,8 @@ interface FileDraft {
   host?: string | undefined
   port?: number | undefined
   journal?: string | undefined
+  defaultHarness?: string | undefined
+  defaultModel?: string | undefined
   pi?: FilePi | undefined
 }
 
@@ -73,6 +75,8 @@ export const catalog = [
   { name: 'host', path: ['host'], lifetime: 'startup' },
   { name: 'port', path: ['port'], lifetime: 'startup' },
   { name: 'journal', path: ['journal'], lifetime: 'startup' },
+  { name: 'defaultHarness', path: ['defaultHarness'], lifetime: 'startup' },
+  { name: 'defaultModel', path: ['defaultModel'], lifetime: 'startup' },
   { name: 'pi.home', path: ['pi', 'home'], lifetime: 'startup' },
   { name: 'pi.sessionDir', path: ['pi', 'sessionDir'], lifetime: 'startup' },
   { name: 'pi.command', path: ['pi', 'command'], lifetime: 'startup' },
@@ -117,6 +121,8 @@ const FileDocument = Schema.Struct({
   host: Schema.optional(Schema.String),
   port: Schema.optional(ListenPort),
   journal: Schema.optional(Schema.String),
+  defaultHarness: Schema.optional(Schema.String),
+  defaultModel: Schema.optional(Schema.String),
   pi: Schema.optional(FilePiDocument),
 })
 export type FilePi = typeof FilePiDocument.Type
@@ -168,17 +174,28 @@ export const loadFileConfig = (home: string): FileConfig => {
   return parseFileConfig(readFileSync(path, 'utf8'))
 }
 
+/** The harness and model a thread with no configuration of its own runs. */
+export const defaultHarness = 'pi'
+
 const settingsConfig = (defaults: {
   readonly home: string
   readonly journal: string
   readonly piHome: string
   readonly piSessionDir: string
+  readonly defaultHarness: string
 }) =>
   Config.all({
     home: Config.string('home').pipe(Config.withDefault(defaults.home)),
     hostname: Config.string('host').pipe(Config.withDefault(defaultHost)),
     port: Config.schema(ListenPort, 'port').pipe(Config.withDefault(defaultPort)),
     journal: Config.string('journal').pipe(Config.withDefault(defaults.journal)),
+    defaultHarness: Config.string('defaultHarness').pipe(
+      Config.withDefault(defaults.defaultHarness),
+    ),
+    defaultModel: Config.string('defaultModel').pipe(
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
     piHome: Config.string('home').pipe(Config.nested('pi'), Config.withDefault(defaults.piHome)),
     piSessionDir: Config.string('sessionDir').pipe(
       Config.nested('pi'),
@@ -210,6 +227,8 @@ interface ProviderTree {
   host?: string | undefined
   port?: number | string | undefined
   journal?: string | undefined
+  defaultHarness?: string | undefined
+  defaultModel?: string | undefined
   pi?: FilePi | EnvPiDraft | undefined
 }
 
@@ -227,6 +246,8 @@ const treeFromFile = (file: FileConfig): ProviderTree => {
   if (file.host !== undefined) tree.host = file.host
   if (file.port !== undefined) tree.port = file.port
   if (file.journal !== undefined) tree.journal = file.journal
+  if (file.defaultHarness !== undefined) tree.defaultHarness = file.defaultHarness
+  if (file.defaultModel !== undefined) tree.defaultModel = file.defaultModel
   if (file.pi !== undefined) tree.pi = file.pi
   return tree
 }
@@ -249,10 +270,14 @@ const treeFromEnv = (env: NodeJS.ProcessEnv): ProviderTree => {
   const host = envString(env, 'ORU_HOST')
   const port = envString(env, 'ORU_PORT')
   const journal = envString(env, 'ORU_JOURNAL')
+  const defaultHarness = envString(env, 'ORU_DEFAULT_HARNESS')
+  const defaultModel = envString(env, 'ORU_DEFAULT_MODEL')
   if (home !== undefined) tree.home = home
   if (host !== undefined) tree.host = host
   if (port !== undefined) tree.port = port
   if (journal !== undefined) tree.journal = journal
+  if (defaultHarness !== undefined) tree.defaultHarness = defaultHarness
+  if (defaultModel !== undefined) tree.defaultModel = defaultModel
   const pi: EnvPiDraft = {}
   const piHome = envString(env, 'ORU_PI_HOME')
   const sessionDir = envString(env, 'ORU_PI_SESSION_DIR')
@@ -281,6 +306,7 @@ const layered = (
     host: defaultHost,
     port: defaultPort,
     journal: defaultJournalOf(home),
+    defaultHarness,
     pi: {
       home: defaultPiHomeOf(home),
       sessionDir: defaultPiSessionDirOf(defaultPiHomeOf(home)),
@@ -336,6 +362,8 @@ export interface Settings {
   readonly port: Chosen<number>
   readonly journal: Chosen<string>
   readonly dataDir: string
+  readonly defaultHarness: Chosen<string>
+  readonly defaultModel: Chosen<string | undefined>
   readonly piHome: Chosen<string>
   readonly piSessionDir: Chosen<string>
   readonly piCommand: Chosen<string | undefined>
@@ -371,6 +399,7 @@ export const resolveSettings = (
       journal: defaultJournalOf(home.value),
       piHome: defaultPiHomeOf(home.value),
       piSessionDir: defaultPiSessionDirOf(defaultPiHomeOf(home.value)),
+      defaultHarness,
     }),
     layered(flags, env, file, home.value),
   )
@@ -382,6 +411,8 @@ export const resolveSettings = (
     port: { value: parsed.port, source: src(['port']) },
     journal: { value: parsed.journal, source: src(['journal']) },
     dataDir: dataDirOf(home.value),
+    defaultHarness: { value: parsed.defaultHarness, source: src(['defaultHarness']) },
+    defaultModel: { value: parsed.defaultModel, source: src(['defaultModel']) },
     piHome: { value: parsed.piHome, source: src(['pi', 'home']) },
     piSessionDir:
       sessionSource === 'default'
@@ -452,6 +483,8 @@ const compactFile = (file: FileConfig): FileConfig => {
   if (file.host !== undefined) next.host = file.host
   if (file.port !== undefined) next.port = file.port
   if (file.journal !== undefined) next.journal = file.journal
+  if (file.defaultHarness !== undefined) next.defaultHarness = file.defaultHarness
+  if (file.defaultModel !== undefined) next.defaultModel = file.defaultModel
   if (file.pi !== undefined) {
     const pi = compactPi(file.pi)
     if (pi !== undefined) next.pi = pi
@@ -488,6 +521,8 @@ const withPi = (file: FileConfig, patch: FilePi): FileConfig => {
     host: file.host,
     port: file.port,
     journal: file.journal,
+    defaultHarness: file.defaultHarness,
+    defaultModel: file.defaultModel,
     pi,
   })
 }
@@ -503,6 +538,10 @@ export const setFileKey = (file: FileConfig, key: WritableKey, value: string): F
       })
     case 'journal':
       return compactFile({ ...file, journal: value })
+    case 'defaultHarness':
+      return compactFile({ ...file, defaultHarness: value })
+    case 'defaultModel':
+      return compactFile({ ...file, defaultModel: value })
     case 'pi.home':
       return withPi(file, { home: value })
     case 'pi.sessionDir':
@@ -532,6 +571,22 @@ export const setFileKey = (file: FileConfig, key: WritableKey, value: string): F
 }
 
 export const unsetFileKey = (file: FileConfig, key: WritableKey): FileConfig => {
+  /** Every top-level key but the one being unset. */
+  const keepScalars = (
+    omit: 'host' | 'port' | 'journal' | 'defaultHarness' | 'defaultModel' | undefined,
+  ): FileDraft => {
+    const next: FileDraft = {}
+    if (omit !== 'host' && file.host !== undefined) next.host = file.host
+    if (omit !== 'port' && file.port !== undefined) next.port = file.port
+    if (omit !== 'journal' && file.journal !== undefined) next.journal = file.journal
+    if (omit !== 'defaultHarness' && file.defaultHarness !== undefined) {
+      next.defaultHarness = file.defaultHarness
+    }
+    if (omit !== 'defaultModel' && file.defaultModel !== undefined) {
+      next.defaultModel = file.defaultModel
+    }
+    return next
+  }
   const dropPi = (omit: keyof FilePi): FileConfig => {
     const pi = file.pi
     if (pi === undefined) return compactFile(file)
@@ -544,20 +599,19 @@ export const unsetFileKey = (file: FileConfig, key: WritableKey): FileConfig => 
     if (omit !== 'noBuiltinTools' && pi.noBuiltinTools !== undefined) {
       next.noBuiltinTools = pi.noBuiltinTools
     }
-    return compactFile({
-      host: file.host,
-      port: file.port,
-      journal: file.journal,
-      pi: next,
-    })
+    return compactFile({ ...keepScalars(undefined), pi: next })
   }
   switch (key) {
     case 'host':
-      return compactFile({ port: file.port, journal: file.journal, pi: file.pi })
+      return compactFile({ ...keepScalars('host'), pi: file.pi })
     case 'port':
-      return compactFile({ host: file.host, journal: file.journal, pi: file.pi })
+      return compactFile({ ...keepScalars('port'), pi: file.pi })
     case 'journal':
-      return compactFile({ host: file.host, port: file.port, pi: file.pi })
+      return compactFile({ ...keepScalars('journal'), pi: file.pi })
+    case 'defaultHarness':
+      return compactFile({ ...keepScalars('defaultHarness'), pi: file.pi })
+    case 'defaultModel':
+      return compactFile({ ...keepScalars('defaultModel'), pi: file.pi })
     case 'pi.home':
       return dropPi('home')
     case 'pi.sessionDir':
@@ -598,6 +652,10 @@ const chosenOf = (
       return settings.port
     case 'journal':
       return settings.journal
+    case 'defaultHarness':
+      return settings.defaultHarness
+    case 'defaultModel':
+      return settings.defaultModel
     case 'pi.home':
       return settings.piHome
     case 'pi.sessionDir':

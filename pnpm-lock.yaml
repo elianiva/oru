@@ -217,6 +217,9 @@ importers:
       '@foldkit/vite-plugin':
         specifier: 0.20.2
         version: 0.20.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))(vite@8.2.2(@types/node@22.20.2)(jiti@2.7.0)(yaml@2.9.0))
+      '@oru/harness-pi':
+        specifier: workspace:*
+        version: link:../../plugins/harness-pi
       '@oru/host':
         specifier: workspace:*
         version: link:../host

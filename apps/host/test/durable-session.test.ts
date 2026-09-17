@@ -102,7 +102,7 @@ const compactingHarnessPlugin = definePlugin({
  * makes the lane's facts right (ADR-0010).
  */
 const pluginsFor = (echo: AnyPlugin, extra: readonly AnyPlugin[] = []): readonly AnyPlugin[] => [
-  harnessRegistryPlugin,
+  harnessRegistryPlugin(),
   inferencePlugin,
   echo,
   demoModelPlugin,

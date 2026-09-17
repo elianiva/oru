@@ -131,6 +131,27 @@ const piHealth = (url: string): Promise<string> =>
     ),
   )
 
+/**
+ * The options an unconfigured thread gets on a host started with no
+ * `config.json`: the shipping default is pi, so pi answers, not the scripted
+ * double the host also registers.
+ */
+const defaultOptions = (url: string): Promise<{ harness: string | undefined; models: string[] }> =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        return yield* Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const thread = yield* ThreadClient
+          const project = yield* projects.create('defaults', process.cwd())
+          const created = yield* thread.create(project.id)
+          const options = yield* thread.options(created.threadId)
+          return { harness: options.harness, models: options.models.map((model) => model.id) }
+        }).pipe(Effect.provide(clientsFor(url)))
+      }),
+    ),
+  )
+
 const TURN_FACTS = [
   'thread/created',
   'thread/configured',
@@ -178,6 +199,25 @@ describe('a running host', () => {
     const session = join(sessions, `${turn.threadId}.jsonl`)
     expect(existsSync(session)).toBe(true)
     expect(readFileSync(session, 'utf8')).toContain('"type":"session"')
+  }, 120_000)
+
+  it('answers an unconfigured thread with pi, not the scripted double', async () => {
+    const scripted: ScriptedProvider = await startScriptedProvider()
+    cleanups.push(async () => {
+      await scripted.close()
+    })
+
+    const host = await startedHost(['--port', '0'], {
+      ...scripted.env,
+      ORU_HOME: scratchDir('oru-host-defaults-home-'),
+      ORU_JOURNAL: join(scratchDir('oru-host-defaults-journal-'), 'journal.db'),
+    })
+    cleanups.push(() => host.stop())
+
+    const options = await defaultOptions(host.url)
+    expect(options.harness).toBe('pi')
+    expect(options.models).toEqual(['scripted/scripted-model', 'scripted/scripted-mini'])
+    expect(options.models).not.toContain('mock')
   }, 120_000)
 
   it('runs a pi turn against the real model named by ORU_PI_E2E_MODEL', async (context) => {

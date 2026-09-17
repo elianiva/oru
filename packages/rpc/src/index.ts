@@ -18,6 +18,7 @@ export {
 export { Project } from './project.ts'
 export { Panel, ViewGraph } from './view-graph.ts'
 export { HarnessChoice, ThreadConfig, ThreadOptions } from './thread-options.ts'
+export type { ThreadConfiguration } from './thread-options.ts'
 export {
   LiveCompacted,
   LiveCompacting,

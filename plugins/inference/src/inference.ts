@@ -554,7 +554,9 @@ export const openInference = (
         const tools = yield* loadTools
         const toolkit = tools.length === 0 ? undefined : toolkitOf(tools)
         const models = yield* harness.listModels().pipe(Effect.orElseSucceed(() => []))
-        const model = configuration.model ?? defaultModelOf(models)
+        // A thread that names no model runs the host's default when there is
+        // one, and otherwise the harness's own default (ADR-0012).
+        const model = configuration.model ?? harnesses.defaults().model ?? defaultModelOf(models)
         const cwd = foldThreadCwd(events, thread)
         // Absent is not the same as undefined for the harness contract, so each
         // member is added only when the thread actually carries it.

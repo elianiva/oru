@@ -206,7 +206,7 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin,
+          harnessRegistryPlugin(),
           echoToolPlugin,
           harnessPiPlugin(harness),
           inferencePlugin,

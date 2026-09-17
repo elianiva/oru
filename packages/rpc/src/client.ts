@@ -15,7 +15,7 @@ import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
 import { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
 import type { Project } from './project.ts'
-import type { ThreadConfig, ThreadOptions } from './thread-options.ts'
+import type { ThreadConfig, ThreadConfiguration, ThreadOptions } from './thread-options.ts'
 import type { ThreadSignal } from './thread-signal.ts'
 import type { ViewGraph } from './view-graph.ts'
 
@@ -59,6 +59,7 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientC
 export interface ThreadClientContract {
   readonly create: (
     project: ProjectId,
+    configuration?: ThreadConfiguration,
   ) => Effect.Effect<
     { readonly threadId: ThreadId; readonly project: Project },
     UnknownProject | HostUnreachable
@@ -66,7 +67,7 @@ export interface ThreadClientContract {
   readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void, HostUnreachable>
   readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent, HostUnreachable>
   readonly options: (
-    threadId: ThreadId,
+    threadId: ThreadId | undefined,
     options?: { readonly refresh?: boolean },
   ) => Effect.Effect<ThreadOptions, HostUnreachable>
   readonly configure: (
@@ -191,7 +192,16 @@ export const threadClientOf = (
   client: RpcClient.FromGroup<typeof ThreadRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ThreadClient> =>
   Layer.succeed(ThreadClient, {
-    create: (project) => reachableNew('CreateThread', client.CreateThread({ project })),
+    create: (project, configuration) =>
+      reachableNew(
+        'CreateThread',
+        client.CreateThread({
+          project,
+          harness: configuration?.harness,
+          model: configuration?.model,
+          reasoning: configuration?.reasoning,
+        }),
+      ),
     send: (threadId, text) => reachable('SendMessage', client.SendMessage({ threadId, text })),
     watch: (threadId) => reachableStream('WatchThread', client.WatchThread({ threadId })),
     options: (threadId, options) =>

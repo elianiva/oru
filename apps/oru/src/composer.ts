@@ -72,6 +72,8 @@ export type ComposerAction = Readonly<{
   label?: string
   icon?: IconNode
   chevron?: boolean
+  /** Whether the surface this action opens is open right now. */
+  isExpanded?: boolean
 }>
 
 export type ComposerChipOption = Readonly<{
@@ -167,7 +169,10 @@ const actionButton = <M>(
       variant: 'ghost',
       size: 'sm',
       className: 'gap-1 px-2 font-normal text-muted-foreground',
-      attributes: [h.Attribute('data-composer-action', action.id)],
+      attributes: [
+        h.Attribute('data-composer-action', action.id),
+        ...(action.isExpanded === true ? [h.AriaExpanded(true)] : []),
+      ],
     },
     [
       ...(action.icon === undefined ? [] : [icon(h, action.icon, 'size-4')]),

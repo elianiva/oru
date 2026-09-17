@@ -150,7 +150,7 @@ const bodiesOf = (events: readonly SessionEvent[]): readonly string[] =>
   )
 
 const hostsOf = (harness: PiHarness) => [
-  harnessRegistryPlugin,
+  harnessRegistryPlugin(),
   echoToolPlugin,
   harnessPiPlugin(harness),
   inferencePlugin,
