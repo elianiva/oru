@@ -1,19 +1,19 @@
 # How to debug a host failure, a pi bridge failure, and a stuck turn
 
-Reproduce the failure, then read the stream or file this page names. Issue #20 will add a rotating log file under the data directory. Until that lands, the host and the bridge write to the process streams.
+Reproduce the failure, then read the stream or file this page names. The host and the bridge write to the process streams.
 
 ## Environment variables
 
-| Variable                  | What it changes                                                                                                                    |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `ORU_JOURNAL`             | SQLite journal file. Default `~/.oru/oru.db`. Tests pass `--journal` or this variable so they do not write to your home directory. |
-| `VITE_ORU_HOST_URL`       | Host the browser talks to. Empty means the page origin. In `pnpm dev`, Vite forwards `/rpc` to `127.0.0.1:7317`.                   |
-| `ORU_PI_COMMAND`          | Binary the pi bridge spawns. Default is `pi` on `PATH`.                                                                            |
-| `ORU_PI_ARGS`             | JSON array of extra arguments for that binary.                                                                                     |
-| `ORU_PI_NO_BUILTIN_TOOLS` | When set, the bridge passes `--no-builtin-tools` to pi.                                                                            |
-| `ORU_PI_SESSION_DIR`      | Directory for pi session files. Default `~/.oru/pi/sessions`.                                                                      |
-| `ORU_PI_HOME`             | pi home directory. Default `~/.oru/pi`.                                                                                            |
-| `ORU_PI_E2E_MODEL`        | Real model for the host and harness-pi spend tests. Those tests skip when this is unset.                                           |
+| Variable                  | What it changes                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORU_JOURNAL`             | SQLite journal file. Default `$home/data/oru.db` (`~/.oru/data/oru.db`). Tests pass `--journal` or this variable so they do not write to your home directory. |
+| `VITE_ORU_HOST_URL`       | Host the browser talks to. Empty means the page origin. In `pnpm dev`, Vite forwards `/rpc` to `127.0.0.1:7317`.                                              |
+| `ORU_PI_COMMAND`          | Binary the pi bridge spawns. Default is `pi` on `PATH`.                                                                                                       |
+| `ORU_PI_ARGS`             | JSON array of extra arguments for that binary.                                                                                                                |
+| `ORU_PI_NO_BUILTIN_TOOLS` | When set, the bridge passes `--no-builtin-tools` to pi.                                                                                                       |
+| `ORU_PI_SESSION_DIR`      | Directory for pi session files. Default `$home/data/pi/sessions`.                                                                                             |
+| `ORU_PI_HOME`             | pi home directory. Default `$home/data/pi`.                                                                                                                   |
+| `ORU_PI_E2E_MODEL`        | Real model for the host and harness-pi spend tests. Those tests skip when this is unset.                                                                      |
 
 ## What to read
 
@@ -21,7 +21,7 @@ Reproduce the failure, then read the stream or file this page names. Issue #20 w
 | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | Host stdout                            | The listening URL. A healthy start prints `oru host listening on http://...`.                       |
 | Host stderr                            | Bind failures, journal errors, and other boot failures. The line starts with `oru host failed:`.    |
-| Host process streams after start       | There is no `oru.log` yet. Keep the terminal that launched `oru-host`.                              |
+| Host process streams after start       | The host writes to the process streams. Keep the terminal that launched `oru-host`.                 |
 | Journal file                           | Session facts after a crash. Open the path `ORU_JOURNAL` or `--journal` named.                      |
 | pi stderr                              | The bridge copies pi's stderr as `pi[<pid>]: ...` and keeps a 4096-byte tail on `PiRpcChildExited`. |
 | `oru harness-pi:` lines on host stderr | Dropped pi UI requests, unreadable channel lines, and other bridge warnings.                        |
@@ -58,4 +58,4 @@ If the whole host is wedged, send SIGTERM to `oru-host`. The process closes its 
 
 ## Browser check
 
-The README browser check is the manual pass. CI runs the same two flows under Playwright: logging toggle, then send a message. On failure, Playwright keeps a screenshot and CI uploads `apps/oru/test-results/`, including `host.log`.
+The [README browser check](../../README.md#browser-check) is the manual pass. CI runs the same flows under Playwright. On failure, Playwright keeps a screenshot and CI uploads `apps/oru/test-results/`, including `host.log`.

@@ -13,7 +13,6 @@ Status: active development.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — setup and the gate a change must pass.
 - [docs/release.md](./docs/release.md) — how to bump, pack, and cut a release.
 - [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md) — reproduce a host failure, a pi bridge failure, and a stuck turn.
-- [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md) — escaped bugs and the guards that catch them.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes.
 - [LICENSE](./LICENSE) — MIT.
 
@@ -34,6 +33,11 @@ Status: active development.
 | [0011](./docs/adr/0011-mit-license-and-agent-docs.md)  | MIT license; no AGENTS.md                                                     |
 | [0012](./docs/adr/0012-config-precedence.md)           | Effect Config, one file, flags then file then env then defaults               |
 | [0013](./docs/adr/0013-host-unreachable-is-a-state.md) | A host that does not answer is a rendered state, not a defect                 |
+| [0014](./docs/adr/0014-project-edits-are-facts.md)     | A project edit is a fact carrying the whole project                           |
+| [0015](./docs/adr/0015-composer-chip-panels.md)        | The composer's chip carries a panel owned by its contributor                  |
+| [0016](./docs/adr/0016-harness-is-a-fact.md)           | The harness is a host fact; the model picker is a list                        |
+| [0017](./docs/adr/0017-composer-slot-pickers.md)       | The composer is a box with slots; pickers are submodels                       |
+| [0018](./docs/adr/0018-provider-metadata-and-tabs.md)  | Harness plugins name providers; the picker tabs by them                       |
 
 ## Development
 
@@ -133,37 +137,11 @@ CI runs these steps in a real Chromium through Playwright (`pnpm --filter ./apps
 
 The suite starts its own host on a port the kernel picks and its own dev server, so it runs beside a `pnpm dev`: set `ORU_E2E_PORT` to move the dev server off 5173. `ORU_PROXY_TARGET` points a dev server at a host somewhere else, which is what the suite uses to follow the host it started.
 
-`docs/evidence/issue-48` holds the screenshots from one run of the seam, taken with the agent-browser CLI:
-
-```
-agent-browser open <url>
-agent-browser set viewport 1440 900
-agent-browser wait --text "No projects yet"
-agent-browser screenshot 01-fresh-host-empty-projects.png
-agent-browser open <url>/thread/<thread-id>
-agent-browser screenshot 03-thread-url-conversation.png
-agent-browser click "[data-host-retry]"
-agent-browser screenshot 05-retry-recovered.png
-```
-
-`docs/evidence/panel-shell` holds the screenshots from the three-column shell:
-
-```
-agent-browser open <url>
-agent-browser set viewport 1440 900
-agent-browser mouse move 320 450
-agent-browser mouse down left
-agent-browser mouse move 450 450
-agent-browser mouse up left
-agent-browser screenshot shot.png
-```
-
 ### Conventions
 
 - Use [CONTEXT.md](./CONTEXT.md) vocabulary in new code and docs.
 - Record architecture choices in [docs/adr](./docs/adr).
 - How to bump the host and pack a tarball is in [docs/release.md](./docs/release.md).
-- When a bug escapes, add a row to [docs/qa/missed-invariants.md](./docs/qa/missed-invariants.md).
 - How to reproduce a host failure, a pi bridge failure, and a stuck turn is in [docs/qa/debug-and-qa.md](./docs/qa/debug-and-qa.md).
 - The full gate a change must pass, including the browser job CI runs on pull requests, is in [CONTRIBUTING.md](./CONTRIBUTING.md).
 

@@ -4,9 +4,9 @@
  * The harness is a fact: a host registers its own list, and the thread was
  * configured to one of them, so this renders which one and how healthy it is
  * rather than offering a choice. The model is a choice, drawn from that
- * harness's catalogue, which is too large to be a `<select>`. When a harness
- * is not ready its diagnosis and install command are rendered to copy; oru
- * reports that command and never runs it (ADR-0007).
+ * harness's catalogue as one flat list, which is too large to be a `<select>`.
+ * When a harness is not ready its diagnosis and install command are rendered
+ * to copy; oru reports that command and never runs it (ADR-0007).
  */
 import { Effect, Option, Predicate, Schema, Stream } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
@@ -21,9 +21,8 @@ import { HarnessChoice, ThreadOptions } from '@oru/rpc'
 import { badge } from '@/components/ui/badge.ts'
 import { button } from '@/components/ui/button.ts'
 import { Command } from '@/components/ui/command.ts'
-import { tabsList, tabsTrigger } from '@/components/ui/tabs.ts'
 import { icon, resolveIcon } from '@/lib/icons.ts'
-import { providerDisplayOf, providerTabsOf } from '@/lib/provider-icons.ts'
+import { providerDisplayOf } from '@/lib/provider-icons.ts'
 import { pickerAnchor, pickerPanel, pickerTrigger } from './picker-panel.ts'
 
 export const Loading = Schema.TaggedStruct('Loading', {})
@@ -36,8 +35,6 @@ export type Options = typeof Options.Type
 export const Model = Schema.Struct({
   isOpen: Schema.Boolean,
   query: Schema.String,
-  /** The provider tab filtering the catalogue; undefined is every provider. */
-  activeProvider: Schema.UndefinedOr(Schema.String),
   options: Options,
   selection: Schema.Struct({
     harness: Schema.UndefinedOr(Schema.String),
@@ -52,7 +49,6 @@ export const Message = defineMessageUnion({
   Opened: {},
   Closed: {},
   ChangedQuery: { value: Schema.String },
-  ChosenProvider: { provider: Schema.UndefinedOr(Schema.String) },
   OptionsArrived: { options: ThreadOptions },
   OptionsFailed: { reason: Schema.String },
   ChosenModel: { model: Schema.String },
@@ -76,9 +72,9 @@ export const OutMessage = defineMessageUnion({
 export type OutMessage = typeof OutMessage.Type
 
 /**
- * What survives a page refresh: the provider tab filtering the catalogue
- * and the chosen model with its reasoning level. Open state, search text,
- * and copy feedback are transient and always restart closed and empty.
+ * What survives a page refresh: the chosen model with its reasoning level.
+ * Open state, search text, and copy feedback are transient and always
+ * restart closed and empty.
  * The harness itself is a host fact, never a stored choice.
  *
  * Stored the way bb stores its promptbox preferences (`bb.promptbox.provider`,
@@ -93,12 +89,15 @@ export const PICKER_STORAGE_KEY = 'oru.model-picker'
 export const PICKER_STORAGE_VERSION = 1
 
 export type StoredPickerPreferences = Readonly<{
-  activeProvider: string | undefined
   model: string | undefined
   reasoning: string | undefined
 }>
 
-/** The versioned document in storage; absent members read as unset. */
+/**
+ * The versioned document in storage; absent members read as unset. Older
+ * documents may still carry an `activeProvider` tab, which now reads as
+ * unset: the catalogue is one flat list.
+ */
 const StoredDocument = Schema.Struct({
   version: Schema.Literal(PICKER_STORAGE_VERSION),
   activeProvider: Schema.optionalKey(Schema.String),
@@ -122,7 +121,6 @@ export const readStoredPreferences = (): StoredPickerPreferences | null => {
   const decoded = decodeStored(raw)
   if (Option.isNone(decoded)) return null
   return {
-    activeProvider: nonEmpty(decoded.value.activeProvider),
     model: nonEmpty(decoded.value.model),
     reasoning: nonEmpty(decoded.value.reasoning),
   }
@@ -140,7 +138,6 @@ const writeStoredPreferences = (prefs: StoredPickerPreferences): Effect.Effect<v
       PICKER_STORAGE_KEY,
       JSON.stringify({
         version: PICKER_STORAGE_VERSION,
-        activeProvider: prefs.activeProvider,
         model: prefs.model,
         reasoning: prefs.reasoning,
       }),
@@ -155,19 +152,15 @@ const writeStoredPreferences = (prefs: StoredPickerPreferences): Effect.Effect<v
  */
 export const storablePreferences = (model: Model): Option.Option<StoredPickerPreferences> => {
   const prefs: StoredPickerPreferences = {
-    activeProvider: model.activeProvider,
     model: model.selection.model,
     reasoning: model.selection.reasoning,
   }
-  return prefs.activeProvider === undefined &&
-    prefs.model === undefined &&
-    prefs.reasoning === undefined
+  return prefs.model === undefined && prefs.reasoning === undefined
     ? Option.none()
     : Option.some(prefs)
 }
 
 const StoredPreferencesSchema = Schema.Struct({
-  activeProvider: Schema.UndefinedOr(Schema.String),
   model: Schema.UndefinedOr(Schema.String),
   reasoning: Schema.UndefinedOr(Schema.String),
 })
@@ -193,7 +186,6 @@ export const init = (): Model => {
   return {
     isOpen: false,
     query: '',
-    activeProvider: stored?.activeProvider,
     options: Loading.make({}),
     selection: {
       harness: undefined,
@@ -212,41 +204,17 @@ export const loadedOptions = (model: Model): ThreadOptions | undefined =>
 export const activeHarness = (options: ThreadOptions): HarnessChoice | undefined =>
   options.harnesses.find((choice) => choice.id === options.harness)
 
-const providerOf = (model: ModelInfo): string => model.provider ?? 'unknown'
-
-/** The catalogue narrowed to a provider tab, then to a search term matched against id and label. */
+/** The catalogue narrowed to a search term matched against id and label. */
 export const matchingModels = (
   models: ReadonlyArray<ModelInfo>,
   query: string,
-  activeProvider?: string,
 ): ReadonlyArray<ModelInfo> => {
-  const scoped =
-    activeProvider === undefined
-      ? models
-      : models.filter((model) => (model.provider ?? 'unknown') === activeProvider)
   const needle = query.trim().toLowerCase()
-  if (needle === '') return scoped
-  return scoped.filter(
+  if (needle === '') return models
+  return models.filter(
     (model) =>
       model.id.toLowerCase().includes(needle) || (model.label ?? '').toLowerCase().includes(needle),
   )
-}
-
-export type ProviderGroup = Readonly<{
-  provider: string
-  models: ReadonlyArray<ModelInfo>
-}>
-
-/** The catalogue split by provider, in the order each provider first appears. */
-export const groupByProvider = (models: ReadonlyArray<ModelInfo>): ReadonlyArray<ProviderGroup> => {
-  const grouped = new Map<string, Array<ModelInfo>>()
-  for (const model of models) {
-    const provider = providerOf(model)
-    const bucket = grouped.get(provider)
-    if (bucket === undefined) grouped.set(provider, [model])
-    else bucket.push(model)
-  }
-  return [...grouped].map(([provider, choices]) => ({ provider, models: choices }))
 }
 
 /**
@@ -284,20 +252,7 @@ export const update = (
     },
     Closed: () => ({ model: evo(model, { isOpen: () => false, query: () => '' }) }),
     ChangedQuery: ({ value }) => ({ model: evo(model, { query: () => value }) }),
-    // Tabs toggle: selecting the active provider's tab returns to every provider.
-    ChosenProvider: ({ provider }) => ({
-      model: evo(model, {
-        activeProvider: () => (provider === model.activeProvider ? undefined : provider),
-      }),
-    }),
     OptionsArrived: ({ options }) => {
-      // The tab survives a reload while its provider is still offered; a tab
-      // for a provider that signed out falls back to every provider.
-      const offered = new Set(options.models.map((model) => model.provider ?? 'unknown'))
-      const activeProvider =
-        model.activeProvider !== undefined && offered.has(model.activeProvider)
-          ? model.activeProvider
-          : undefined
       return {
         model: evo(model, {
           options: () => Loaded.make({ options }),
@@ -314,7 +269,6 @@ export const update = (
                 ? options.config.reasoning
                 : model.selection.reasoning,
           }),
-          activeProvider: () => activeProvider,
           copied: () => false,
         }),
       }
@@ -486,39 +440,6 @@ const modelRow = (choice: ModelInfo, model: Model, h: HtmlBuilder<Message>): Htm
   )
 }
 
-const groupView = (
-  group: ProviderGroup,
-  model: Model,
-  options: ThreadOptions,
-  h: HtmlBuilder<Message>,
-): Html => {
-  const display = providerDisplayOf(options.providers, group.provider)
-  return h.div(
-    [h.DataAttribute('model-group', group.provider)],
-    [
-      Command.group(
-        {},
-        [
-          h.div(
-            [
-              h.Attribute('cmdk-group-heading', ''),
-              h.DataAttribute('slot', 'command-group-heading'),
-              h.DataAttribute('model-group-header', group.provider),
-              h.Class(`${sectionHeadingClass} flex items-center gap-1.5`),
-            ],
-            [icon(h, display.icon, 'size-3.5 shrink-0'), group.provider],
-          ),
-          h.div(
-            [h.Role('group'), h.AriaLabel(group.provider), h.Attribute('cmdk-group-items', '')],
-            group.models.map((choice) => modelRow(choice, model, h)),
-          ),
-        ],
-        h,
-      ),
-    ],
-  )
-}
-
 /**
  * The levels the effective model reports. A model that reports none gets no
  * controls: reasoning is not a vocabulary oru may invent for it. Rendered as
@@ -570,48 +491,9 @@ const reasoningRow = (
   )
 }
 
-/**
- * The provider tabs above the search: one icon per provider behind the
- * catalogue. A single provider needs no tabs, and selecting the active
- * tab returns to every provider, so there is no separate All tab.
- */
-const providerTabsRow = (
-  model: Model,
-  options: ThreadOptions,
-  h: HtmlBuilder<Message>,
-): Html | undefined => {
-  const tabs = providerTabsOf(options.models, options.providers)
-  if (tabs.length < 2) return undefined
-  return h.div(
-    [h.DataAttribute('model-provider-tabs', ''), h.Class('px-1 pt-1')],
-    [
-      tabsList(
-        { ariaLabel: 'Filter by provider' },
-        tabs.map((tab) =>
-          tabsTrigger(
-            {
-              label: tab.label,
-              isActive: tab.id === model.activeProvider,
-              onSelect: Message.ChosenProvider({ provider: tab.id }),
-              attributes: [h.DataAttribute('provider-tab', tab.id)],
-            },
-            [icon(h, tab.icon, 'size-4')],
-            h,
-          ),
-        ),
-        h,
-      ),
-    ],
-  )
-}
-
 const panel = (model: Model, options: ThreadOptions, h: HtmlBuilder<Message>): Html => {
-  const tabs = providerTabsRow(model, options, h)
-  const matching = matchingModels(options.models, model.query, model.activeProvider)
-  const groups = groupByProvider(matching)
+  const matching = matchingModels(options.models, model.query)
   const reasoning = reasoningRow(model, options, h)
-  // A tabbed provider's header would repeat the tab, so a filtered
-  // catalogue renders its rows flat while every provider keeps its header.
   const rows =
     matching.length === 0
       ? [
@@ -633,16 +515,13 @@ const panel = (model: Model, options: ThreadOptions, h: HtmlBuilder<Message>): H
             h,
           ),
         ]
-      : model.activeProvider === undefined
-        ? groups.map((group) => groupView(group, model, options, h))
-        : matching.map((choice) => modelRow(choice, model, h))
+      : matching.map((choice) => modelRow(choice, model, h))
   return h.div(
     [h.DataAttribute('model-panel', ''), h.Class('overflow-hidden text-popover-foreground')],
     [
       Command(
         { className: 'rounded-none border-0 bg-transparent p-0 shadow-none' },
         [
-          ...(tabs === undefined ? [] : [tabs]),
           Command.input(
             {
               placeholder: 'Search models',

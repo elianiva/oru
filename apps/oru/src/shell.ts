@@ -275,7 +275,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
             {
               // The center column is the only card: a rounded fill on the
               // frame background, separated by whitespace instead of seams.
-              className: 'rounded-xl bg-background shadow-sm',
+              className: 'rounded-xl bg-background border border-[0.5px]',
             },
             {
               className: cn(

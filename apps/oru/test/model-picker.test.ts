@@ -79,16 +79,6 @@ describe('the catalogue', () => {
     expect(ModelPicker.matchingModels(catalogue, 'nothing')).toHaveLength(0)
   })
 
-  it('groups by provider, in the order each provider first appears', () => {
-    const groups = ModelPicker.groupByProvider(catalogue)
-    expect(groups.map((group) => group.provider)).toEqual(['deepseek', 'github-copilot', 'unknown'])
-    expect(groups.map((group) => group.models.map((model) => model.id))).toEqual([
-      ['deepseek/deepseek-flash', 'deepseek/deepseek-pro'],
-      ['github-copilot/gpt-5'],
-      ['openrouter/x'],
-    ])
-  })
-
   it('reads the effective model from the chosen one, then the default, then the first', () => {
     expect(ModelPicker.effectiveModel(catalogue, unconfigured)?.id).toBe('github-copilot/gpt-5')
     expect(ModelPicker.effectiveModel(catalogue, flash)?.id).toBe('deepseek/deepseek-flash')
@@ -114,26 +104,16 @@ describe('the panel', () => {
     )
   })
 
-  it('renders a header per provider with its own rows under it', () => {
+  it('bunches every provider into one flat list, with no group headers', () => {
     Scene.scene(
       { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened()),
-      Scene.expect(Scene.selector('[data-model-group-header="deepseek"]')).toHaveText('deepseek'),
-      Scene.expect(Scene.selector('[data-model-group-header="github-copilot"]')).toHaveText(
-        'github-copilot',
-      ),
-      Scene.expect(Scene.selector('[data-model-group-header="unknown"]')).toHaveText('unknown'),
-      Scene.expect(
-        Scene.selector('[data-model-group="deepseek"] [data-model-row="deepseek/deepseek-flash"]'),
-      ).toExist(),
-      Scene.expect(
-        Scene.selector(
-          '[data-model-group="github-copilot"] [data-model-row="deepseek/deepseek-flash"]',
-        ),
-      ).not.toExist(),
-      Scene.expect(
-        Scene.selector('[data-model-group="unknown"] [data-model-row="openrouter/x"]'),
-      ).toExist(),
+      Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(4),
+      Scene.expect(Scene.selector('[data-model-row="deepseek/deepseek-flash"]')).toExist(),
+      Scene.expect(Scene.selector('[data-model-row="github-copilot/gpt-5"]')).toExist(),
+      Scene.expect(Scene.selector('[data-model-row="openrouter/x"]')).toExist(),
+      Scene.expect(Scene.selector('[data-model-group-header="deepseek"]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-model-group="deepseek"]')).not.toExist(),
     )
   })
 
@@ -191,115 +171,20 @@ describe('the panel', () => {
   })
 })
 
-describe('provider tabs', () => {
-  it('narrows to the tabbed provider, flat, and toggles back to every provider', () => {
-    expect(ModelPicker.matchingModels(catalogue, '', 'deepseek').map((model) => model.id)).toEqual([
-      'deepseek/deepseek-flash',
-      'deepseek/deepseek-pro',
-    ])
-    expect(
-      ModelPicker.matchingModels(catalogue, 'pro', 'deepseek').map((model) => model.id),
-    ).toEqual(['deepseek/deepseek-pro'])
-    expect(ModelPicker.matchingModels(catalogue, 'five', 'deepseek')).toHaveLength(0)
-
+describe('provider grouping', () => {
+  it('renders no provider tabs: the search narrows the one flat list', () => {
     Scene.scene(
       { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened()),
-      Scene.expect(Scene.selector('[data-model-provider-tabs]')).toExist(),
-      Scene.expect(Scene.selector('[data-provider-tab="deepseek"]')).toHaveAttr(
-        'aria-label',
-        'DeepSeek',
-      ),
-      Scene.expect(Scene.selector('[data-provider-tab="deepseek"] svg')).toExist(),
-      Scene.expect(Scene.selector('[data-provider-tab="github-copilot"]')).toExist(),
-      Scene.click(Scene.selector('[data-provider-tab="deepseek"]')),
-      Scene.expect(Scene.selector('[data-provider-tab="deepseek"]')).toHaveAttr(
-        'data-state',
-        'active',
-      ),
-      Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(2),
-      Scene.expect(Scene.selector('[data-model-row="deepseek/deepseek-flash"]')).toExist(),
-      Scene.expect(Scene.selector('[data-model-row="github-copilot/gpt-5"]')).not.toExist(),
-      // A tabbed provider's header would repeat the tab, so its rows go flat.
-      Scene.expect(Scene.selector('[data-model-group-header="deepseek"]')).not.toExist(),
-      Scene.click(Scene.selector('[data-provider-tab="deepseek"]')),
-      Scene.expect(Scene.selector('[data-provider-tab="deepseek"]')).toHaveAttr(
-        'data-state',
-        'inactive',
-      ),
+      Scene.expect(Scene.selector('[data-model-provider-tabs]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-provider-tab="deepseek"]')).not.toExist(),
       Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(4),
-      Scene.expect(Scene.selector('[data-model-group-header="deepseek"]')).toExist(),
-    )
-  })
-
-  it('combines the active tab with the search', () => {
-    Scene.scene(
-      { update: ModelPicker.update, view: ModelPicker.triggerView },
-      Scene.given(opened()),
-      Scene.click(Scene.selector('[data-provider-tab="deepseek"]')),
       Scene.type(Scene.selector('[data-model-search]'), 'pro'),
       Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(1),
       Scene.expect(Scene.selector('[data-model-row="deepseek/deepseek-pro"]')).toExist(),
       Scene.type(Scene.selector('[data-model-search]'), 'five'),
-      Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(0),
-      Scene.expect(Scene.selector('[data-model-empty]')).toContainText('No model matches'),
-    )
-  })
-
-  it('keeps the tab across a reload while its provider is offered, and drops it when not', () => {
-    const tabbed = ModelPicker.update(
-      opened(),
-      ModelPicker.Message.ChosenProvider({ provider: 'deepseek' }),
-    ).model
-    expect(tabbed.activeProvider).toBe('deepseek')
-    expect(tabbed.isOpen).toBe(true)
-
-    const reloaded = ModelPicker.update(
-      tabbed,
-      ModelPicker.Message.OptionsArrived({ options: optionsFor(ready, unconfigured) }),
-    ).model
-    expect(reloaded.activeProvider).toBe('deepseek')
-
-    const signedOut = ModelPicker.update(
-      tabbed,
-      ModelPicker.Message.OptionsArrived({
-        options: {
-          config: unconfigured,
-          harness: 'pi',
-          harnesses: [{ id: 'pi', label: 'pi', health: ready }],
-          providers: [{ id: 'github-copilot', label: 'Muse', icon: 'bot' }],
-          models: [
-            { id: 'github-copilot/gpt-5', label: 'Copilot Five', provider: 'github-copilot' },
-          ],
-        },
-      }),
-    ).model
-    expect(signedOut.activeProvider).toBeUndefined()
-  })
-
-  it('renders no tabs for a single provider, and falls back for unreported ones', () => {
-    const solo: ThreadOptions = {
-      config: unconfigured,
-      harness: 'pi',
-      harnesses: [{ id: 'pi', label: 'pi', health: ready }],
-      providers: [],
-      models: [
-        { id: 'solo/alpha', label: 'Alpha', provider: 'solo' },
-        { id: 'solo/beta', label: 'Beta', provider: 'solo' },
-      ],
-    }
-    const openedSolo = ModelPicker.update(
-      ModelPicker.update(ModelPicker.init(), ModelPicker.Message.OptionsArrived({ options: solo }))
-        .model,
-      ModelPicker.Message.Opened(),
-    ).model
-    Scene.scene(
-      { update: ModelPicker.update, view: ModelPicker.triggerView },
-      Scene.given(openedSolo),
-      Scene.expect(Scene.selector('[data-model-provider-tabs]')).not.toExist(),
-      // The fallback still names the provider behind the header's glyph.
-      Scene.expect(Scene.selector('[data-model-group-header="solo"]')).toHaveText('solo'),
-      Scene.expect(Scene.selector('[data-model-group-header="solo"] svg')).toExist(),
+      Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(1),
+      Scene.expect(Scene.selector('[data-model-row="github-copilot/gpt-5"]')).toExist(),
     )
   })
 
@@ -471,15 +356,8 @@ describe('stored preferences', () => {
     })
   })
 
-  it('offers nothing storable while no tab and no choice are set', () => {
+  it('offers nothing storable while no choice is set', () => {
     expect(Option.isNone(ModelPicker.storablePreferences(ModelPicker.init()))).toBe(true)
     expect(Option.isNone(ModelPicker.storablePreferences(loaded(ready, flash)))).toBe(false)
-    const tabbed = ModelPicker.update(
-      loaded(),
-      ModelPicker.Message.ChosenProvider({ provider: 'deepseek' }),
-    ).model
-    expect(ModelPicker.storablePreferences(tabbed)).toEqual(
-      Option.some({ activeProvider: 'deepseek', model: undefined, reasoning: undefined }),
-    )
   })
 })

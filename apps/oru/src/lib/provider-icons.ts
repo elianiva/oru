@@ -1,5 +1,5 @@
 import type { IconNode } from 'lucide'
-import { fallbackProviderLabel, type ModelInfo, type ProviderInfo } from '@oru/harness'
+import { fallbackProviderLabel, type ProviderInfo } from '@oru/harness'
 import { fallbackIcon, resolveIcon } from './icons.ts'
 
 /**
@@ -43,7 +43,7 @@ const FALLBACK_ICON_KEYS: Readonly<Record<string, string>> = {
   xai: 'zap',
 }
 
-/** One provider's tab, from reported metadata or the app's fallback. */
+/** One provider's glyph, from reported metadata or the app's fallback. */
 export const providerDisplayOf = (
   providers: ReadonlyArray<ProviderInfo>,
   id: string,
@@ -55,24 +55,4 @@ export const providerDisplayOf = (
     label: reported?.label ?? fallbackProviderLabel(id),
     icon: resolveIcon(key) ?? fallbackIcon,
   }
-}
-
-/**
- * The picker's provider tabs in catalogue order: every provider behind the
- * models, each named once. The metadata rides along for labels and glyphs,
- * but the catalogue decides the order and the membership.
- */
-export const providerTabsOf = (
-  models: ReadonlyArray<ModelInfo>,
-  providers: ReadonlyArray<ProviderInfo>,
-): ReadonlyArray<ProviderDisplay> => {
-  const seen = new Set<string>()
-  const tabs: Array<ProviderDisplay> = []
-  for (const model of models) {
-    const id = model.provider ?? 'unknown'
-    if (seen.has(id)) continue
-    seen.add(id)
-    tabs.push(providerDisplayOf(providers, id))
-  }
-  return tabs
 }

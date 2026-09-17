@@ -75,7 +75,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, inputs, h) =>
             ),
           ]),
       h.div(
-        [h.Attribute('data-composer-card', ''), h.Class('rounded-2xl bg-sidebar')],
+        [h.Attribute('data-composer-card', ''), h.Class('rounded-2xl bg-sidebar border-[0.5px]')],
         [
           h.textarea([
             h.Attribute('data-composer-input', ''),
