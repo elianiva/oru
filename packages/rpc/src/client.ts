@@ -2,6 +2,8 @@ import { Context, Effect, Layer, Schema, Stream } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { RpcClient, RpcClientError } from 'effect/unstable/rpc'
 import type {
+  DirectoryMissing,
+  NotDirectory,
   PluginId,
   ProjectId,
   RelativeCwd,
@@ -14,6 +16,7 @@ import { HostRpc } from './host-rpc.ts'
 import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
 import { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
+import type { DirectoryListing } from './project-rpc.ts'
 import type { Project } from './project.ts'
 import type { ThreadConfig, ThreadConfiguration, ThreadOptions } from './thread-options.ts'
 import type { ThreadSignal } from './thread-signal.ts'
@@ -42,13 +45,20 @@ export interface ProjectClientContract {
   readonly create: (
     name: string,
     cwd: string,
+    icon?: string | undefined,
   ) => Effect.Effect<Project, RelativeCwd | HostUnreachable>
   readonly list: () => Effect.Effect<readonly Project[], HostUnreachable>
   readonly get: (project: ProjectId) => Effect.Effect<Project, UnknownProject | HostUnreachable>
   readonly update: (
     project: ProjectId,
-    change: { readonly name: string; readonly cwd: string },
+    change: { readonly name: string; readonly cwd: string; readonly icon?: string | undefined },
   ) => Effect.Effect<Project, RelativeCwd | UnknownProject | HostUnreachable>
+  readonly remove: (
+    project: ProjectId,
+  ) => Effect.Effect<{ readonly project: ProjectId }, UnknownProject | HostUnreachable>
+  readonly listDirectory: (
+    path?: string | undefined,
+  ) => Effect.Effect<DirectoryListing, DirectoryMissing | NotDirectory | HostUnreachable>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientContract>()(
@@ -174,18 +184,36 @@ export const graphRpcOf = (
     setLive: (plugin, live) => reachable('SetLive', client.SetLive({ plugin, live })),
   })
 
+const reachableDirectory = <A>(
+  operation: string,
+  effect: Effect.Effect<A, DirectoryMissing | NotDirectory | RpcClientError.RpcClientError>,
+): Effect.Effect<A, DirectoryMissing | NotDirectory | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): DirectoryMissing | NotDirectory | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
 export const projectClientOf = (
   client: RpcClient.FromGroup<typeof ProjectRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ProjectClient> =>
   Layer.succeed(ProjectClient, {
-    create: (name, cwd) => reachableCwd('CreateProject', client.CreateProject({ name, cwd })),
+    create: (name, cwd, icon) =>
+      reachableCwd('CreateProject', client.CreateProject({ name, cwd, icon })),
     list: () => reachable('ListProjects', client.ListProjects()),
     get: (project) => reachableNew('GetProject', client.GetProject({ project })),
     update: (project, change) =>
       reachableProject(
         'UpdateProject',
-        client.UpdateProject({ project, name: change.name, cwd: change.cwd }),
+        client.UpdateProject({
+          project,
+          name: change.name,
+          cwd: change.cwd,
+          icon: change.icon,
+        }),
       ),
+    remove: (project) => reachableNew('DeleteProject', client.DeleteProject({ project })),
+    listDirectory: (path) => reachableDirectory('ListDirectory', client.ListDirectory({ path })),
   })
 
 export const threadClientOf = (
