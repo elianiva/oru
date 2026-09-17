@@ -266,7 +266,7 @@ describe('the app’s seam to a running host', () => {
       expect(updated).toEqual(
         Message.GotProjects({
           message: Projects.Message.ProjectUpdated({
-            project: { id: project.id, name: 'after', cwd },
+            project: { id: project.id, name: 'after', cwd, icon: undefined },
           }),
         }),
       )
