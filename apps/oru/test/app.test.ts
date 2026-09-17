@@ -585,7 +585,11 @@ describe('model picker', () => {
   const optionsFor = (health: HarnessHealth, model: string | undefined): ThreadOptions => ({
     config: { harness: 'pi', model, reasoning: undefined },
     harness: 'pi',
-    harnesses: [{ id: 'pi', label: 'pi', health }],
+    harnesses: [{ id: 'pi', label: 'pi', icon: 'terminal', health }],
+    providers: [
+      { id: 'deepseek', label: 'DeepSeek', icon: 'waves' },
+      { id: 'github-copilot', label: 'Muse', icon: 'bot' },
+    ],
     models: catalogue,
   })
 
@@ -602,7 +606,17 @@ describe('model picker', () => {
       'ListProjects',
       'LoadThreadOptions',
     ])
-    expect(init(homeUrl).commands?.map((command) => command.name)).toEqual(['ListProjects'])
+    // Home renders the picker trigger, so a cold load fetches the catalogue
+    // the stored choice is named from; otherwise the trigger reads 'Model'
+    // until the picker is first opened.
+    expect(init(homeUrl).commands?.map((command) => command.name)).toEqual([
+      'ListProjects',
+      'LoadThreadOptions',
+    ])
+    expect(init(homeUrl).commands?.[1]).toMatchObject({
+      name: 'LoadThreadOptions',
+      args: { threadId: undefined, refresh: false },
+    })
     expect(init(urlForPath('/settings/general')).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
     ])
@@ -647,6 +661,35 @@ describe('model picker', () => {
         'true',
       ),
     )
+  })
+
+  it('names the stored choice on a cold home load, without opening the picker', () => {
+    // A refresh restores the choice from storage while the host names no
+    // thread choice; the cold load fetches the catalogue, so the trigger
+    // names it without the picker ever opening.
+    const restore = withStorage({
+      [ModelPicker.PICKER_STORAGE_KEY]: JSON.stringify({
+        version: ModelPicker.PICKER_STORAGE_VERSION,
+        model: 'deepseek/deepseek-flash',
+        reasoning: 'low',
+      }),
+    })
+    try {
+      const refreshed = update(
+        init(homeUrl).model,
+        Message.GotPicker({
+          message: ModelPicker.Message.OptionsArrived({ options: optionsFor(ready, undefined) }),
+        }),
+      ).model
+      Scene.scene(
+        { update, view },
+        Scene.given(refreshed),
+        Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('DeepSeek Flash'),
+        Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
+      )
+    } finally {
+      restore()
+    }
   })
 
   it('renders a harness that is not ready with the command that fixes it', () => {

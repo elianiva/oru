@@ -34,6 +34,9 @@ test('the picker offers the host default harness and its catalogue', async ({ pa
 
   await expect(page.locator('[data-model-panel]')).toBeVisible()
   await expect(page.locator('[data-harness-label]')).toHaveText('pi')
+  // One provider behind the catalogue needs no tabs; the harness still wears its glyph.
+  await expect(page.locator('[data-model-provider-tabs]')).toHaveCount(0)
+  await expect(page.locator('[data-harness-fact] svg')).toBeVisible()
 
   await page.locator('[data-model-search]').fill('scripted-mini')
   await expect(page.locator('[data-model-row]')).toHaveCount(1)

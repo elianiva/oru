@@ -1,5 +1,28 @@
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from 'foldkit/html'
 import type { IconNode, SVGProps } from 'lucide'
+import {
+  Bot,
+  Brain,
+  Cloud,
+  CodeXml,
+  Container,
+  Cpu,
+  FlaskConical,
+  Gauge,
+  Hexagon,
+  Layers,
+  Monitor,
+  Mountain,
+  Network,
+  Sparkle,
+  Sparkles,
+  Terminal,
+  Triangle,
+  Users,
+  Waves,
+  Wind,
+  Zap,
+} from 'lucide'
 
 /**
  * Render a lucide icon as Foldkit virtual DOM.
@@ -63,6 +86,42 @@ const nodeToAttributes = <M>(
   Object.entries(attrs).map(([name, value]) => h.Attribute(name, String(value)))
 
 const defaultIconClass = 'size-4 shrink-0'
+
+/**
+ * Icon keys a harness may send over RPC, as lowercase Lucide names.
+ * A key, never a component: harness metadata crosses the seam as JSON, so
+ * the app resolves it here and falls back to a generic glyph for a key it
+ * does not know. Keep in sync with the curated maps in the harness plugins.
+ */
+const iconKeys: Readonly<Record<string, IconNode>> = {
+  bot: Bot,
+  brain: Brain,
+  cloud: Cloud,
+  'code-xml': CodeXml,
+  container: Container,
+  cpu: Cpu,
+  'flask-conical': FlaskConical,
+  gauge: Gauge,
+  hexagon: Hexagon,
+  layers: Layers,
+  monitor: Monitor,
+  mountain: Mountain,
+  network: Network,
+  sparkle: Sparkle,
+  sparkles: Sparkles,
+  terminal: Terminal,
+  triangle: Triangle,
+  users: Users,
+  waves: Waves,
+  wind: Wind,
+  zap: Zap,
+}
+
+/** The glyph for a harness-sent key, or undefined when the key names none. */
+export const resolveIcon = (key: string | undefined): IconNode | undefined =>
+  key === undefined ? undefined : iconKeys[key]
+
+export const fallbackIcon = Cpu
 
 export type IconPosition = 'inline-start' | 'inline-end'
 

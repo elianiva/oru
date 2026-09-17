@@ -14,6 +14,7 @@ import {
   type HarnessTurnRequest,
   type ModelInfo,
   type Mutable,
+  type ProviderInfo,
 } from '@oru/harness'
 
 export const demoModelId = 'mock'
@@ -51,6 +52,13 @@ const catalogue: readonly ModelInfo[] = [
   },
 ] as const
 
+/** The providers behind the demo catalogue, curated like every harness curates its own. */
+const providers: readonly ProviderInfo[] = [
+  { id: 'mock', label: 'Mock', icon: 'flask-conical' },
+  { id: 'openai', label: 'OpenAI', icon: 'hexagon' },
+  { id: 'anthropic', label: 'Anthropic', icon: 'brain' },
+]
+
 const isRetryable = (cause: AiError.AiError): boolean =>
   Match.value(cause).pipe(
     Match.tag('RateLimited', () => true),
@@ -86,6 +94,7 @@ export const harnessFromLanguageModel = (model: LanguageModelService): HarnessSe
     meta,
     capabilities,
     listModels: () => Effect.succeed(catalogue),
+    providers: () => Effect.succeed(providers),
     streamTurn: (request) =>
       model.streamTurn(toCommonRequest(request)).pipe(Stream.mapError(toHarnessError)),
     turn: (request) => model.turn(toCommonRequest(request)).pipe(Effect.mapError(toHarnessError)),

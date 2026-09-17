@@ -100,7 +100,12 @@ const withHost = async (use: (hostUrl: string) => Promise<void>): Promise<void> 
 
 describe('the app’s seam to a running host', () => {
   it('asks the host for its projects as it loads', () => {
-    expect(init(homeUrl).commands?.map((command) => command.name)).toEqual(['ListProjects'])
+    // Home renders the picker trigger, so the cold load also fetches the
+    // catalogue the stored choice is named from.
+    expect(init(homeUrl).commands?.map((command) => command.name)).toEqual([
+      'ListProjects',
+      'LoadThreadOptions',
+    ])
   })
 
   it('renders the host’s answer: no projects renders nothing', async () => {

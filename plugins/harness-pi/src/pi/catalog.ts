@@ -1,5 +1,6 @@
-import { HarnessHealth, ModelInfo, type Mutable } from '@oru/harness'
+import { HarnessHealth, ModelInfo, type Mutable, type ProviderInfo } from '@oru/harness'
 import { PiRpcChild, piChildEnv, resolvePiLaunch } from './rpc-child.ts'
+import { providerInfosOfIds } from './providers.ts'
 import { delay, PiBridgeError } from './session.ts'
 import { thinkingLevelsOf } from './translate.ts'
 import { PiModelsData, PiStateData, type PiModel, type PiStateData as PiState } from './wire.ts'
@@ -88,6 +89,12 @@ export class PiCatalog {
     return probe.models.map((model) =>
       model.isDefault === true && model.id !== preferred ? { ...model, isDefault: false } : model,
     )
+  }
+
+  /** The providers behind the catalogue, curated for the picker's tabs. */
+  async providers(): Promise<readonly ProviderInfo[]> {
+    const probe = await this.probe()
+    return providerInfosOfIds(probe.models.map((model) => model.provider ?? 'unknown'))
   }
 
   async health(): Promise<HarnessHealth> {

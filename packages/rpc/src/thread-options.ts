@@ -1,5 +1,5 @@
-import { Schema } from 'effect'
-import { HarnessHealth, ModelInfo } from '@oru/harness'
+import { Effect, Schema } from 'effect'
+import { HarnessHealth, ModelInfo, ProviderInfo } from '@oru/harness'
 import { ThreadConfig } from '@oru/kernel'
 
 export { ThreadConfig }
@@ -18,6 +18,8 @@ export interface ThreadConfiguration {
 export const HarnessChoice = Schema.Struct({
   id: Schema.NonEmptyString,
   label: Schema.String,
+  /** The harness's glyph: a lowercase Lucide key the app resolves. */
+  icon: Schema.optionalKey(Schema.String),
   health: HarnessHealth,
 })
 export type HarnessChoice = typeof HarnessChoice.Type
@@ -30,6 +32,15 @@ export const ThreadOptions = Schema.Struct({
    */
   harness: Schema.UndefinedOr(Schema.NonEmptyString),
   harnesses: Schema.Array(HarnessChoice),
+  /**
+   * The active harness's providers, in catalogue order; empty when it names none.
+   *
+   * Decoded with a default because a host predating provider metadata answers
+   * without the key, and the picker must read that answer rather than fail it
+   * (`Missing key at ["value"]["providers"]` on first open). The host always
+   * encodes the key, so the seam stays exact going forward.
+   */
+  providers: Schema.Array(ProviderInfo).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   /** The catalogue of that harness, empty when it cannot answer for one. */
   models: Schema.Array(ModelInfo),
 })

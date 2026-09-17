@@ -1,5 +1,12 @@
 import { Effect, Option, Predicate, Result, Schema, Stream } from 'effect'
-import { HarnessHealth, Harnesses, type HarnessService, type ModelInfo } from '@oru/harness'
+import {
+  HarnessHealth,
+  Harnesses,
+  type HarnessService,
+  type ModelInfo,
+  type Mutable,
+  type ProviderInfo,
+} from '@oru/harness'
 import {
   SessionLog,
   ThreadCreated,
@@ -61,11 +68,16 @@ const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =
     const entries = yield* registry.list()
     const choices: HarnessChoice[] = []
     for (const entry of entries) {
-      choices.push({
+      // Absent stays absent: the choice carries the harness's glyph only
+      // when the harness names one.
+      const choice: Mutable<HarnessChoice> = {
         id: entry.harness.meta.id,
         label: entry.harness.meta.label,
         health: yield* healthOf(entry.harness),
-      })
+      }
+      const icon = entry.harness.meta.icon
+      if (icon !== undefined) choice.icon = icon
+      choices.push(choice)
     }
     return choices
   })
@@ -90,12 +102,16 @@ const optionsOf = (
         : yield* registry.get(config.harness)
     if (Option.isNone(entry)) {
       // No bridge, no catalogue: the pane still shows the choice it cannot make.
-      return { config, harness: undefined, harnesses, models: [] }
+      return { config, harness: undefined, harnesses, providers: [], models: [] }
     }
-    const models = yield* entry.value.harness
+    const harness = entry.value.harness
+    const models = yield* harness
       .listModels()
       .pipe(Effect.orElseSucceed((): ReadonlyArray<ModelInfo> => []))
-    return { config, harness: entry.value.harness.meta.id, harnesses, models }
+    const providers = yield* harness.providers === undefined
+      ? Effect.succeed<ReadonlyArray<ProviderInfo>>([])
+      : harness.providers().pipe(Effect.orElseSucceed((): ReadonlyArray<ProviderInfo> => []))
+    return { config, harness: harness.meta.id, harnesses, providers, models }
   })
 
 const hasConfiguration = (input: ThreadConfiguration): boolean =>

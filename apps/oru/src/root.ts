@@ -264,12 +264,7 @@ export const init = (url: Url.Url) => {
       composer: Composer.init(),
       settings: General.init(),
     },
-    commands: [
-      ListProjects(),
-      ...(AppRoute.guards.Thread(route)
-        ? [LoadThreadOptions({ threadId: route.threadId, refresh: false })]
-        : []),
-    ],
+    commands: [ListProjects(), ...pickerLoad(route)],
   }
 }
 
@@ -488,7 +483,16 @@ const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
   toParentMessage: (message: LeftPanel.Message): Message => Message.GotThreads({ message }),
 })
 
-export const subscriptions = Subscription.aggregate<Model, Message>()(shellSubs, threadSubs)
+const pickerSubs = Subscription.lift(ModelPicker.subscriptions)({
+  toChildModel: (model: Model) => model.picker,
+  toParentMessage: (message: ModelPicker.Message): Message => Message.GotPicker({ message }),
+})
+
+export const subscriptions = Subscription.aggregate<Model, Message>()(
+  shellSubs,
+  threadSubs,
+  pickerSubs,
+)
 
 /**
  * What each composer slot holds. Every slot is a submodel that owns its own

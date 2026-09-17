@@ -15,7 +15,52 @@ export interface HarnessMeta {
   readonly id: string
   readonly label: string
   readonly version?: string
+  /**
+   * The harness's glyph as a lowercase Lucide key (`terminal`, `sparkles`).
+   * A key, never a component: it crosses the RPC seam as JSON, and the
+   * presentation facet resolves it, falling back to a generic glyph for a key
+   * it does not know.
+   */
   readonly icon?: string
+}
+
+/**
+ * A provider behind a harness's catalogue: the tab a picker shows for it.
+ *
+ * The harness names what it offers; the presentation facet renders it. `icon`
+ * follows the same contract as `HarnessMeta.icon`: a lowercase Lucide key the
+ * presentation facet resolves, with its own fallback when the harness names
+ * none or the key is unknown. A harness that cannot list providers leaves
+ * the whole member absent rather than guessing.
+ */
+export const ProviderInfo = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  icon: Schema.optionalKey(Schema.String),
+})
+export type ProviderInfo = typeof ProviderInfo.Type
+
+/** `deepseek` stays `Deepseek`; `github-copilot` becomes `Github Copilot`. */
+export const fallbackProviderLabel = (id: string): string =>
+  id
+    .split(/[-_]+/u)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ')
+
+/**
+ * The catalogue's distinct providers in first-appearance order, with fallback
+ * labels and no glyphs. A harness with curated metadata maps over this;
+ * one without it returns this directly.
+ */
+export const providerInfosOf = (
+  models: ReadonlyArray<Pick<ModelInfo, 'provider'>>,
+): ProviderInfo[] => {
+  const seen = new Map<string, ProviderInfo>()
+  for (const model of models) {
+    const id = model.provider ?? 'unknown'
+    if (!seen.has(id)) seen.set(id, { id, label: fallbackProviderLabel(id) })
+  }
+  return [...seen.values()]
 }
 
 /** What a harness can do. Additive and capability-gated. */
@@ -245,6 +290,12 @@ export interface HarnessService {
   readonly meta: HarnessMeta
   readonly capabilities: HarnessCapabilities
   readonly listModels: () => Effect.Effect<readonly ModelInfo[], HarnessError>
+  /**
+   * The providers behind the catalogue, for pickers that tab by provider.
+   * Absent means the harness names providers only inside its models, and the
+   * presentation facet falls back to its own labels and glyphs.
+   */
+  readonly providers?: () => Effect.Effect<readonly ProviderInfo[], HarnessError>
   readonly streamTurn: (request: HarnessTurnRequest) => Stream.Stream<HarnessEvent, HarnessError>
   readonly turn: (request: HarnessTurnRequest) => Effect.Effect<Turn.Turn, HarnessError>
   readonly steer?: (threadId: string, text: string) => Effect.Effect<void, HarnessError>
@@ -308,6 +359,7 @@ export const defineHarness = (spec: {
   readonly meta: HarnessMeta
   readonly capabilities?: Partial<HarnessCapabilities>
   readonly listModels?: () => Effect.Effect<readonly ModelInfo[], HarnessError>
+  readonly providers?: () => Effect.Effect<readonly ProviderInfo[], HarnessError>
   readonly streamTurn: (request: HarnessTurnRequest) => Stream.Stream<HarnessEvent, HarnessError>
   readonly turn?: (request: HarnessTurnRequest) => Effect.Effect<Turn.Turn, HarnessError>
   readonly steer?: (threadId: string, text: string) => Effect.Effect<void, HarnessError>
@@ -331,6 +383,7 @@ export const defineHarness = (spec: {
   }
   // A capability the harness did not implement stays absent so callers can gate
   // on it; it is added only once it is proven present.
+  if (spec.providers !== undefined) service.providers = spec.providers
   if (spec.steer !== undefined) service.steer = spec.steer
   if (spec.abort !== undefined) service.abort = spec.abort
   if (spec.stop !== undefined) service.stop = spec.stop

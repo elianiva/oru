@@ -134,6 +134,7 @@ export const makePiHarness = (options: PiHarnessOptions = {}): PiHarness => {
       interruption: true,
     },
     listModels: () => Effect.tryPromise({ try: () => catalog.models(), catch: toHarnessError }),
+    providers: () => Effect.tryPromise({ try: () => catalog.providers(), catch: toHarnessError }),
     streamTurn: (request) =>
       Stream.callback<HarnessEvent, HarnessError>((queue) =>
         // Live events go out as they happen, and the queue is what ends the
