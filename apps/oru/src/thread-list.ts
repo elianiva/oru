@@ -23,6 +23,7 @@ import {
   GitBranch,
   MessageCirclePlus,
   Plug,
+  Plus,
   Search,
   Settings,
   Smartphone,
@@ -36,9 +37,18 @@ import type { ThreadProject, ThreadRow, ThreadSection, ThreadStatus } from './th
 
 const CLOCK_INTERVAL_MS = 30_000
 
+/** The project filter: shut, or open on the project list. */
+export const FilterClosed = S.TaggedStruct('FilterClosed', {})
+export const FilterOpen = S.TaggedStruct('FilterOpen', {})
+export const ProjectFilter = S.Union([FilterClosed, FilterOpen])
+export type ProjectFilter = typeof ProjectFilter.Type
+
 export const Model = S.Struct({
   expandedSections: S.Array(S.String),
   now: S.Number,
+  filter: ProjectFilter,
+  /** The project the list is filtered to, as an id. Absent means all. */
+  selectedProject: S.UndefinedOr(S.String),
 })
 export type Model = typeof Model.Type
 
@@ -46,17 +56,23 @@ export const Message = defineMessageUnion({
   ToggledSection: { id: S.String },
   ClickedThread: { id: S.String },
   Ticked: { now: S.Number },
+  ToggledProjectFilter: {},
+  SelectedProjectFilter: { project: S.UndefinedOr(S.String) },
+  ClickedNewProject: {},
 })
 export type Message = typeof Message.Type
 
 export const OutMessage = defineMessageUnion({
   Selected: { id: S.String },
+  RequestedNewProject: {},
 })
 export type OutMessage = typeof OutMessage.Type
 
 export const init = (): Model => ({
   expandedSections: ['pinned', 'active'],
   now: Date.now(),
+  filter: FilterClosed.make({}),
+  selectedProject: undefined,
 })
 
 export const update = (model: Model, message: Message) =>
@@ -71,6 +87,22 @@ export const update = (model: Model, message: Message) =>
     }),
     ClickedThread: ({ id }) => ({ model, outMessage: OutMessage.Selected({ id }) }),
     Ticked: ({ now }) => ({ model: evo(model, { now: () => now }) }),
+    ToggledProjectFilter: () => ({
+      model: evo(model, {
+        filter: (filter) =>
+          S.is(FilterClosed)(filter) ? FilterOpen.make({}) : FilterClosed.make({}),
+      }),
+    }),
+    SelectedProjectFilter: ({ project }) => ({
+      model: evo(model, {
+        selectedProject: () => project,
+        filter: () => FilterClosed.make({}),
+      }),
+    }),
+    ClickedNewProject: () => ({
+      model: evo(model, { filter: () => FilterClosed.make({}) }),
+      outMessage: OutMessage.RequestedNewProject(),
+    }),
   })
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
@@ -469,20 +501,118 @@ const navMenu = (h: HtmlBuilder<Message>): Html =>
     NAV_ROWS.map((row) => navRow(row, h)),
   )
 
-const projectFilter = (h: HtmlBuilder<Message>): Html =>
-  h.div(
+export type FilterProject = Readonly<{
+  id: string
+  name: string
+}>
+
+const filterLabel = (model: Model, projects: ReadonlyArray<FilterProject>): string =>
+  model.selectedProject === undefined
+    ? 'All projects'
+    : (projects.find((project) => project.id === model.selectedProject)?.name ?? 'All projects')
+
+/** Rows the filter keeps: the selected project, or every row when shut to all. */
+export const filteredSections = (
+  model: Model,
+  sections: ReadonlyArray<ThreadSection>,
+): ReadonlyArray<ThreadSection> => {
+  if (model.selectedProject === undefined) return sections
+  return sections.flatMap((section) => {
+    const rows = section.rows.filter((row) => row.project.id === model.selectedProject)
+    return rows.length === 0 ? [] : [{ ...section, rows }]
+  })
+}
+
+const projectFilter = (
+  model: Model,
+  projects: ReadonlyArray<FilterProject>,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const isOpen = S.is(FilterOpen)(model.filter)
+  return h.div(
+    [h.DataAttribute('project-filter', ''), h.Class('relative mt-1.5 shrink-0 px-1.5')],
     [
-      h.DataAttribute('project-filter', ''),
-      h.Class('mt-1.5 flex h-9 shrink-0 items-center gap-2 px-2.5'),
-    ],
-    [
-      h.span([h.Class('truncate text-sm font-medium text-muted-foreground')], ['All projects']),
-      h.span(
-        [h.Class('ml-auto flex shrink-0 items-center')],
-        [icon(h, ChevronDown, 'size-4 text-muted-foreground/70')],
+      h.button(
+        [
+          h.Type('button'),
+          h.DataAttribute('project-filter-trigger', ''),
+          h.AriaHasPopup('menu'),
+          h.AriaExpanded(isOpen),
+          h.OnClick(Message.ToggledProjectFilter()),
+          h.Class(
+            'flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left transition-colors duration-150 ease-out hover:bg-sidebar-accent',
+          ),
+        ],
+        [
+          h.span(
+            [h.Class('truncate text-sm font-medium text-muted-foreground')],
+            [filterLabel(model, projects)],
+          ),
+          h.span(
+            [h.Class('ml-auto flex shrink-0 items-center')],
+            [icon(h, ChevronDown, 'size-4 text-muted-foreground/70')],
+          ),
+        ],
       ),
+      ...(isOpen
+        ? [
+            h.div(
+              [
+                h.DataAttribute('project-filter-panel', ''),
+                h.AriaLabel('Filter by project'),
+                h.Class(
+                  'absolute top-full right-1.5 left-1.5 z-30 mt-1 rounded-xl border border-border/60 bg-card p-1 shadow-lg',
+                ),
+              ],
+              [
+                h.button(
+                  [
+                    h.Type('button'),
+                    h.DataAttribute('project-filter-option', 'all'),
+                    h.OnClick(Message.SelectedProjectFilter({ project: undefined })),
+                    h.Class(
+                      cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent',
+                        model.selectedProject === undefined && 'bg-accent',
+                      ),
+                    ),
+                  ],
+                  ['All projects'],
+                ),
+                ...projects.map((project) =>
+                  h.button(
+                    [
+                      h.Type('button'),
+                      h.DataAttribute('project-filter-option', project.id),
+                      h.OnClick(Message.SelectedProjectFilter({ project: project.id })),
+                      h.Class(
+                        cn(
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent',
+                          model.selectedProject === project.id && 'bg-accent',
+                        ),
+                      ),
+                    ],
+                    [project.name],
+                  ),
+                ),
+                h.button(
+                  [
+                    h.Type('button'),
+                    h.DataAttribute('project-filter-option', 'new'),
+                    h.OnClick(Message.ClickedNewProject()),
+                    h.Class(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent',
+                    ),
+                  ],
+                  [icon(h, Plus, 'size-4'), 'New project…'],
+                ),
+              ],
+            ),
+          ]
+        : []),
     ],
   )
+}
 
 const bottomBar = (h: HtmlBuilder<Message>): Html =>
   h.div(
@@ -518,6 +648,7 @@ const bottomBar = (h: HtmlBuilder<Message>): Html =>
 export type ViewInputs = Readonly<{
   sections: ReadonlyArray<ThreadSection>
   selected: Option.Option<string>
+  projects: ReadonlyArray<FilterProject>
 }>
 
 export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) =>
@@ -525,13 +656,13 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
     [h.DataAttribute('thread-list', ''), h.Class('flex h-full min-h-0 flex-col')],
     [
       navMenu(h),
-      projectFilter(h),
+      projectFilter(model, viewInputs.projects, h),
       h.div(
         [h.Class('min-h-0 flex-1 overflow-y-auto px-1.5 pb-2')],
         [
           h.div(
             [h.Class('flex flex-col gap-1.5')],
-            viewInputs.sections.map((section) =>
+            filteredSections(model, viewInputs.sections).map((section) =>
               shelf(
                 section,
                 model.expandedSections.includes(section.id),
