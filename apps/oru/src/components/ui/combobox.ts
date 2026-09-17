@@ -190,10 +190,14 @@ export type SingleViewInputsConfig<Item extends string> = CommonConfig<Item> &
  *  is empty (no empty-state row — show it outside the combobox if needed). */
 export const viewInputs = <Item extends string>(
   config: SingleViewInputsConfig<Item>,
-): ViewInputs<Item> => ({
-  ...common(config),
-  maybeSelectedValue: config.maybeSelectedValue,
-})
+): ViewInputs<Item> =>
+  ({
+    ...common(config),
+    maybeSelectedValue: config.maybeSelectedValue,
+    // @foldkit/ui declares these inputs optional without undefined. This repo
+    // compiles with exactOptionalPropertyTypes, so the passthrough cast keeps
+    // absent options absent instead of defaulting each one.
+  }) as ViewInputs<Item>
 
 export type MultiViewInputsConfig<Item extends string> = CommonConfig<Item> &
   Readonly<{
@@ -207,7 +211,9 @@ export type MultiViewInputsConfig<Item extends string> = CommonConfig<Item> &
  *  the same disabled/invalid/read-only states. */
 export const multiViewInputs = <Item extends string>(
   config: MultiViewInputsConfig<Item>,
-): FoldkitCombobox.Multi.ViewInputs<Item> => ({
-  ...common(config),
-  selectedValues: config.selectedValues,
-})
+): FoldkitCombobox.Multi.ViewInputs<Item> =>
+  ({
+    ...common(config),
+    selectedValues: config.selectedValues,
+    // Same exactOptionalPropertyTypes skew as viewInputs above.
+  }) as FoldkitCombobox.Multi.ViewInputs<Item>
