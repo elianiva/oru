@@ -2,6 +2,7 @@ import { Match, Schema } from 'effect'
 import { ProjectId, type PluginId, type ThreadId } from './primitives.ts'
 import {
   ProjectCreated,
+  ProjectDeleted,
   ProjectUpdated,
   ThreadConfigured,
   ThreadContextWindow,
@@ -24,6 +25,7 @@ export const foldActivePlugins = (events: readonly SessionEvent[]): ReadonlySet<
           },
           'project/created': () => active,
           'project/updated': () => active,
+          'project/deleted': () => active,
           'thread/created': () => active,
           'thread/configured': () => active,
           'turn/started': () => active,
@@ -51,6 +53,7 @@ export const foldNamedThreads = (events: readonly SessionEvent[]): ReadonlySet<T
           'plugin/deactivated': () => threads,
           'project/created': () => threads,
           'project/updated': () => threads,
+          'project/deleted': () => threads,
           'thread/created': (event) => new Set(threads).add(event.thread),
           'thread/configured': (event) => new Set(threads).add(event.thread),
           'turn/started': (event) => new Set(threads).add(event.thread),
@@ -76,6 +79,11 @@ export const foldNamedProjects = (events: readonly SessionEvent[]): ReadonlySet<
         Match.tagsExhaustive({
           'project/created': (event) => new Set(projects).add(event.project),
           'project/updated': () => projects,
+          'project/deleted': (event) => {
+            const next = new Set(projects)
+            next.delete(event.project)
+            return next
+          },
           'plugin/activated': () => projects,
           'plugin/deactivated': () => projects,
           'thread/created': (event) => new Set(projects).add(event.project),
@@ -100,6 +108,7 @@ export const NamedProject = Schema.Struct({
   id: ProjectId,
   name: Schema.NonEmptyString,
   cwd: Schema.NonEmptyString,
+  icon: Schema.optional(Schema.String),
 })
 export type NamedProject = typeof NamedProject.Type
 
@@ -113,10 +122,22 @@ export const foldProjects = (events: readonly SessionEvent[]): readonly NamedPro
   for (const event of events) {
     if (Schema.is(ProjectCreated)(event)) {
       if (!projects.has(event.project)) {
-        projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
+        projects.set(event.project, {
+          id: event.project,
+          name: event.name,
+          cwd: event.cwd,
+          icon: event.icon,
+        })
       }
     } else if (Schema.is(ProjectUpdated)(event) && projects.has(event.project)) {
-      projects.set(event.project, { id: event.project, name: event.name, cwd: event.cwd })
+      projects.set(event.project, {
+        id: event.project,
+        name: event.name,
+        cwd: event.cwd,
+        icon: event.icon,
+      })
+    } else if (Schema.is(ProjectDeleted)(event)) {
+      projects.delete(event.project)
     }
   }
   return [...projects.values()]
