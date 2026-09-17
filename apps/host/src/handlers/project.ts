@@ -1,7 +1,11 @@
-import { isAbsolute } from 'node:path'
-import { Effect, Predicate } from 'effect'
+import { readdir, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { Effect, Option, Predicate } from 'effect'
 import {
+  DirectoryMissing,
+  NotDirectory,
   ProjectCreated,
+  ProjectDeleted,
   ProjectUpdated,
   RelativeCwd,
   SessionLog,
@@ -16,14 +20,26 @@ import {
 const keepProjectError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.catch((error) =>
-      Predicate.isTagged(error, 'RelativeCwd') || Predicate.isTagged(error, 'UnknownProject')
+      Predicate.isTagged(error, 'RelativeCwd') ||
+      Predicate.isTagged(error, 'UnknownProject') ||
+      Predicate.isTagged(error, 'DirectoryMissing') ||
+      Predicate.isTagged(error, 'NotDirectory')
         ? Effect.fail(error)
         : Effect.die(error),
     ),
   )
 
+const blankIcon = (icon: string | undefined): string | undefined => {
+  const trimmed = icon?.trim()
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed
+}
+
 export const projectRpcHandlers = {
-  CreateProject: (payload: { readonly name: string; readonly cwd: string }) =>
+  CreateProject: (payload: {
+    readonly name: string
+    readonly cwd: string
+    readonly icon?: string | undefined
+  }) =>
     keepProjectError(
       Effect.gen(function* () {
         if (!isAbsolute(payload.cwd)) {
@@ -31,6 +47,19 @@ export const projectRpcHandlers = {
         }
         const log = yield* SessionLog
         const project = yield* newId()
+        const icon = blankIcon(payload.icon)
+        if (icon === undefined) {
+          yield* log.write(
+            ProjectCreated.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              project,
+              name: payload.name,
+              cwd: payload.cwd,
+            }),
+          )
+          return { id: project, name: payload.name, cwd: payload.cwd }
+        }
         yield* log.write(
           ProjectCreated.make({
             ...unsignedTree,
@@ -38,9 +67,10 @@ export const projectRpcHandlers = {
             project,
             name: payload.name,
             cwd: payload.cwd,
+            icon,
           }),
         )
-        return { id: project, name: payload.name, cwd: payload.cwd }
+        return { id: project, name: payload.name, cwd: payload.cwd, icon }
       }),
     ),
   ListProjects: () =>
@@ -52,6 +82,7 @@ export const projectRpcHandlers = {
     readonly project: ProjectId
     readonly name: string
     readonly cwd: string
+    readonly icon?: string | undefined
   }) =>
     keepProjectError(
       Effect.gen(function* () {
@@ -63,6 +94,19 @@ export const projectRpcHandlers = {
         if (existing === undefined) {
           return yield* new UnknownProject({ project: payload.project })
         }
+        const icon = blankIcon(payload.icon)
+        if (icon === undefined) {
+          yield* log.write(
+            ProjectUpdated.make({
+              ...unsignedTree,
+              id: yield* newId(),
+              project: payload.project,
+              name: payload.name,
+              cwd: payload.cwd,
+            }),
+          )
+          return { id: payload.project, name: payload.name, cwd: payload.cwd }
+        }
         yield* log.write(
           ProjectUpdated.make({
             ...unsignedTree,
@@ -70,9 +114,28 @@ export const projectRpcHandlers = {
             project: payload.project,
             name: payload.name,
             cwd: payload.cwd,
+            icon,
           }),
         )
-        return { id: payload.project, name: payload.name, cwd: payload.cwd }
+        return { id: payload.project, name: payload.name, cwd: payload.cwd, icon }
+      }),
+    ),
+  DeleteProject: (payload: { readonly project: ProjectId }) =>
+    keepProjectError(
+      Effect.gen(function* () {
+        const log = yield* SessionLog
+        const existing = foldProject(yield* log.entries, payload.project)
+        if (existing === undefined) {
+          return yield* new UnknownProject({ project: payload.project })
+        }
+        yield* log.write(
+          ProjectDeleted.make({
+            ...unsignedTree,
+            id: yield* newId(),
+            project: payload.project,
+          }),
+        )
+        return { project: payload.project }
       }),
     ),
   GetProject: (payload: { readonly project: ProjectId }) =>
@@ -84,6 +147,52 @@ export const projectRpcHandlers = {
           return yield* new UnknownProject({ project: payload.project })
         }
         return named
+      }),
+    ),
+  ListDirectory: (payload: { readonly path?: string | undefined }) =>
+    keepProjectError(
+      Effect.gen(function* () {
+        const home = process.env.HOME ?? process.env.USERPROFILE ?? '/'
+        const path = payload.path === undefined ? home : payload.path
+        if (!isAbsolute(path)) {
+          return yield* new NotDirectory({ path })
+        }
+        const resolved = resolve(path)
+        const info = yield* Effect.tryPromise({
+          try: () => stat(resolved),
+          catch: () => new DirectoryMissing({ path }),
+        })
+        if (!info.isDirectory()) {
+          return yield* new NotDirectory({ path })
+        }
+        const names = yield* Effect.tryPromise({
+          try: () => readdir(resolved),
+          catch: () => new DirectoryMissing({ path }),
+        })
+        const entries = yield* Effect.forEach(names.toSorted(), (name) =>
+          Effect.option(
+            Effect.tryPromise({
+              try: async () => {
+                const entryPath = join(resolved, name)
+                const entryInfo = await stat(entryPath)
+                return {
+                  name,
+                  path: entryPath,
+                  isDirectory: entryInfo.isDirectory(),
+                }
+              },
+              catch: () => new DirectoryMissing({ path: resolved }),
+            }),
+          ),
+        ).pipe(
+          Effect.map((listed) =>
+            listed.flatMap((entry) => (Option.isSome(entry) ? [entry.value] : [])),
+          ),
+        )
+        const parent = dirname(resolved)
+        return parent === resolved
+          ? { path: resolved, entries }
+          : { path: resolved, parent, entries }
       }),
     ),
 }

@@ -1,10 +1,12 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Predicate, Effect, type Scope } from 'effect'
 import {
+  DirectoryMissing,
   foldThreadCwd,
+  NotDirectory,
   RelativeCwd,
   SessionLog,
   UnknownProject,
@@ -168,6 +170,42 @@ describe('UpdateProject', () => {
     expect(entries.some((event) => Predicate.isTagged(event, 'project/updated'))).toBe(false)
   })
 
+  it('carries the icon through create, update, list, and get', async () => {
+    const file = sessionFile()
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-icon-'))
+
+    const seen = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const created = yield* projects.create('demo', cwd, '/icons/demo.svg')
+          const updated = yield* projects.update(created.id, {
+            name: 'demo',
+            cwd,
+            icon: '/icons/renamed.svg',
+          })
+          return {
+            created,
+            updated,
+            listed: yield* projects.list(),
+            fetched: yield* projects.get(created.id),
+          }
+        }),
+      ),
+    )
+
+    expect(seen.created.icon).toBe('/icons/demo.svg')
+    expect(seen.updated).toEqual({
+      id: seen.created.id,
+      name: 'demo',
+      cwd,
+      icon: '/icons/renamed.svg',
+    })
+    expect(seen.listed).toEqual([seen.updated])
+    expect(seen.fetched).toEqual(seen.updated)
+  })
+
   it("refuses an unknown project with the host's own error, writing nothing", async () => {
     const file = sessionFile()
     const cwd = mkdtempSync(join(tmpdir(), 'oru-project-unknown-'))
@@ -186,5 +224,128 @@ describe('UpdateProject', () => {
 
     const entries = await readJournal(file, (log) => log.entries)
     expect(entries.some((event) => Predicate.isTagged(event, 'project/updated'))).toBe(false)
+  })
+})
+
+describe('DeleteProject', () => {
+  it('removes the project from list and get, recording project/deleted', async () => {
+    const file = sessionFile()
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-delete-'))
+
+    const seen = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const project = yield* projects.create('demo', cwd)
+          const removed = yield* projects.remove(project.id)
+          const listed = yield* projects.list()
+          const fetched = yield* Effect.flip(projects.get(project.id))
+          return { project, removed, listed, fetched }
+        }),
+      ),
+    )
+
+    expect(seen.removed).toEqual({ project: seen.project.id })
+    expect(seen.listed).toEqual([])
+    expect(seen.fetched).toEqual(new UnknownProject({ project: seen.project.id }))
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(
+      entries.some(
+        (event) =>
+          Predicate.isTagged(event, 'project/deleted') && event.project === seen.project.id,
+      ),
+    ).toBe(true)
+  })
+
+  it("refuses an unknown project with the host's own error, writing nothing", async () => {
+    const file = sessionFile()
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* Effect.flip(projects.remove('p-ghost'))
+        }),
+      ),
+    )
+
+    expect(refused).toEqual(new UnknownProject({ project: 'p-ghost' }))
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(entries.some((event) => Predicate.isTagged(event, 'project/deleted'))).toBe(false)
+  })
+})
+
+describe('ListDirectory', () => {
+  it('lists a directory with its parent and directory flags', async () => {
+    const file = sessionFile()
+    const parent = mkdtempSync(join(tmpdir(), 'oru-project-ls-'))
+    await import('node:fs/promises').then((fs) =>
+      Promise.all([
+        fs.mkdir(join(parent, 'child'), { recursive: true }),
+        fs.writeFile(join(parent, 'note.txt'), 'hi'),
+      ]),
+    )
+
+    const listing = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* projects.listDirectory(parent)
+        }),
+      ),
+    )
+
+    expect(listing.path).toBe(parent)
+    expect(listing.parent).toBe(dirname(parent))
+    expect(listing.entries.map((entry) => entry.name)).toEqual(['child', 'note.txt'])
+    expect(listing.entries.find((entry) => entry.name === 'child')?.isDirectory).toBe(true)
+    expect(listing.entries.find((entry) => entry.name === 'note.txt')?.isDirectory).toBe(false)
+  })
+
+  it('resolves the root to itself with no parent', async () => {
+    const file = sessionFile()
+
+    const listing = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* projects.listDirectory('/')
+        }),
+      ),
+    )
+
+    expect(listing.path).toBe('/')
+    expect(listing.parent).toBeUndefined()
+  })
+
+  it('refuses a missing path and a file with the host’s own errors', async () => {
+    const file = sessionFile()
+    const parent = mkdtempSync(join(tmpdir(), 'oru-project-ls-err-'))
+    const missing = join(parent, 'nope')
+    const filho = join(parent, 'note.txt')
+    await import('node:fs/promises').then((fs) => fs.writeFile(filho, 'hi'))
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const absent = yield* Effect.flip(projects.listDirectory(missing))
+          const fileRefused = yield* Effect.flip(projects.listDirectory(filho))
+          const relative = yield* Effect.flip(projects.listDirectory('relative/path'))
+          return { absent, fileRefused, relative }
+        }),
+      ),
+    )
+
+    expect(refused.absent).toEqual(new DirectoryMissing({ path: missing }))
+    expect(refused.fileRefused).toEqual(new NotDirectory({ path: filho }))
+    expect(refused.relative).toEqual(new NotDirectory({ path: 'relative/path' }))
   })
 })
