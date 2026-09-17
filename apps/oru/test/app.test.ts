@@ -10,8 +10,11 @@ import * as ModelPicker from '../src/model-picker.ts'
 import * as ProjectPicker from '../src/project-picker.ts'
 import {
   CreateProject,
+  DeleteProject,
+  ListDirectory,
   Message,
   Model,
+  NavigateInternal,
   UpdateProject,
   init,
   selectedThread,
@@ -286,7 +289,8 @@ describe('thread list', () => {
     Scene.scene(
       {
         update: ThreadList.update,
-        view: (model, h) => ThreadList.view(model, { sections, selected: Option.none() }, h),
+        view: (model, h) =>
+          ThreadList.view(model, { sections, selected: Option.none(), projects: [] }, h),
       },
       Scene.given(ThreadList.init()),
       Scene.expectAll(
@@ -315,6 +319,7 @@ describe('thread list', () => {
                 fixtureRow('without-icon', [], Option.none()),
               ]),
               selected: Option.none(),
+              projects: [],
             },
             h,
           ),
@@ -340,7 +345,11 @@ describe('thread list', () => {
         view: (model, h) =>
           ThreadList.view(
             model,
-            { sections: fixtureSection([chain(4)]), selected: Option.none() },
+            {
+              sections: fixtureSection([chain(4)]),
+              selected: Option.none(),
+              projects: [],
+            },
             h,
           ),
       },
@@ -366,7 +375,8 @@ describe('thread list', () => {
     Scene.scene(
       {
         update: ThreadList.update,
-        view: (model, h) => ThreadList.view(model, { sections, selected: Option.none() }, h),
+        view: (model, h) =>
+          ThreadList.view(model, { sections, selected: Option.none(), projects: [] }, h),
       },
       Scene.given(ThreadList.init()),
       Scene.click(Scene.selector('[data-section-toggle="active"]')),
@@ -394,6 +404,78 @@ describe('thread list', () => {
     expect(selected.commands).toHaveLength(1)
     expect(selected.commands?.[0]?.name).toBe('NavigateInternal')
     expect(selected.commands?.[0]?.args).toEqual({ url: '/thread/thread-1' })
+  })
+
+  it('filters the list by project from a clickable All projects row', () => {
+    const sections: ReadonlyArray<ThreadSection> = [
+      {
+        id: 'active',
+        label: 'Active',
+        rows: [
+          fixtureRow('oru-row', [], Option.none()),
+          {
+            ...fixtureRow('other-row', [], Option.none()),
+            project: { id: 'other', name: 'Other', iconUrl: Option.none() },
+          },
+        ],
+      },
+    ]
+    const projects = [
+      { id: 'fixture', name: 'Fixture' },
+      { id: 'other', name: 'Other' },
+    ]
+    Scene.scene(
+      {
+        update: ThreadList.update,
+        view: (model, h) =>
+          ThreadList.view(model, { sections, selected: Option.none(), projects }, h),
+      },
+      Scene.given(ThreadList.init()),
+      Scene.expect(Scene.selector('[data-project-filter-trigger]')).toContainText('All projects'),
+      Scene.expect(Scene.selector('[data-project-filter-panel]')).not.toExist(),
+      Scene.click(Scene.selector('[data-project-filter-trigger]')),
+      Scene.expect(Scene.selector('[data-project-filter-option="all"]')).toExist(),
+      Scene.expect(Scene.selector('[data-project-filter-option="fixture"]')).toContainText(
+        'Fixture',
+      ),
+      Scene.expect(Scene.selector('[data-project-filter-option="other"]')).toExist(),
+      Scene.expect(Scene.selector('[data-project-filter-option="new"]')).toContainText(
+        'New project',
+      ),
+      Scene.click(Scene.selector('[data-project-filter-option="fixture"]')),
+      Scene.expect(Scene.selector('[data-project-filter-trigger]')).toContainText('Fixture'),
+      Scene.expect(Scene.selector('[data-project-filter-panel]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-thread-row="oru-row"]')).toExist(),
+      Scene.expect(Scene.selector('[data-thread-row="other-row"]')).not.toExist(),
+      Scene.click(Scene.selector('[data-project-filter-trigger]')),
+      Scene.click(Scene.selector('[data-project-filter-option="all"]')),
+      Scene.expect(Scene.selector('[data-project-filter-trigger]')).toContainText('All projects'),
+      Scene.expect(Scene.selector('[data-thread-row="other-row"]')).toExist(),
+    )
+  })
+
+  it('sends the filter’s New project row to the settings projects page', () => {
+    const listed = update(
+      init(homeUrl).model,
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
+        }),
+      }),
+    ).model
+    Scene.scene(
+      { update, view },
+      Scene.given(listed),
+      Scene.click(Scene.selector('[data-project-filter-trigger]')),
+      Scene.click(Scene.selector('[data-project-filter-option="new"]')),
+      Scene.expect(Scene.selector('[data-project-filter-panel]')).not.toExist(),
+      Scene.Command.resolve(NavigateInternal, Message.CompletedNavigateInternal()),
+    )
+    const clicked = update(
+      listed,
+      Message.GotThreads({ message: ThreadList.Message.ClickedNewProject() }),
+    )
+    expect(clicked.commands?.[0]?.args).toEqual({ url: '/settings/projects' })
   })
 
   it('draws the selected thread from the route, in both columns', () => {
@@ -450,7 +532,8 @@ describe('composer', () => {
       Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects }) }),
     ).model
 
-  const listOne = (): Model => withProjects([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
+  const listOne = (): Model =>
+    withProjects([{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }])
 
   it('renders centered with headline, input, and one submodel per slot', () => {
     Scene.scene(
@@ -485,7 +568,30 @@ describe('composer', () => {
     )
   })
 
-  it('creates from the project picker’s form, and the host’s own row names it', () => {
+  const homeListing = {
+    path: '/tmp',
+    parent: '/',
+    entries: [
+      { name: 'second', path: '/tmp/second', isDirectory: true },
+      { name: 'note.txt', path: '/tmp/note.txt', isDirectory: false },
+    ],
+  }
+
+  const secondListing = {
+    path: '/tmp/second',
+    parent: '/tmp',
+    entries: [],
+  }
+
+  const arrivedHome = Message.GotProjects({
+    message: Projects.Message.DirectoryArrived({ listing: homeListing }),
+  })
+
+  const arrivedSecond = Message.GotProjects({
+    message: Projects.Message.DirectoryArrived({ listing: secondListing }),
+  })
+
+  it('browses directories before composing: dirs only, breadcrumb, suggested name', () => {
     Scene.scene(
       { update, view },
       Scene.given(listOne()),
@@ -493,8 +599,36 @@ describe('composer', () => {
       Scene.expect(Scene.selector('[data-project-picker-option="p1"]')).toContainText('/tmp/oru'),
       Scene.expect(Scene.selector('[data-project-picker-option="new-project"]')).toExist(),
       Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
-      Scene.type(Scene.selector('[data-project-picker-field="name"]'), 'second'),
-      Scene.type(Scene.selector('[data-project-picker-field="cwd"]'), '/tmp/second'),
+      Scene.Command.expectHas(ListDirectory),
+      Scene.expect(Scene.selector('[data-project-picker-dirs-loading]')).toExist(),
+      Scene.Command.resolve(ListDirectory, arrivedHome),
+      // The browser names the checkout: breadcrumb, parent row, dirs only.
+      Scene.expect(Scene.selector('[data-project-picker-dirs-path]')).toContainText('/tmp'),
+      Scene.expect(Scene.selector('[data-project-picker-parent]')).toExist(),
+      Scene.expect(Scene.selector('[data-project-picker-dir="/tmp/second"]')).toExist(),
+      Scene.expect(Scene.selector('[data-project-picker-dir="/tmp/note.txt"]')).not.toExist(),
+      Scene.click(Scene.selector('[data-project-picker-dir="/tmp/second"]')),
+      Scene.Command.resolve(ListDirectory, arrivedSecond),
+      Scene.expect(Scene.selector('[data-project-picker-dirs-path]')).toContainText('/tmp/second'),
+      // Using the directory composes with the checkout's own name suggested.
+      Scene.click(Scene.selector('[data-project-picker-use-dir]')),
+      Scene.expect(Scene.selector('[data-project-picker-field="name"]')).toHaveValue('second'),
+      Scene.expect(Scene.selector('[data-project-picker-field="cwd"]')).toHaveValue('/tmp/second'),
+      Scene.expect(Scene.selector('[data-project-picker-field="icon"]')).toExist(),
+    )
+  })
+
+  it('creates from the project picker’s form, and the host’s own row names it', () => {
+    Scene.scene(
+      { update, view },
+      Scene.given(listOne()),
+      Scene.click(Scene.selector('[data-project-picker-trigger]')),
+      Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
+      Scene.Command.resolve(ListDirectory, arrivedHome),
+      Scene.click(Scene.selector('[data-project-picker-dir="/tmp/second"]')),
+      Scene.Command.resolve(ListDirectory, arrivedSecond),
+      Scene.click(Scene.selector('[data-project-picker-use-dir]')),
+      Scene.type(Scene.selector('[data-project-picker-field="icon"]'), '/icons/second.svg'),
       Scene.click(Scene.selector('[data-project-picker-submit]')),
       Scene.Command.expectHas(CreateProject),
       // The host's own row is what closes the form, so the picker names an
@@ -503,7 +637,7 @@ describe('composer', () => {
         CreateProject,
         Message.GotProjects({
           message: Projects.Message.ProjectCreated({
-            project: { id: 'p2', name: 'second', cwd: '/tmp/second' },
+            project: { id: 'p2', name: 'second', cwd: '/tmp/second', icon: '/icons/second.svg' },
           }),
         }),
       ),
@@ -518,7 +652,10 @@ describe('composer', () => {
       Scene.given(listOne()),
       Scene.click(Scene.selector('[data-project-picker-trigger]')),
       Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
-      Scene.type(Scene.selector('[data-project-picker-field="name"]'), 'second'),
+      Scene.Command.resolve(ListDirectory, arrivedHome),
+      Scene.click(Scene.selector('[data-project-picker-dir="/tmp/second"]')),
+      Scene.Command.resolve(ListDirectory, arrivedSecond),
+      Scene.click(Scene.selector('[data-project-picker-use-dir]')),
       Scene.type(Scene.selector('[data-project-picker-field="cwd"]'), 'tmp/second'),
       Scene.click(Scene.selector('[data-project-picker-submit]')),
       Scene.Command.expectHas(CreateProject),
@@ -863,7 +1000,7 @@ describe('settings', () => {
       init(urlForPath('/settings/projects')).model,
       Message.GotProjects({
         message: Projects.Message.ProjectsArrived({
-          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }],
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
         }),
       }),
     ).model
@@ -883,13 +1020,115 @@ describe('settings', () => {
         UpdateProject,
         Message.GotProjects({
           message: Projects.Message.ProjectUpdated({
-            project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
+            project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru', icon: undefined },
           }),
         }),
       ),
       Scene.expect(Scene.selector('[data-projects-row="p1"]')).toContainText('oru-app'),
       Scene.expect(Scene.selector('[data-projects-edit-form="p1"]')).not.toExist(),
     )
+  })
+
+  it('creates from the settings page with Browse filling the cwd and icon saved', () => {
+    const listed = update(
+      init(urlForPath('/settings/projects')).model,
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
+        }),
+      }),
+    ).model
+
+    Scene.scene(
+      { update, view },
+      Scene.given(listed),
+      Scene.expect(Scene.selector('[data-projects-create]')).not.toExist(),
+      Scene.click(Scene.selector('[data-projects-create-open]')),
+      Scene.expect(Scene.selector('[data-projects-create]')).toExist(),
+      Scene.click(Scene.selector('[data-projects-browse]')),
+      Scene.Command.expectHas(ListDirectory),
+      Scene.Command.resolve(
+        ListDirectory,
+        Message.GotProjects({
+          message: Projects.Message.DirectoryArrived({
+            listing: {
+              path: '/tmp/second',
+              parent: '/tmp',
+              entries: [{ name: 'app', path: '/tmp/second/app', isDirectory: true }],
+            },
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-projects-dir="/tmp/second/app"]')).toExist(),
+      Scene.click(Scene.selector('[data-projects-use-dir]')),
+      Scene.expect(Scene.selector('#settings-project-create-cwd')).toHaveValue('/tmp/second'),
+      Scene.expect(Scene.selector('#settings-project-create-name')).toHaveValue('second'),
+      Scene.type(Scene.selector('#settings-project-create-icon'), '/icons/second.svg'),
+      Scene.click(Scene.selector('[data-projects-create-save]')),
+      Scene.Command.expectHas(CreateProject),
+      Scene.Command.resolve(
+        CreateProject,
+        Message.GotProjects({
+          message: Projects.Message.ProjectCreated({
+            project: {
+              id: 'p2',
+              name: 'second',
+              cwd: '/tmp/second',
+              icon: '/icons/second.svg',
+            },
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-projects-create]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-projects-row="p2"]')).toContainText('second'),
+    )
+  })
+
+  it('saves the logo with a rename and deletes with a confirm', () => {
+    const listed = update(
+      init(urlForPath('/settings/projects')).model,
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
+        }),
+      }),
+    ).model
+
+    Scene.scene(
+      { update, view },
+      Scene.given(listed),
+      Scene.click(Scene.selector('[data-projects-edit="p1"]')),
+      Scene.expect(Scene.selector('[data-projects-icon] #settings-project-icon')).toExist(),
+      Scene.type(Scene.selector('#settings-project-icon'), '/icons/oru.svg'),
+      Scene.click(Scene.selector('[data-projects-save="p1"]')),
+      Scene.Command.expectHas(UpdateProject),
+      Scene.Command.resolve(
+        UpdateProject,
+        Message.GotProjects({
+          message: Projects.Message.ProjectUpdated({
+            project: { id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: '/icons/oru.svg' },
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-projects-row="p1"]')).toExist(),
+      Scene.click(Scene.selector('[data-projects-delete="p1"]')),
+      Scene.expect(Scene.selector('[data-projects-row="p1"]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-projects-delete-confirm="p1"]')).toExist(),
+      Scene.click(Scene.selector('[data-projects-delete-confirm-button="p1"]')),
+      Scene.Command.expectHas(DeleteProject),
+      Scene.Command.resolve(
+        DeleteProject,
+        Message.GotProjects({ message: Projects.Message.ProjectDeleted({ project: 'p1' }) }),
+      ),
+      Scene.expect(Scene.selector('[data-projects-delete-confirm="p1"]')).not.toExist(),
+      Scene.expectAll(Scene.all.selector('[data-projects-row]')).toHaveCount(0),
+    )
+  })
+
+  it('suggests the directory’s own name and keeps a typed one', () => {
+    expect(Projects.deriveProjectName('/tmp/second')).toBe('second')
+    expect(Projects.deriveProjectName('/tmp/second/')).toBe('second')
+    expect(Projects.deriveProjectName('/')).toBe('project')
   })
 
   it('renders the Projects page empty rather than with a plausible row', () => {
@@ -912,8 +1151,8 @@ describe('settings', () => {
       Message.GotProjects({
         message: Projects.Message.ProjectsArrived({
           projects: [
-            { id: 'p1', name: 'oru', cwd: '/tmp/oru' },
-            { id: 'p2', name: 'bb', cwd: '/tmp/bb' },
+            { id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined },
+            { id: 'p2', name: 'bb', cwd: '/tmp/bb', icon: undefined },
           ],
         }),
       }),
@@ -945,7 +1184,7 @@ describe('settings', () => {
       canceled,
       Message.GotProjects({
         message: Projects.Message.ProjectUpdated({
-          project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
+          project: { id: 'p1', name: 'oru-app', cwd: '/tmp/oru', icon: undefined },
         }),
       }),
     ).model
@@ -953,8 +1192,8 @@ describe('settings', () => {
     expect(answered.projects.host).toEqual(
       Projects.Loaded.make({
         projects: [
-          { id: 'p1', name: 'oru-app', cwd: '/tmp/oru' },
-          { id: 'p2', name: 'bb', cwd: '/tmp/bb' },
+          { id: 'p1', name: 'oru-app', cwd: '/tmp/oru', icon: undefined },
+          { id: 'p2', name: 'bb', cwd: '/tmp/bb', icon: undefined },
         ],
       }),
     )
