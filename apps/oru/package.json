@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@foldkit/vite-plugin": "0.20.2",
+    "@oru/harness-pi": "workspace:*",
     "@oru/host": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.20.2",

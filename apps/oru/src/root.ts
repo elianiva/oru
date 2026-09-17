@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from 'effect'
+import { Effect, Match, Option, Schema } from 'effect'
 import { Command, Navigation, Url } from 'foldkit'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
@@ -6,9 +6,10 @@ import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
 import { Box, GitBranch, Lock, Mic, Plus } from 'lucide'
-import { ProjectClient, type HostUnreachable } from '@oru/rpc'
+import { ProjectClient, ThreadClient, type HostUnreachable } from '@oru/rpc'
 import * as Composer from './composer.ts'
 import * as LeftPanel from './left-panel.ts'
+import * as ModelPicker from './model-picker.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
 import * as General from './settings/general.ts'
@@ -23,6 +24,7 @@ export const Model = Schema.Struct({
   shell: Shell.Model,
   threads: LeftPanel.Model,
   projects: Projects.Model,
+  picker: ModelPicker.Model,
   composer: Composer.Model,
   settings: General.Model,
 })
@@ -36,6 +38,7 @@ export const Message = defineMessageUnion({
   GotShell: { message: Shell.Message },
   GotThreads: { message: LeftPanel.Message },
   GotProjects: { message: Projects.Message },
+  GotPicker: { message: ModelPicker.Message },
   GotComposer: { message: Composer.Message },
   GotSettings: { message: General.Message },
 })
@@ -150,19 +153,110 @@ export const UpdateProject = Command.define('UpdateProject', {
     ),
 })
 
-export const init = (url: Url.Url) => ({
-  model: {
-    route: urlToAppRoute(url),
-    shell: Shell.init(),
-    threads: LeftPanel.init(),
-    projects: Projects.init(),
-    composer: Composer.init(),
-    settings: General.init(),
-  },
-  commands: [ListProjects()],
+/**
+ * A thread's options are the picker's to hold: it is the only model that
+ * renders them, so it is the only one that asks for them.
+ */
+export const LoadThreadOptions = Command.define('LoadThreadOptions', {
+  args: { threadId: Schema.UndefinedOr(Schema.String), refresh: Schema.Boolean },
+  messages: [Message.GotPicker],
+  execute: ({ threadId, refresh }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.options(threadId, refresh ? { refresh: true } : undefined)),
+      Effect.map((options) =>
+        Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
+      ),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.GotPicker({
+            message: ModelPicker.Message.OptionsFailed({
+              reason: `${error.operation}: ${error.reason}`,
+            }),
+          }),
+        ),
+      ),
+    ),
 })
 
-type UpdateReturn = Update.Return<Model, Message, ProjectClient>
+export const ConfigureThread = Command.define('ConfigureThread', {
+  args: {
+    threadId: Schema.NonEmptyString,
+    harness: Schema.UndefinedOr(Schema.String),
+    model: Schema.UndefinedOr(Schema.String),
+    reasoning: Schema.UndefinedOr(Schema.String),
+  },
+  messages: [Message.GotPicker],
+  execute: ({ threadId, harness, model, reasoning }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.configure(threadId, { harness, model, reasoning })),
+      Effect.map((options) =>
+        Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
+      ),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.GotPicker({
+            message: ModelPicker.Message.OptionsFailed({
+              reason: `${error.operation}: ${error.reason}`,
+            }),
+          }),
+        ),
+      ),
+    ),
+})
+
+export const CopyText = Command.define('CopyText', {
+  args: { text: Schema.String },
+  messages: [Message.GotPicker],
+  execute: ({ text }) =>
+    Effect.tryPromise({
+      try: () => navigator.clipboard.writeText(text),
+      catch: () => undefined,
+    }).pipe(
+      Effect.as(Message.GotPicker({ message: ModelPicker.Message.CopiedCommand() })),
+      Effect.catch(() =>
+        Effect.succeed(Message.GotPicker({ message: ModelPicker.Message.CopyFailed() })),
+      ),
+    ),
+})
+
+/**
+ * Threads in the URL ask the host about themselves; home asks about a thread
+ * that does not exist yet, which is the host's defaults. A settings page asks
+ * nothing, because no picker is rendered there.
+ */
+const pickerLoad = (route: AppRoute): Update.Commands<Message, ThreadClient> =>
+  Match.value(route).pipe(
+    Match.when(AppRoute.guards.Home, () => [
+      LoadThreadOptions({ threadId: undefined, refresh: false }),
+    ]),
+    Match.when(AppRoute.guards.Thread, ({ threadId }) => [
+      LoadThreadOptions({ threadId, refresh: false }),
+    ]),
+    Match.orElse((): Update.Commands<Message, ThreadClient> => []),
+  )
+
+export const init = (url: Url.Url) => {
+  const route = urlToAppRoute(url)
+  return {
+    model: {
+      route,
+      shell: Shell.init(),
+      threads: LeftPanel.init(),
+      projects: Projects.init(),
+      picker: ModelPicker.init(),
+      composer: Composer.init(),
+      settings: General.init(),
+    },
+    commands: [
+      ListProjects(),
+      ...(AppRoute.guards.Thread(route)
+        ? [LoadThreadOptions({ threadId: route.threadId, refresh: false })]
+        : []),
+    ],
+  }
+}
+
+type UpdateReturn = Update.Return<Model, Message, ProjectClient | ThreadClient>
 
 const foldShell = Update.foldChild({
   update: Shell.update,
@@ -213,47 +307,96 @@ const foldProjects = Update.foldChild({
     }),
 })
 
+const foldPicker = Update.foldChild({
+  update: ModelPicker.update,
+  read: (model: Model) => Option.some(model.picker),
+  write: (model, nextChild) => evo(model, { picker: () => nextChild }),
+  toParentMessage: (message: ModelPicker.Message) => Message.GotPicker({ message }),
+  foldOutMessage: (outMessage: ModelPicker.OutMessage): Update.Step<Model, Message, ThreadClient> =>
+    ModelPicker.OutMessage.match<Update.Step<Model, Message, ThreadClient>>(outMessage, {
+      OptionsRequested:
+        ({ refresh }) =>
+        (model) => ({
+          model,
+          commands: [
+            LoadThreadOptions({ threadId: Option.getOrUndefined(selectedThread(model)), refresh }),
+          ],
+        }),
+      // A picker on home has no thread to configure yet: the selection it
+      // stored is the choice that thread is created with.
+      ConfigureRequested:
+        ({ harness, model: chosen, reasoning }) =>
+        (model) =>
+          Option.match(selectedThread(model), {
+            onNone: () => ({ model }),
+            onSome: (threadId) => ({
+              model,
+              commands: [ConfigureThread({ threadId, harness, model: chosen, reasoning })],
+            }),
+          }),
+      CopyRequested:
+        ({ command }) =>
+        (model) => ({
+          model,
+          commands: [CopyText({ text: command })],
+        }),
+    }),
+})
+
 const foldComposer = Update.foldChild({
   update: Composer.update,
   read: (model: Model) => Option.some(model.composer),
   write: (model, nextChild) => evo(model, { composer: () => nextChild }),
   toParentMessage: (message: Composer.Message) => Message.GotComposer({ message }),
-  foldOutMessage: (outMessage: Composer.OutMessage): Update.Step<Model, Message, ProjectClient> =>
-    Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
-      Submitted: () => (model) => ({ model }),
-      // Composer chrome is generic; the id says which submodel owns the click,
-      // and this table is the only place that mapping lives.
-      RequestedAction:
-        ({ id }) =>
-        (model) =>
-          id === Projects.CHIP_ID
-            ? foldProjects(model, Projects.Message.ToggledCreatePanel())
-            : { model },
-      ChangedChipField:
-        ({ chip, field, value }) =>
-        (model) =>
-          chip === Projects.CHIP_ID
-            ? foldProjects(model, Projects.Message.ChangedCreateField({ field, value }))
-            : { model },
-      SelectedChipOption:
-        ({ chip, option }) =>
-        (model) =>
-          chip === Projects.CHIP_ID
-            ? foldProjects(model, Projects.Message.SelectedCreateOption({ option }))
-            : { model },
-      CanceledChip:
-        ({ chip }) =>
-        (model) =>
-          chip === Projects.CHIP_ID
-            ? foldProjects(model, Projects.Message.CanceledCreate())
-            : { model },
-      SubmittedChipForm:
-        ({ chip }) =>
-        (model) =>
-          chip === Projects.CHIP_ID
-            ? foldProjects(model, Projects.Message.SubmittedCreate())
-            : { model },
-    }),
+  foldOutMessage: (
+    outMessage: Composer.OutMessage,
+  ): Update.Step<Model, Message, ProjectClient | ThreadClient> =>
+    Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient | ThreadClient>>(
+      outMessage,
+      {
+        Submitted: () => (model) => ({ model }),
+        // Composer chrome is generic; the id says which submodel owns the click,
+        // and this table is the only place that mapping lives.
+        RequestedAction:
+          ({ id }) =>
+          (model) => {
+            if (id === Projects.CHIP_ID) {
+              return foldProjects(model, Projects.Message.ToggledCreatePanel())
+            }
+            if (id === 'model') {
+              return foldPicker(
+                model,
+                model.picker.isOpen ? ModelPicker.Message.Closed() : ModelPicker.Message.Opened(),
+              )
+            }
+            return { model }
+          },
+        ChangedChipField:
+          ({ chip, field, value }) =>
+          (model) =>
+            chip === Projects.CHIP_ID
+              ? foldProjects(model, Projects.Message.ChangedCreateField({ field, value }))
+              : { model },
+        SelectedChipOption:
+          ({ chip, option }) =>
+          (model) =>
+            chip === Projects.CHIP_ID
+              ? foldProjects(model, Projects.Message.SelectedCreateOption({ option }))
+              : { model },
+        CanceledChip:
+          ({ chip }) =>
+          (model) =>
+            chip === Projects.CHIP_ID
+              ? foldProjects(model, Projects.Message.CanceledCreate())
+              : { model },
+        SubmittedChipForm:
+          ({ chip }) =>
+          (model) =>
+            chip === Projects.CHIP_ID
+              ? foldProjects(model, Projects.Message.SubmittedCreate())
+              : { model },
+      },
+    ),
 })
 
 const foldSettings = Update.foldChild({
@@ -278,9 +421,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           commands: [LoadExternal({ href })],
         }),
       }),
-    ChangedUrl: ({ url }) => ({
-      model: evo(model, { route: () => urlToAppRoute(url) }),
-    }),
+    ChangedUrl: ({ url }) => {
+      const route = urlToAppRoute(url)
+      return {
+        model: evo(model, { route: () => route, picker: () => ModelPicker.init() }),
+        commands: pickerLoad(route),
+      }
+    },
+    GotPicker: ({ message: childMessage }) => foldPicker(model, childMessage),
     GotShell: ({ message: childMessage }) => foldShell(model, childMessage),
     GotThreads: ({ message: childMessage }) => foldThreads(model, childMessage),
     GotProjects: ({ message: childMessage }) => foldProjects(model, childMessage),
@@ -300,12 +448,15 @@ const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(shellSubs, threadSubs)
 
-const coreContributions = (): Composer.ComposerContributions => ({
+const coreContributions = (
+  modelLabel: string,
+  isPickerOpen: boolean,
+): Composer.ComposerContributions => ({
   placeholder: 'Ask anything. @ to mention files, folders, or sections',
   headline: 'What should we build in oru?',
   leading: [
     { id: 'add', icon: Plus },
-    { id: 'model', label: 'Medium', chevron: true },
+    { id: 'model', label: modelLabel, chevron: true, isExpanded: isPickerOpen },
   ],
   trailing: [{ id: 'mic', icon: Mic }],
   chips: [],
@@ -321,12 +472,19 @@ const contextPluginContributions = (projects: Projects.Model): Composer.Composer
   ],
 })
 
-const heroContributions = (projects: Projects.Model): Composer.ComposerContributions =>
-  Composer.mergeContributions(coreContributions(), contextPluginContributions(projects))
+/** What the composer calls the chosen model, before any catalogue names one. */
+const modelActionLabel = (model: Model): string =>
+  ModelPicker.selectionLabel(model.picker) ?? 'Model'
+
+const heroContributions = (model: Model): Composer.ComposerContributions =>
+  Composer.mergeContributions(
+    coreContributions(modelActionLabel(model), model.picker.isOpen),
+    contextPluginContributions(model.projects),
+  )
 
 /** The conversation's composer keeps the actions and drops the hero's prompt. */
-const conversationContributions = (projects: Projects.Model): Composer.ComposerContributions => {
-  const { placeholder, leading, trailing, chips } = heroContributions(projects)
+const conversationContributions = (model: Model): Composer.ComposerContributions => {
+  const { placeholder, leading, trailing, chips } = heroContributions(model)
   return { placeholder, leading, trailing, chips }
 }
 
@@ -351,6 +509,14 @@ const projectsSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
     toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
   })
 
+const pickerSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.submodel({
+    slotId: 'model-picker',
+    model: model.picker,
+    view: ModelPicker.view,
+    toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
+  })
+
 const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [
@@ -359,7 +525,8 @@ const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
     [
       h.div([h.Class('w-full max-w-3xl')], [projectsSlot(model, h)]),
-      composerSlot(model, heroContributions(model.projects), h),
+      pickerSlot(model, h),
+      composerSlot(model, heroContributions(model), h),
     ],
   )
 
@@ -383,8 +550,8 @@ const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
       ),
       h.div([h.Class('min-h-0 flex-1')], []),
       h.div(
-        [h.Class('flex shrink-0 justify-center px-6 pb-6')],
-        [composerSlot(model, conversationContributions(model.projects), h)],
+        [h.Class('flex shrink-0 flex-col items-center gap-2 px-6 pb-6')],
+        [pickerSlot(model, h), composerSlot(model, conversationContributions(model), h)],
       ),
     ],
   )

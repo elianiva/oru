@@ -17,7 +17,13 @@ import {
   type ThreadId,
 } from '@oru/kernel'
 import { Inference } from '@oru/inference'
-import { HarnessChoice, ThreadOptions, signalOf, type ThreadSignal } from '@oru/rpc'
+import {
+  HarnessChoice,
+  ThreadOptions,
+  signalOf,
+  type ThreadConfiguration,
+  type ThreadSignal,
+} from '@oru/rpc'
 
 const keepThreadError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -66,12 +72,17 @@ const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =
 
 const optionsOf = (
   host: Host,
-  threadId: ThreadId,
+  threadId: ThreadId | undefined,
 ): Effect.Effect<ThreadOptions, SessionLogError, SessionLog> =>
   Effect.gen(function* () {
     const log = yield* SessionLog
     const registry = yield* host.service(Harnesses)
-    const config = foldThreadConfig(yield* log.entries, threadId)
+    // A thread that does not exist yet has no facts, so an absent id reads as an
+    // unconfigured thread and the answer is the host's defaults.
+    const config =
+      threadId === undefined
+        ? { harness: undefined, model: undefined, reasoning: undefined }
+        : foldThreadConfig(yield* log.entries, threadId)
     const harnesses = yield* harnessChoicesOf(host)
     const entry =
       config.harness === undefined
@@ -79,17 +90,21 @@ const optionsOf = (
         : yield* registry.get(config.harness)
     if (Option.isNone(entry)) {
       // No bridge, no catalogue: the pane still shows the choice it cannot make.
-      return { config, harnesses, models: [] }
+      return { config, harness: undefined, harnesses, models: [] }
     }
     const models = yield* entry.value.harness
       .listModels()
       .pipe(Effect.orElseSucceed((): ReadonlyArray<ModelInfo> => []))
-    return { config, harnesses, models }
+    return { config, harness: entry.value.harness.meta.id, harnesses, models }
   })
+
+const hasConfiguration = (input: ThreadConfiguration): boolean =>
+  input.harness !== undefined || input.model !== undefined || input.reasoning !== undefined
 
 const createThread = (
   host: Host,
   project: ProjectId,
+  configuration: ThreadConfiguration,
 ): Effect.Effect<
   { readonly threadId: ThreadId; readonly project: NamedProject },
   SessionLogError | UnknownProject,
@@ -110,13 +125,34 @@ const createThread = (
         project: named.id,
       }),
     )
+    // The configuration lands on the created thread's own lane, before any
+    // turn, so there is no window where the thread runs unconfigured.
+    if (hasConfiguration(configuration)) {
+      const inference = yield* host.service(Inference)
+      yield* inference.configure(threadId, {
+        harness: configuration.harness,
+        model: configuration.model,
+        reasoning: configuration.reasoning,
+      })
+    }
     yield* host.openThread(threadId).pipe(Effect.orDie)
     return { threadId, project: named }
   })
 
 export const threadRpcHandlers = (host: Host) => ({
-  CreateThread: (payload: { readonly project: ProjectId }) =>
-    keepThreadError(createThread(host, payload.project)),
+  CreateThread: (payload: {
+    readonly project: ProjectId
+    readonly harness: string | undefined
+    readonly model: string | undefined
+    readonly reasoning: string | undefined
+  }) =>
+    keepThreadError(
+      createThread(host, payload.project, {
+        harness: payload.harness,
+        model: payload.model,
+        reasoning: payload.reasoning,
+      }),
+    ),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Inference).pipe(
       Effect.flatMap((inference) => inference.send(payload.threadId, payload.text)),
@@ -139,7 +175,10 @@ export const threadRpcHandlers = (host: Host) => ({
         )
       }).pipe(Effect.orDie),
     ),
-  ThreadOptions: (payload: { readonly threadId: ThreadId; readonly refresh?: boolean }) =>
+  ThreadOptions: (payload: {
+    readonly threadId: ThreadId | undefined
+    readonly refresh?: boolean
+  }) =>
     Effect.gen(function* () {
       if (payload.refresh === true) yield* invalidateHealthOf(host)
       return yield* optionsOf(host, payload.threadId)
@@ -208,7 +247,7 @@ export const threadRpcHandlers = (host: Host) => ({
         if (project === undefined) {
           return yield* new UnknownThread({ thread: payload.sourceThreadId })
         }
-        const created = yield* createThread(host, project)
+        const created = yield* createThread(host, project, {})
         yield* inference.fork(
           payload.cwd === undefined
             ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }
