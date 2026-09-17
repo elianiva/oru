@@ -24,6 +24,7 @@ export const subscriptions = ThreadList.subscriptions
 export type ViewInputs = Readonly<{
   sections: ReadonlyArray<ThreadSection>
   selected: Option.Option<string>
+  projects: ReadonlyArray<ThreadList.FilterProject>
 }>
 
 export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) =>
@@ -32,6 +33,16 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
       h.DataAttribute('left-panel', ''),
       h.Class('flex h-full min-h-0 flex-col text-sidebar-foreground'),
     ],
-    [ThreadList.view(model, { sections: viewInputs.sections, selected: viewInputs.selected }, h)],
+    [
+      ThreadList.view(
+        model,
+        {
+          sections: viewInputs.sections,
+          selected: viewInputs.selected,
+          projects: viewInputs.projects,
+        },
+        h,
+      ),
+    ],
   ),
 )

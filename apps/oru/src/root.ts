@@ -19,7 +19,14 @@ import * as General from './settings/general.ts'
 import * as SettingsLayout from './settings/layout.ts'
 import * as SettingsPages from './settings/pages.ts'
 import * as Shell from './shell.ts'
-import { AppRoute, homeRouter, threadRouter, titleForRoute, urlToAppRoute } from './route.ts'
+import {
+  AppRoute,
+  homeRouter,
+  settingsProjectsRouter,
+  threadRouter,
+  titleForRoute,
+  urlToAppRoute,
+} from './route.ts'
 import { emptyThreadSections } from './threads.ts'
 
 export const Model = Schema.Struct({
@@ -63,7 +70,7 @@ export type Message = typeof Message.Type
 export const selectedThread = (model: Model): Option.Option<string> =>
   AppRoute.guards.Thread(model.route) ? Option.some(model.route.threadId) : Option.none()
 
-const NavigateInternal = Command.define('NavigateInternal', {
+export const NavigateInternal = Command.define('NavigateInternal', {
   args: { url: Schema.String },
   messages: [Message.CompletedNavigateInternal],
   execute: ({ url }) =>
@@ -107,11 +114,15 @@ export const ListProjects = Command.define('ListProjects', {
  * reaches the screen — never the draft that asked for it.
  */
 export const CreateProject = Command.define('CreateProject', {
-  args: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
+  args: {
+    name: Schema.NonEmptyString,
+    cwd: Schema.NonEmptyString,
+    icon: Schema.optional(Schema.String),
+  },
   messages: [Message.GotProjects, Message.GotProjectPicker],
-  execute: ({ name, cwd }) =>
+  execute: ({ name, cwd, icon }) =>
     ProjectClient.pipe(
-      Effect.flatMap((client) => client.create(name, cwd)),
+      Effect.flatMap((client) => client.create(name, cwd, icon)),
       Effect.map((created) =>
         Message.GotProjects({ message: Projects.Message.ProjectCreated({ project: created }) }),
       ),
@@ -136,11 +147,12 @@ export const UpdateProject = Command.define('UpdateProject', {
     project: Schema.NonEmptyString,
     name: Schema.NonEmptyString,
     cwd: Schema.NonEmptyString,
+    icon: Schema.optional(Schema.String),
   },
   messages: [Message.GotProjects],
-  execute: ({ project, name, cwd }) =>
+  execute: ({ project, name, cwd, icon }) =>
     ProjectClient.pipe(
-      Effect.flatMap((client) => client.update(project, { name, cwd })),
+      Effect.flatMap((client) => client.update(project, { name, cwd, icon })),
       Effect.map((updated) =>
         Message.GotProjects({ message: Projects.Message.ProjectUpdated({ project: updated }) }),
       ),
@@ -158,6 +170,61 @@ export const UpdateProject = Command.define('UpdateProject', {
             Message.GotProjects({
               message: Projects.Message.UpdateRefused({
                 refusal: Projects.UnknownProject.make({ project: error.project }),
+              }),
+            }),
+          ),
+        HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
+      }),
+    ),
+})
+
+export const DeleteProject = Command.define('DeleteProject', {
+  args: { project: Schema.NonEmptyString },
+  messages: [Message.GotProjects],
+  execute: ({ project }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.remove(project)),
+      Effect.map((removed) =>
+        Message.GotProjects({
+          message: Projects.Message.ProjectDeleted({ project: removed.project }),
+        }),
+      ),
+      Effect.catchTags({
+        UnknownProject: () =>
+          Effect.succeed(Message.GotProjects({ message: Projects.Message.DeleteRefused() })),
+        HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
+      }),
+    ),
+})
+
+/**
+ * A directory listing for whoever is browsing: the composer's picker or the
+ * settings create form. The answer fans out to both, and each keeps it only
+ * while its own browser is open.
+ */
+export const ListDirectory = Command.define('ListDirectory', {
+  args: { path: Schema.UndefinedOr(Schema.String) },
+  messages: [Message.GotProjects],
+  execute: ({ path }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.listDirectory(path)),
+      Effect.map((listing) =>
+        Message.GotProjects({ message: Projects.Message.DirectoryArrived({ listing }) }),
+      ),
+      Effect.catchTags({
+        DirectoryMissing: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.DirectoryFailed({
+                error: Projects.DirectoryMissing.make({ path: error.path }),
+              }),
+            }),
+          ),
+        NotDirectory: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.DirectoryFailed({
+                error: Projects.NotDirectory.make({ path: error.path }),
               }),
             }),
           ),
@@ -294,6 +361,10 @@ const foldThreads = Update.foldChild({
           model,
           commands: [NavigateInternal({ url: threadRouter({ threadId: id }) })],
         }),
+      RequestedNewProject: () => (model) => ({
+        model,
+        commands: [NavigateInternal({ url: settingsProjectsRouter() })],
+      }),
     }),
 })
 
@@ -311,8 +382,23 @@ const foldProjects = Update.foldChild({
         commands: [ListProjects()],
       }),
       RequestedUpdate:
-        ({ project, name, cwd }) =>
-        (model) => ({ model, commands: [UpdateProject({ project, name, cwd })] }),
+        ({ project, name, cwd, icon }) =>
+        (model) => {
+          const args = icon === undefined ? { project, name, cwd } : { project, name, cwd, icon }
+          return { model, commands: [UpdateProject(args)] }
+        },
+      RequestedCreate:
+        ({ name, cwd, icon }) =>
+        (model) => {
+          const args = icon === undefined ? { name, cwd } : { name, cwd, icon }
+          return { model, commands: [CreateProject(args)] }
+        },
+      RequestedDelete:
+        ({ project }) =>
+        (model) => ({ model, commands: [DeleteProject({ project })] }),
+      RequestedDirectory:
+        ({ path }) =>
+        (model) => ({ model, commands: [ListDirectory({ path })] }),
     }),
 })
 
@@ -331,8 +417,14 @@ const foldProjectPicker = Update.foldChild({
   ): Update.Step<Model, Message, ProjectClient> =>
     ProjectPicker.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
       RequestedCreate:
-        ({ name, cwd }) =>
-        (model) => ({ model, commands: [CreateProject({ name, cwd })] }),
+        ({ name, cwd, icon }) =>
+        (model) => {
+          const args = icon === undefined ? { name, cwd } : { name, cwd, icon }
+          return { model, commands: [CreateProject(args)] }
+        },
+      RequestedDirectory:
+        ({ path }) =>
+        (model) => ({ model, commands: [ListDirectory({ path })] }),
     }),
 })
 
@@ -457,6 +549,46 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ),
         ])
       }
+      if (Predicate.isTagged(childMessage, 'ProjectUpdated')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) =>
+            foldProjectPicker(
+              next,
+              ProjectPicker.Message.ProjectUpdated({ project: childMessage.project }),
+            ),
+        ])
+      }
+      if (Predicate.isTagged(childMessage, 'ProjectDeleted')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) =>
+            foldProjectPicker(
+              next,
+              ProjectPicker.Message.ProjectDeleted({ project: childMessage.project }),
+            ),
+        ])
+      }
+      if (Predicate.isTagged(childMessage, 'DirectoryArrived')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) =>
+            foldProjectPicker(
+              next,
+              ProjectPicker.Message.DirectoryArrived({ listing: childMessage.listing }),
+            ),
+        ])
+      }
+      if (Predicate.isTagged(childMessage, 'DirectoryFailed')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) =>
+            foldProjectPicker(
+              next,
+              ProjectPicker.Message.DirectoryFailed({ error: childMessage.error }),
+            ),
+        ])
+      }
       if (Predicate.isTagged(childMessage, 'HostUnreachable')) {
         return Update.combine(model, [
           (next) => foldProjects(next, childMessage),
@@ -465,7 +597,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }
       return foldProjects(model, childMessage)
     },
-    GotProjectPicker: ({ message: childMessage }) => foldProjectPicker(model, childMessage),
+    GotProjectPicker: ({ message: childMessage }) => {
+      // A create refusal answers whichever form asked: the picker or the
+      // settings page. Each keeps it only while its own draft is pending.
+      if (Predicate.isTagged(childMessage, 'CreateRefused')) {
+        return Update.combine(model, [
+          (next) => foldProjectPicker(next, childMessage),
+          (next) =>
+            foldProjects(next, Projects.Message.CreateRefused({ refusal: childMessage.refusal })),
+        ])
+      }
+      return foldProjectPicker(model, childMessage)
+    },
     GotWorktree: ({ message: childMessage }) => foldWorktree(model, childMessage),
     GotBranch: ({ message: childMessage }) => foldBranch(model, childMessage),
     GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
@@ -630,7 +773,14 @@ const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
     slotId: 'left-panel',
     model: model.threads,
     view: LeftPanel.view,
-    viewInputs: { sections: emptyThreadSections, selected: selectedThread(model) },
+    viewInputs: {
+      sections: emptyThreadSections,
+      selected: selectedThread(model),
+      projects: Projects.projectsOf(model.projects).map((project) => ({
+        id: project.id,
+        name: project.name,
+      })),
+    },
     toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
   })
 
