@@ -149,48 +149,29 @@ test('the separator collapses its sidebar from the keyboard', async ({ page }) =
   await expect(page.locator('[data-shell-toggle="left"]')).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('picking a thread selects it in the URL and fills the right column', async ({ page }) => {
+test('an empty thread list selects nothing and the right column says so', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-detail]')).toContainText('No thread selected')
-
-  await page.locator('[data-thread-row="shell-retro"]').click()
-
-  await expect(page).toHaveURL(/\/thread\/shell-retro$/u)
-  await expect(page.locator('[data-thread-row="shell-retro"]')).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
-  await expect(page.locator('[data-detail]')).toContainText(
-    'Fold the resizable engine into the app shell',
-  )
-  await expect(page.locator('[data-detail]')).toContainText('feat/panel-shell')
+  await expect(page.locator('[data-thread-row]')).toHaveCount(0)
 })
 
 test('a thread URL is the conversation, and a reload keeps you in it', async ({ page }) => {
-  await page.goto('/thread/shell-retro')
+  await page.goto('/thread/thread-1')
 
-  await expect(page.locator('[data-conversation]')).toContainText(
-    'Fold the resizable engine into the app shell',
-  )
+  await expect(page.locator('[data-conversation]')).toContainText('thread-1')
   await expect(page.locator('[data-main]')).toHaveCount(0)
-  await expect(page.locator('[data-thread-row="shell-retro"]')).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page.locator('[data-detail]')).toContainText('No thread selected')
 
   await page.reload()
 
-  await expect(page).toHaveURL(/\/thread\/shell-retro$/u)
+  await expect(page).toHaveURL(/\/thread\/thread-1$/u)
   await expect(page.locator('[data-conversation]')).toBeVisible()
-  await expect(page.locator('[data-thread-row="shell-retro"]')).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(page.locator('[data-conversation]')).toContainText('thread-1')
 })
 
 test('the back button leaves the conversation for the hero composer', async ({ page }) => {
   await page.goto('/')
-  await page.locator('[data-thread-row="shell-retro"]').click()
+  await page.goto('/thread/thread-1')
   await expect(page.locator('[data-conversation]')).toBeVisible()
 
   await page.goBack()
@@ -202,11 +183,10 @@ test('the back button leaves the conversation for the hero composer', async ({ p
   )
 })
 
-test('a fresh host renders the empty projects state, not an empty list', async ({ page }) => {
+test('a fresh host renders no projects section, not an empty list', async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('[data-projects-empty]')).toBeVisible()
-  await expect(page.locator('[data-projects-empty]')).toContainText('No projects yet')
   await expect(page.locator('[data-projects-list]')).toHaveCount(0)
+  await expect(page.locator('[data-project]')).toHaveCount(0)
 })
 
 test('a host that is down renders a named state, and the retry recovers', async ({ page }) => {
@@ -223,7 +203,7 @@ test('a host that is down renders a named state, and the retry recovers', async 
 
   await expect(page.locator('[data-host-unreachable]')).toHaveCount(0)
   await expect(page.locator('[data-main]')).toBeVisible()
-  await expect(page.locator('[data-projects-empty]')).toBeVisible()
+  await expect(page.locator('[data-projects-list]')).toHaveCount(0)
 })
 
 test('the composer still submits a draft and clears the box', async ({ page }) => {
@@ -242,31 +222,31 @@ test('the composer still submits a draft and clears the box', async ({ page }) =
  * chip creates, the host's own refusal is on screen, and the name a reload shows
  * is the one the host recorded rather than the text that was typed.
  *
- * It runs last because the suite shares one journal: earlier cases assert the
- * empty state of a host with no projects.
+ * It runs last because the suite shares one journal: earlier cases assert a host
+ * with no projects renders no list.
  */
-test('the project chip creates a project, and its name survives a reload', async ({ page }) => {
+test('the project picker creates a project, and its name survives a reload', async ({ page }) => {
   const cwd = dirname(fileURLToPath(import.meta.url))
   await page.goto('/')
 
-  await page.locator('[data-composer-chip="project"]').click()
-  await page.locator('[data-composer-chip-option="new-project"]').click()
-  await page.locator('[data-composer-chip-field="name"]').fill('oru-app')
-  await page.locator('[data-composer-chip-field="cwd"]').fill('relative/place')
-  await page.locator('[data-composer-chip-submit="project"]').click()
+  await page.locator('[data-project-picker-trigger]').click()
+  await page.locator('[data-project-picker-option="new-project"]').click()
+  await page.locator('[data-project-picker-field="name"]').fill('oru-app')
+  await page.locator('[data-project-picker-field="cwd"]').fill('relative/place')
+  await page.locator('[data-project-picker-submit]').click()
 
   // The host refused the cwd, so its own words are inline and nothing was made.
-  await expect(page.locator('[data-composer-chip-error="project"]')).toContainText('absolute')
+  await expect(page.locator('[data-project-picker-error]')).toContainText('absolute')
   await expect(page.locator('[data-project]')).toHaveCount(0)
 
-  await page.locator('[data-composer-chip-field="cwd"]').fill(cwd)
-  await page.locator('[data-composer-chip-submit="project"]').click()
+  await page.locator('[data-project-picker-field="cwd"]').fill(cwd)
+  await page.locator('[data-project-picker-submit]').click()
 
-  await expect(page.locator('[data-composer-chip="project"]')).toContainText('oru-app')
+  await expect(page.locator('[data-project-picker-trigger]')).toContainText('oru-app')
   await expect(page.locator('[data-project]')).toContainText(cwd)
 
   await page.reload()
 
-  await expect(page.locator('[data-composer-chip="project"]')).toContainText('oru-app')
+  await expect(page.locator('[data-project-picker-trigger]')).toContainText('oru-app')
   await expect(page.locator('[data-project]')).toContainText(cwd)
 })

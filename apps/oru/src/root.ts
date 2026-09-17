@@ -1,23 +1,26 @@
-import { Effect, Match, Option, Schema } from 'effect'
+import { Effect, Match, Option, Predicate, Schema } from 'effect'
 import { Command, Navigation, Url } from 'foldkit'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { Box, GitBranch, Lock, Mic, Plus } from 'lucide'
 import { ProjectClient, ThreadClient, type HostUnreachable } from '@oru/rpc'
+import * as AccessPicker from './access-picker.ts'
+import * as BranchPicker from './branch-picker.ts'
 import * as Composer from './composer.ts'
 import * as LeftPanel from './left-panel.ts'
 import * as ModelPicker from './model-picker.ts'
+import * as ProjectPicker from './project-picker.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
+import * as WorktreePicker from './worktree-picker.ts'
 import * as General from './settings/general.ts'
 import * as SettingsLayout from './settings/layout.ts'
 import * as SettingsPages from './settings/pages.ts'
 import * as Shell from './shell.ts'
 import { AppRoute, homeRouter, threadRouter, titleForRoute, urlToAppRoute } from './route.ts'
-import { fakeThreadSections, threadById } from './threads.ts'
+import { emptyThreadSections } from './threads.ts'
 
 export const Model = Schema.Struct({
   route: AppRoute,
@@ -25,6 +28,10 @@ export const Model = Schema.Struct({
   threads: LeftPanel.Model,
   projects: Projects.Model,
   picker: ModelPicker.Model,
+  projectPicker: ProjectPicker.Model,
+  worktree: WorktreePicker.Model,
+  branch: BranchPicker.Model,
+  access: AccessPicker.Model,
   composer: Composer.Model,
   settings: General.Model,
 })
@@ -39,6 +46,10 @@ export const Message = defineMessageUnion({
   GotThreads: { message: LeftPanel.Message },
   GotProjects: { message: Projects.Message },
   GotPicker: { message: ModelPicker.Message },
+  GotProjectPicker: { message: ProjectPicker.Message },
+  GotWorktree: { message: WorktreePicker.Message },
+  GotBranch: { message: BranchPicker.Message },
+  GotAccess: { message: AccessPicker.Message },
   GotComposer: { message: Composer.Message },
   GotSettings: { message: General.Message },
 })
@@ -97,7 +108,7 @@ export const ListProjects = Command.define('ListProjects', {
  */
 export const CreateProject = Command.define('CreateProject', {
   args: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
-  messages: [Message.GotProjects],
+  messages: [Message.GotProjects, Message.GotProjectPicker],
   execute: ({ name, cwd }) =>
     ProjectClient.pipe(
       Effect.flatMap((client) => client.create(name, cwd)),
@@ -105,10 +116,12 @@ export const CreateProject = Command.define('CreateProject', {
         Message.GotProjects({ message: Projects.Message.ProjectCreated({ project: created }) }),
       ),
       Effect.catchTags({
+        // The picker's own form hears the refusal: the host's words render
+        // where the write was attempted.
         RelativeCwd: (error) =>
           Effect.succeed(
-            Message.GotProjects({
-              message: Projects.Message.CreateRefused({
+            Message.GotProjectPicker({
+              message: ProjectPicker.Message.CreateRefused({
                 refusal: Projects.RelativeCwd.make({ cwd: error.cwd }),
               }),
             }),
@@ -244,6 +257,10 @@ export const init = (url: Url.Url) => {
       threads: LeftPanel.init(),
       projects: Projects.init(),
       picker: ModelPicker.init(),
+      projectPicker: ProjectPicker.init(),
+      worktree: WorktreePicker.init(),
+      branch: BranchPicker.init(),
+      access: AccessPicker.init(),
       composer: Composer.init(),
       settings: General.init(),
     },
@@ -298,13 +315,51 @@ const foldProjects = Update.foldChild({
         model: evo(model, { projects: (projects) => Projects.retrying(projects) }),
         commands: [ListProjects()],
       }),
-      RequestedCreate:
-        ({ name, cwd }) =>
-        (model) => ({ model, commands: [CreateProject({ name, cwd })] }),
       RequestedUpdate:
         ({ project, name, cwd }) =>
         (model) => ({ model, commands: [UpdateProject({ project, name, cwd })] }),
     }),
+})
+
+/**
+ * The composer's project picker. Its create asks the host, so the request
+ * leaves here as a Command and the host's answer comes back through
+ * `GotProjects` and is forwarded below.
+ */
+const foldProjectPicker = Update.foldChild({
+  update: ProjectPicker.update,
+  read: (model: Model) => Option.some(model.projectPicker),
+  write: (model, nextChild) => evo(model, { projectPicker: () => nextChild }),
+  toParentMessage: (message: ProjectPicker.Message) => Message.GotProjectPicker({ message }),
+  foldOutMessage: (
+    outMessage: ProjectPicker.OutMessage,
+  ): Update.Step<Model, Message, ProjectClient> =>
+    ProjectPicker.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
+      RequestedCreate:
+        ({ name, cwd }) =>
+        (model) => ({ model, commands: [CreateProject({ name, cwd })] }),
+    }),
+})
+
+const foldWorktree = Update.foldChild({
+  update: WorktreePicker.update,
+  read: (model: Model) => Option.some(model.worktree),
+  write: (model, nextChild) => evo(model, { worktree: () => nextChild }),
+  toParentMessage: (message: WorktreePicker.Message) => Message.GotWorktree({ message }),
+})
+
+const foldBranch = Update.foldChild({
+  update: BranchPicker.update,
+  read: (model: Model) => Option.some(model.branch),
+  write: (model, nextChild) => evo(model, { branch: () => nextChild }),
+  toParentMessage: (message: BranchPicker.Message) => Message.GotBranch({ message }),
+})
+
+const foldAccess = Update.foldChild({
+  update: AccessPicker.update,
+  read: (model: Model) => Option.some(model.access),
+  write: (model, nextChild) => evo(model, { access: () => nextChild }),
+  toParentMessage: (message: AccessPicker.Message) => Message.GotAccess({ message }),
 })
 
 const foldPicker = Update.foldChild({
@@ -354,47 +409,10 @@ const foldComposer = Update.foldChild({
     Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient | ThreadClient>>(
       outMessage,
       {
+        // The draft is the composer's; everything it points at lives in the
+        // picker submodels, which the thread's creation reads when it needs
+        // them. Nothing is copied here.
         Submitted: () => (model) => ({ model }),
-        // Composer chrome is generic; the id says which submodel owns the click,
-        // and this table is the only place that mapping lives.
-        RequestedAction:
-          ({ id }) =>
-          (model) => {
-            if (id === Projects.CHIP_ID) {
-              return foldProjects(model, Projects.Message.ToggledCreatePanel())
-            }
-            if (id === 'model') {
-              return foldPicker(
-                model,
-                model.picker.isOpen ? ModelPicker.Message.Closed() : ModelPicker.Message.Opened(),
-              )
-            }
-            return { model }
-          },
-        ChangedChipField:
-          ({ chip, field, value }) =>
-          (model) =>
-            chip === Projects.CHIP_ID
-              ? foldProjects(model, Projects.Message.ChangedCreateField({ field, value }))
-              : { model },
-        SelectedChipOption:
-          ({ chip, option }) =>
-          (model) =>
-            chip === Projects.CHIP_ID
-              ? foldProjects(model, Projects.Message.SelectedCreateOption({ option }))
-              : { model },
-        CanceledChip:
-          ({ chip }) =>
-          (model) =>
-            chip === Projects.CHIP_ID
-              ? foldProjects(model, Projects.Message.CanceledCreate())
-              : { model },
-        SubmittedChipForm:
-          ({ chip }) =>
-          (model) =>
-            chip === Projects.CHIP_ID
-              ? foldProjects(model, Projects.Message.SubmittedCreate())
-              : { model },
       },
     ),
 })
@@ -431,7 +449,31 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotPicker: ({ message: childMessage }) => foldPicker(model, childMessage),
     GotShell: ({ message: childMessage }) => foldShell(model, childMessage),
     GotThreads: ({ message: childMessage }) => foldThreads(model, childMessage),
-    GotProjects: ({ message: childMessage }) => foldProjects(model, childMessage),
+    GotProjects: ({ message: childMessage }) => {
+      // The picker's UI answers host facts the `Projects` submodel holds, so
+      // the answers that move it arrive here and are folded into both.
+      if (Predicate.isTagged(childMessage, 'ProjectCreated')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) =>
+            foldProjectPicker(
+              next,
+              ProjectPicker.Message.ProjectCreated({ project: childMessage.project }),
+            ),
+        ])
+      }
+      if (Predicate.isTagged(childMessage, 'HostUnreachable')) {
+        return Update.combine(model, [
+          (next) => foldProjects(next, childMessage),
+          (next) => foldProjectPicker(next, ProjectPicker.Message.HostUnreachable()),
+        ])
+      }
+      return foldProjects(model, childMessage)
+    },
+    GotProjectPicker: ({ message: childMessage }) => foldProjectPicker(model, childMessage),
+    GotWorktree: ({ message: childMessage }) => foldWorktree(model, childMessage),
+    GotBranch: ({ message: childMessage }) => foldBranch(model, childMessage),
+    GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
     GotComposer: ({ message: childMessage }) => foldComposer(model, childMessage),
     GotSettings: ({ message: childMessage }) => foldSettings(model, childMessage),
   })
@@ -448,56 +490,72 @@ const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(shellSubs, threadSubs)
 
-const coreContributions = (
-  modelLabel: string,
-  isPickerOpen: boolean,
-): Composer.ComposerContributions => ({
-  placeholder: 'Ask anything. @ to mention files, folders, or sections',
-  headline: 'What should we build in oru?',
-  leading: [
-    { id: 'add', icon: Plus },
-    { id: 'model', label: modelLabel, chevron: true, isExpanded: isPickerOpen },
-  ],
-  trailing: [{ id: 'mic', icon: Mic }],
-  chips: [],
-})
-
-const contextPluginContributions = (projects: Projects.Model): Composer.ComposerContributions => ({
-  ...Composer.emptyContributions(''),
-  chips: [
-    Projects.chip(projects),
-    { id: 'worktree', label: 'Worktree', icon: Box },
-    { id: 'branch', label: 'Branch from: origin/master', icon: GitBranch },
-    { id: 'access', label: 'Full Access', icon: Lock, align: 'right' },
-  ],
-})
-
-/** What the composer calls the chosen model, before any catalogue names one. */
-const modelActionLabel = (model: Model): string =>
-  ModelPicker.selectionLabel(model.picker) ?? 'Model'
-
-const heroContributions = (model: Model): Composer.ComposerContributions =>
-  Composer.mergeContributions(
-    coreContributions(modelActionLabel(model), model.picker.isOpen),
-    contextPluginContributions(model.projects),
-  )
-
-/** The conversation's composer keeps the actions and drops the hero's prompt. */
-const conversationContributions = (model: Model): Composer.ComposerContributions => {
-  const { placeholder, leading, trailing, chips } = heroContributions(model)
-  return { placeholder, leading, trailing, chips }
+/**
+ * What each composer slot holds. Every slot is a submodel that owns its own
+ * state; adding a picker is one `h.submodel` line here, never a change to
+ * the composer. The project list is plain data, so it crosses the
+ * `viewInputs` boundary while the picker's selection stays inside it.
+ */
+const composerInputs = (
+  model: Model,
+  headline: string | undefined,
+  h: HtmlBuilder<Message>,
+): Composer.ViewInputs => {
+  const inputs: Composer.ViewInputs = {
+    placeholder: 'Ask anything. @ to mention files, folders, or sections',
+    toLeading: () =>
+      h.submodel({
+        slotId: 'model-picker-trigger',
+        model: model.picker,
+        view: ModelPicker.triggerView,
+        toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
+      }),
+    toChipsLeft: () =>
+      h.div(
+        [h.Class('flex items-center gap-0.5')],
+        [
+          h.submodel({
+            slotId: 'project-picker',
+            model: model.projectPicker,
+            view: ProjectPicker.view,
+            viewInputs: {
+              projects: Projects.projectsOf(model.projects),
+              isLoading: Projects.isLoading(model.projects),
+            },
+            toParentMessage: (childMessage) => Message.GotProjectPicker({ message: childMessage }),
+          }),
+          h.submodel({
+            slotId: 'worktree-picker',
+            model: model.worktree,
+            view: WorktreePicker.view,
+            toParentMessage: (childMessage) => Message.GotWorktree({ message: childMessage }),
+          }),
+          h.submodel({
+            slotId: 'branch-picker',
+            model: model.branch,
+            view: BranchPicker.view,
+            toParentMessage: (childMessage) => Message.GotBranch({ message: childMessage }),
+          }),
+        ],
+      ),
+    toChipsRight: () =>
+      h.submodel({
+        slotId: 'access-picker',
+        model: model.access,
+        view: AccessPicker.view,
+        toParentMessage: (childMessage) => Message.GotAccess({ message: childMessage }),
+      }),
+  }
+  if (headline === undefined) return inputs
+  return { ...inputs, headline }
 }
 
-const composerSlot = (
-  model: Model,
-  contributions: Composer.ComposerContributions,
-  h: HtmlBuilder<Message>,
-): Html =>
+const composerSlot = (model: Model, headline: string | undefined, h: HtmlBuilder<Message>): Html =>
   h.submodel({
     slotId: 'composer',
     model: model.composer,
     view: Composer.view,
-    viewInputs: { contributions },
+    viewInputs: composerInputs(model, headline, h),
     toParentMessage: (childMessage) => Message.GotComposer({ message: childMessage }),
   })
 
@@ -509,9 +567,14 @@ const projectsSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
     toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
   })
 
-const pickerSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
+/**
+ * The harness's health, above the composer. The picker's catalogue lives in
+ * the composer's `leading` slot; a harness that is not ready still renders
+ * here without opening anything.
+ */
+const pickerStatusSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.submodel({
-    slotId: 'model-picker',
+    slotId: 'model-picker-status',
     model: model.picker,
     view: ModelPicker.view,
     toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
@@ -525,8 +588,8 @@ const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
     [
       h.div([h.Class('w-full max-w-3xl')], [projectsSlot(model, h)]),
-      pickerSlot(model, h),
-      composerSlot(model, heroContributions(model), h),
+      pickerStatusSlot(model, h),
+      composerSlot(model, 'What should we build in oru?', h),
     ],
   )
 
@@ -551,24 +614,24 @@ const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
       h.div([h.Class('min-h-0 flex-1')], []),
       h.div(
         [h.Class('flex shrink-0 flex-col items-center gap-2 px-6 pb-6')],
-        [pickerSlot(model, h), composerSlot(model, conversationContributions(model), h)],
+        [pickerStatusSlot(model, h), composerSlot(model, undefined, h)],
       ),
     ],
   )
 
-const threadName = (id: string): string => threadById(fakeThreadSections, id)?.title ?? id
+const threadName = (id: string): string => id
 
 const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.submodel({
     slotId: 'left-panel',
     model: model.threads,
     view: LeftPanel.view,
-    viewInputs: { sections: fakeThreadSections, selected: selectedThread(model) },
+    viewInputs: { sections: emptyThreadSections, selected: selectedThread(model) },
     toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
   })
 
 const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
-  RightPanel.view(selectedThread(model), { sections: fakeThreadSections }, h)
+  RightPanel.view(selectedThread(model), { sections: emptyThreadSections }, h)
 
 const shellView = (model: Model, main: Html, h: HtmlBuilder<Message>): Html =>
   h.submodel({

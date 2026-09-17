@@ -7,6 +7,7 @@ import type { Project, ThreadOptions } from '@oru/rpc'
 import * as Resizable from '../src/components/ui/resizable.ts'
 import * as Composer from '../src/composer.ts'
 import * as ModelPicker from '../src/model-picker.ts'
+import * as ProjectPicker from '../src/project-picker.ts'
 import {
   CreateProject,
   Message,
@@ -32,12 +33,7 @@ import {
 import * as General from '../src/settings/general.ts'
 import * as Projects from '../src/projects.ts'
 import * as Shell from '../src/shell.ts'
-import {
-  fakeThreadSections,
-  threadById,
-  type ThreadRow,
-  type ThreadSection,
-} from '../src/threads.ts'
+import { threadById, type ThreadRow, type ThreadSection } from '../src/threads.ts'
 import * as ThreadList from '../src/thread-list.ts'
 
 const sizes = (model: Shell.Model): ReadonlyArray<number> => model.panels.map((panel) => panel.size)
@@ -274,18 +270,34 @@ describe('thread list', () => {
   })
 
   it('gives each project in a section its own list', () => {
+    const sections: ReadonlyArray<ThreadSection> = [
+      {
+        id: 'active',
+        label: 'Active',
+        rows: [
+          fixtureRow('oru-row', [], Option.none()),
+          {
+            ...fixtureRow('other-row', [], Option.none()),
+            project: { id: 'other', name: 'Other', iconUrl: Option.none() },
+          },
+        ],
+      },
+    ]
     Scene.scene(
-      { update, view },
-      Scene.given(init(homeUrl).model),
+      {
+        update: ThreadList.update,
+        view: (model, h) => ThreadList.view(model, { sections, selected: Option.none() }, h),
+      },
+      Scene.given(ThreadList.init()),
       Scene.expectAll(
         Scene.all.selector('[data-thread-section="active"] [data-thread-group]'),
       ).toHaveCount(2),
-      Scene.expect(Scene.selector('[data-thread-group="oru"]')).toHaveAttr(
+      Scene.expect(Scene.selector('[data-thread-group="fixture"]')).toHaveAttr(
         'aria-label',
-        'oru threads',
+        'Fixture threads',
       ),
-      Scene.expect(Scene.selector('[data-thread-group="bb-sidebar"]')).toContainText(
-        'Status slot: word or age, never both',
+      Scene.expect(Scene.selector('[data-thread-group="other"]')).toContainText(
+        'Fixture other-row',
       ),
     )
   })
@@ -344,64 +356,66 @@ describe('thread list', () => {
   })
 
   it('collapses a section from its header', () => {
+    const sections: ReadonlyArray<ThreadSection> = [
+      {
+        id: 'active',
+        label: 'Active',
+        rows: [fixtureRow('row-a', [], Option.none()), fixtureRow('row-b', [], Option.none())],
+      },
+    ]
     Scene.scene(
-      { update, view },
-      Scene.given(init(homeUrl).model),
+      {
+        update: ThreadList.update,
+        view: (model, h) => ThreadList.view(model, { sections, selected: Option.none() }, h),
+      },
+      Scene.given(ThreadList.init()),
       Scene.click(Scene.selector('[data-section-toggle="active"]')),
-      Scene.expect(Scene.text('Active (3)')).toExist(),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro"]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro-tests"]')).not.toExist(),
+      Scene.expect(Scene.text('Active (2)')).toExist(),
+      Scene.expect(Scene.selector('[data-thread-row="row-a"]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-thread-row="row-b"]')).not.toExist(),
     )
   })
 
   it('reports a click upward and navigates to that thread’s URL', () => {
     const click = ThreadList.update(
       ThreadList.init(),
-      ThreadList.Message.ClickedThread({ id: 'sidebar-rows' }),
+      ThreadList.Message.ClickedThread({ id: 'thread-1' }),
     )
     expect('outMessage' in click ? click.outMessage : undefined).toEqual(
-      ThreadList.OutMessage.Selected({ id: 'sidebar-rows' }),
+      ThreadList.OutMessage.Selected({ id: 'thread-1' }),
     )
 
     const before = init(homeUrl).model
     const selected = update(
       before,
-      Message.GotThreads({ message: ThreadList.Message.ClickedThread({ id: 'sidebar-rows' }) }),
+      Message.GotThreads({ message: ThreadList.Message.ClickedThread({ id: 'thread-1' }) }),
     )
     expect(selected.model).toEqual(before)
     expect(selected.commands).toHaveLength(1)
     expect(selected.commands?.[0]?.name).toBe('NavigateInternal')
-    expect(selected.commands?.[0]?.args).toEqual({ url: '/thread/sidebar-rows' })
+    expect(selected.commands?.[0]?.args).toEqual({ url: '/thread/thread-1' })
   })
 
   it('draws the selected thread from the route, in both columns', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init(urlForPath('/thread/shell-retro')).model),
-      Scene.expect(Scene.selector('[data-detail]')).toContainText(
-        'Fold the resizable engine into the app shell',
-      ),
-      Scene.expect(Scene.selector('[data-thread-row="shell-retro"]')).toHaveAttr(
-        'aria-current',
-        'page',
-      ),
-      Scene.expect(Scene.selector('[data-conversation]')).toContainText(
-        'Fold the resizable engine into the app shell',
-      ),
+      Scene.given(init(urlForPath('/thread/thread-1')).model),
+      Scene.expect(Scene.selector('[data-detail]')).toContainText('No thread selected'),
+      Scene.expect(Scene.selector('[data-conversation]')).toContainText('thread-1'),
     )
   })
 
   it('reads the selection out of the route and shows no thread at home', () => {
     expect(selectedThread(init(homeUrl).model)).toEqual(Option.none())
-    expect(selectedThread(init(urlForPath('/thread/shell-retro')).model)).toEqual(
-      Option.some('shell-retro'),
+    expect(selectedThread(init(urlForPath('/thread/thread-1')).model)).toEqual(
+      Option.some('thread-1'),
     )
     expect(selectedThread(init(urlForPath('/settings/general')).model)).toEqual(Option.none())
   })
 
   it('names an idle row with no status word', () => {
-    const idle = threadById(fakeThreadSections, 'kernel-session-fold')
-    expect(idle === undefined ? undefined : ThreadList.statusLabel(idle.status)).toBeUndefined()
+    const idle = fixtureRow('idle-row', [], Option.none())
+    expect(ThreadList.statusLabel(idle.status)).toBeUndefined()
     expect(ThreadList.statusLabel('needs-you')).toBe('Needs you')
     expect(ThreadList.statusLabel('failed')).toBe('Failed')
     expect(ThreadList.statusLabel('unread')).toBe('Unread')
@@ -410,13 +424,22 @@ describe('thread list', () => {
   })
 
   it('finds a row in the seam, including a nested one', () => {
-    expect(threadById(fakeThreadSections, 'shell-retro-audit')?.title).toBe(
-      'Audit collapse semantics',
-    )
-    expect(threadById(fakeThreadSections, 'shell-retro-tests-reload')?.title).toBe(
-      'Reload with both sidebars shut',
-    )
-    expect(threadById(fakeThreadSections, 'nope')).toBeUndefined()
+    const sections: ReadonlyArray<ThreadSection> = [
+      {
+        id: 'fixture',
+        label: 'Fixture',
+        rows: [
+          fixtureRow(
+            'parent',
+            [fixtureRow('child', [fixtureRow('grandchild', [], Option.none())], Option.none())],
+            Option.none(),
+          ),
+        ],
+      },
+    ]
+    expect(threadById(sections, 'child')?.title).toBe('Fixture child')
+    expect(threadById(sections, 'grandchild')?.title).toBe('Fixture grandchild')
+    expect(threadById(sections, 'nope')).toBeUndefined()
   })
 })
 
@@ -429,21 +452,7 @@ describe('composer', () => {
 
   const listOne = (): Model => withProjects([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
 
-  /** The composer's own path to a filled-in create form, as the browser walks it. */
-  const typedCreateForm = (model: Model): Model => {
-    const walk: ReadonlyArray<Composer.Message> = [
-      Composer.Message.ClickedAction({ id: 'project' }),
-      Composer.Message.ClickedChipOption({ chip: 'project', option: 'new-project' }),
-      Composer.Message.ChangedChipField({ chip: 'project', field: 'name', value: 'second' }),
-      Composer.Message.ChangedChipField({ chip: 'project', field: 'cwd', value: 'tmp/second' }),
-    ]
-    return walk.reduce(
-      (current, message) => update(current, Message.GotComposer({ message })).model,
-      model,
-    )
-  }
-
-  it('renders centered with headline, input, actions, and context chips', () => {
+  it('renders centered with headline, input, and one submodel per slot', () => {
     Scene.scene(
       { update, view },
       Scene.given(init(homeUrl).model),
@@ -451,15 +460,19 @@ describe('composer', () => {
       Scene.expect(Scene.text('What should we build in oru?')).toExist(),
       Scene.expect(Scene.selector('[data-composer-input]')).toExist(),
       Scene.expect(Scene.selector('[data-composer-submit]')).toExist(),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Model'),
-      // A cold load has no host answer, so the chip names no project; the
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Model'),
+      // A cold load has no host answer, so the picker names no project; the
       // shell header renders the brand 'oru' all the same, which is why this is
-      // asserted against the chip rather than against the literal.
-      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('Project'),
-      Scene.expect(Scene.selector('[data-composer-chip="project"]')).not.toContainText('oru'),
-      Scene.expect(Scene.text('Worktree')).toExist(),
-      Scene.expect(Scene.text('Branch from: origin/master')).toExist(),
-      Scene.expect(Scene.text('Full Access')).toExist(),
+      // asserted against the picker rather than against the literal.
+      Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('Project'),
+      Scene.expect(Scene.selector('[data-project-picker-trigger]')).not.toContainText('oru'),
+      Scene.expect(Scene.selector('[data-worktree-picker-trigger]')).toContainText(
+        'Current worktree',
+      ),
+      Scene.expect(Scene.selector('[data-branch-picker-trigger]')).toContainText(
+        'Branch from: origin/master',
+      ),
+      Scene.expect(Scene.selector('[data-access-picker-trigger]')).toContainText('Full Access'),
     )
   })
 
@@ -467,24 +480,24 @@ describe('composer', () => {
     Scene.scene(
       { update, view },
       Scene.given(listOne()),
-      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('oru'),
-      Scene.expect(Scene.selector('[data-composer-chip-panel="project"]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
+      Scene.expect(Scene.selector('[data-project-picker-panel]')).not.toExist(),
     )
   })
 
-  it('lists the host’s projects in the chip and creates from its form', () => {
+  it('creates from the project picker’s form, and the host’s own row names it', () => {
     Scene.scene(
       { update, view },
       Scene.given(listOne()),
-      Scene.click(Scene.selector('[data-composer-chip="project"]')),
-      Scene.expect(Scene.selector('[data-composer-chip-option="p1"]')).toContainText('/tmp/oru'),
-      Scene.expect(Scene.selector('[data-composer-chip-option="new-project"]')).toExist(),
-      Scene.click(Scene.selector('[data-composer-chip-option="new-project"]')),
-      Scene.type(Scene.selector('[data-composer-chip-field="name"]'), 'second'),
-      Scene.type(Scene.selector('[data-composer-chip-field="cwd"]'), '/tmp/second'),
-      Scene.click(Scene.selector('[data-composer-chip-submit]')),
+      Scene.click(Scene.selector('[data-project-picker-trigger]')),
+      Scene.expect(Scene.selector('[data-project-picker-option="p1"]')).toContainText('/tmp/oru'),
+      Scene.expect(Scene.selector('[data-project-picker-option="new-project"]')).toExist(),
+      Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
+      Scene.type(Scene.selector('[data-project-picker-field="name"]'), 'second'),
+      Scene.type(Scene.selector('[data-project-picker-field="cwd"]'), '/tmp/second'),
+      Scene.click(Scene.selector('[data-project-picker-submit]')),
       Scene.Command.expectHas(CreateProject),
-      // The host's own row is what closes the form, so the chip names an
+      // The host's own row is what closes the form, so the picker names an
       // answered project and never the text that was typed.
       Scene.Command.resolve(
         CreateProject,
@@ -494,152 +507,32 @@ describe('composer', () => {
           }),
         }),
       ),
-      Scene.expect(Scene.selector('[data-composer-chip-panel="project"]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('second'),
+      Scene.expect(Scene.selector('[data-project-picker-panel]')).not.toExist(),
+      Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('second'),
     )
   })
 
-  it('asks the host to create what the form describes, then shows its refusal inline', () => {
-    const submitted = update(
-      typedCreateForm(listOne()),
-      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
-    )
-    expect(submitted.commands?.map((command) => command.name)).toEqual(['CreateProject'])
-    expect(submitted.commands?.[0]?.args).toEqual({ name: 'second', cwd: 'tmp/second' })
-
-    const refused = update(
-      submitted.model,
-      Message.GotProjects({
-        message: Projects.Message.CreateRefused({
-          refusal: Projects.RelativeCwd.make({ cwd: 'tmp/second' }),
-        }),
-      }),
-    )
-    Scene.scene(
-      { update, view },
-      Scene.given(refused.model),
-      Scene.expect(Scene.selector('[data-composer-chip-error="project"]')).toContainText(
-        'absolute',
-      ),
-      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
-    )
-  })
-
-  it('keeps a create draft through a host that stops, and stops calling it pending', () => {
-    const submitted = update(
-      typedCreateForm(listOne()),
-      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
-    ).model
-    expect(submitted.projects.panel).toEqual(
-      Projects.PanelComposing.make({
-        name: 'second',
-        cwd: 'tmp/second',
-        refusal: undefined,
-        isSaving: true,
-      }),
-    )
-
-    const back = update(
-      submitted,
-      Message.GotProjects({
-        message: Projects.Message.HostUnreachable({ reason: 'ListProjects: the host is down' }),
-      }),
-    ).model
-    expect(back.projects.panel).toEqual(
-      Projects.PanelComposing.make({
-        name: 'second',
-        cwd: 'tmp/second',
-        refusal: undefined,
-        isSaving: false,
-      }),
-    )
-
-    const remembered = update(
-      back,
-      Message.GotProjects({ message: Projects.Message.ProjectsArrived({ projects: [] }) }),
-    ).model
-    Scene.scene(
-      { update, view },
-      Scene.given(remembered),
-      Scene.expect(Scene.selector('[data-composer-chip="project"]')).toHaveAttr(
-        'aria-expanded',
-        'true',
-      ),
-      Scene.expect(Scene.selector('[data-composer-chip-field="name"]')).toHaveValue('second'),
-      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
-    )
-  })
-
-  it('holds a draft the host owes an answer for, so the refusal reaches the form that asked', () => {
-    const submitted = update(
-      typedCreateForm(listOne()),
-      Message.GotComposer({ message: Composer.Message.ClickedChipSubmit({ chip: 'project' }) }),
-    ).model
-    Scene.scene(
-      { update, view },
-      Scene.given(submitted),
-      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeDisabled(),
-      Scene.expect(Scene.selector('[data-composer-chip-cancel="project"]')).toBeDisabled(),
-    )
-
-    const abandoned = ((): Model => {
-      const walk: ReadonlyArray<Composer.Message> = [
-        Composer.Message.ClickedChipCancel({ chip: 'project' }),
-        Composer.Message.ClickedAction({ id: 'project' }),
-        Composer.Message.ClickedChipOption({ chip: 'project', option: 'new-project' }),
-        Composer.Message.ChangedChipField({ chip: 'project', field: 'name', value: 'third' }),
-      ]
-      return walk.reduce(
-        (current, message) => update(current, Message.GotComposer({ message })).model,
-        submitted,
-      )
-    })()
-    expect(abandoned.projects.panel).toEqual(submitted.projects.panel)
-
-    const refused = update(
-      abandoned,
-      Message.GotProjects({
-        message: Projects.Message.CreateRefused({
-          refusal: Projects.RelativeCwd.make({ cwd: 'tmp/second' }),
-        }),
-      }),
-    ).model
-    Scene.scene(
-      { update, view },
-      Scene.given(refused),
-      Scene.expect(Scene.selector('[data-composer-chip-error="project"]')).toContainText(
-        'tmp/second',
-      ),
-      Scene.expect(Scene.selector('[data-composer-chip-field="name"]')).toHaveValue('second'),
-      Scene.expect(Scene.selector('[data-composer-chip-submit="project"]')).toBeEnabled(),
-      Scene.expect(Scene.selector('[data-composer-chip-cancel="project"]')).toBeEnabled(),
-    )
-  })
-
-  it('marks a project as picked only when the host answer backs the pick', () => {
+  it('shows the host’s refusal inline on the form that asked for it', () => {
     Scene.scene(
       { update, view },
       Scene.given(listOne()),
-      Scene.click(Scene.selector('[data-composer-chip="project"]')),
-      Scene.expectAll(Scene.all.selector('[data-composer-chip-option-selected]')).toHaveCount(0),
-      Scene.click(Scene.selector('[data-composer-chip-option="p1"]')),
-      Scene.click(Scene.selector('[data-composer-chip="project"]')),
-      Scene.expectAll(Scene.all.selector('[data-composer-chip-option-selected]')).toHaveCount(1),
+      Scene.click(Scene.selector('[data-project-picker-trigger]')),
+      Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
+      Scene.type(Scene.selector('[data-project-picker-field="name"]'), 'second'),
+      Scene.type(Scene.selector('[data-project-picker-field="cwd"]'), 'tmp/second'),
+      Scene.click(Scene.selector('[data-project-picker-submit]')),
+      Scene.Command.expectHas(CreateProject),
+      Scene.Command.resolve(
+        CreateProject,
+        Message.GotProjectPicker({
+          message: ProjectPicker.Message.CreateRefused({
+            refusal: Projects.RelativeCwd.make({ cwd: 'tmp/second' }),
+          }),
+        }),
+      ),
+      Scene.expect(Scene.selector('[data-project-picker-error]')).toContainText('absolute'),
+      Scene.expect(Scene.selector('[data-project-picker-submit]')).toBeEnabled(),
     )
-  })
-
-  it('does not offer a project id the host never answered with', () => {
-    const opened = update(
-      listOne(),
-      Message.GotComposer({ message: Composer.Message.ClickedAction({ id: 'project' }) }),
-    ).model
-    const picked = update(
-      opened,
-      Message.GotComposer({
-        message: Composer.Message.ClickedChipOption({ chip: 'project', option: 'p-ghost' }),
-      }),
-    ).model
-    expect(Projects.selectedProject(picked.projects)?.id).toBe('p1')
   })
 
   it('submits a draft through the root loop, clearing the box', () => {
@@ -673,26 +566,6 @@ describe('composer', () => {
     expect(sent.model.draft).toBe('')
     expect('outMessage' in sent ? sent.outMessage : undefined).toBeUndefined()
   })
-
-  it('merges contributions from multiple sources', () => {
-    const merged = Composer.mergeContributions(
-      {
-        placeholder: 'Ask anything',
-        headline: 'Build something',
-        leading: [{ id: 'add' }],
-        trailing: [],
-        chips: [],
-      },
-      {
-        ...Composer.emptyContributions(''),
-        chips: [{ id: 'project', label: 'oru' }],
-      },
-    )
-    expect(merged.placeholder).toBe('Ask anything')
-    expect(merged.headline).toBe('Build something')
-    expect(merged.leading).toHaveLength(1)
-    expect(merged.chips).toHaveLength(1)
-  })
 })
 
 describe('model picker', () => {
@@ -725,9 +598,10 @@ describe('model picker', () => {
     ).model
 
   it('asks the host for the options of the route it loaded', () => {
-    expect(
-      init(urlForPath('/thread/shell-retro')).commands?.map((command) => command.name),
-    ).toEqual(['ListProjects', 'LoadThreadOptions'])
+    expect(init(urlForPath('/thread/thread-1')).commands?.map((command) => command.name)).toEqual([
+      'ListProjects',
+      'LoadThreadOptions',
+    ])
     expect(init(homeUrl).commands?.map((command) => command.name)).toEqual(['ListProjects'])
     expect(init(urlForPath('/settings/general')).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
@@ -737,12 +611,9 @@ describe('model picker', () => {
   it('loads the picker for the route a navigation lands on, and resets it', () => {
     const loadedHome = loaded(homeUrl, ready, 'deepseek/deepseek-flash')
 
-    const atThread = update(
-      loadedHome,
-      Message.ChangedUrl({ url: urlForPath('/thread/shell-retro') }),
-    )
+    const atThread = update(loadedHome, Message.ChangedUrl({ url: urlForPath('/thread/thread-1') }))
     expect(atThread.commands?.map((command) => command.name)).toEqual(['LoadThreadOptions'])
-    expect(atThread.commands?.[0]?.args).toEqual({ threadId: 'shell-retro', refresh: false })
+    expect(atThread.commands?.[0]?.args).toEqual({ threadId: 'thread-1', refresh: false })
     expect(Predicate.isTagged(atThread.model.picker.options, 'Loading')).toBe(true)
 
     const atHome = update(atThread.model, Message.ChangedUrl({ url: urlForPath('/') }))
@@ -759,12 +630,10 @@ describe('model picker', () => {
     Scene.scene(
       { update, view },
       Scene.given(loaded(homeUrl, ready, 'deepseek/deepseek-flash')),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText(
-        'DeepSeek Flash',
-      ),
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('DeepSeek Flash'),
       Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
-      Scene.click(Scene.selector('[data-composer-action="model"]')),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).toHaveAttr(
+      Scene.click(Scene.selector('[data-model-picker-trigger]')),
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toHaveAttr(
         'aria-expanded',
         'true',
       ),
@@ -772,8 +641,8 @@ describe('model picker', () => {
       Scene.expect(Scene.selector('[data-model-search]')).toExist(),
       Scene.click(Scene.selector('[data-model-row="github-copilot/gpt-5"]')),
       Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Copilot Five'),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).not.toHaveAttr(
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Copilot Five'),
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).not.toHaveAttr(
         'aria-expanded',
         'true',
       ),
@@ -796,7 +665,7 @@ describe('model picker', () => {
   it('shows a thread’s own harness health above its composer', () => {
     Scene.scene(
       { update, view },
-      Scene.given(loaded(urlForPath('/thread/shell-retro'), notInstalled, undefined)),
+      Scene.given(loaded(urlForPath('/thread/thread-1'), notInstalled, undefined)),
       Scene.expect(Scene.selector('[data-conversation]')).toExist(),
       Scene.expect(Scene.selector('[data-harness-install]')).toContainText('pi update self'),
     )
@@ -808,7 +677,7 @@ describe('model picker', () => {
       Scene.given(loaded(homeUrl, ready, undefined)),
       Scene.expect(Scene.selector('[data-harness-install]')).not.toExist(),
       Scene.expect(Scene.selector('[data-model-picker]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-composer-action="model"]')).toContainText('Model'),
+      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Model'),
     )
   })
 })
@@ -816,7 +685,7 @@ describe('model picker', () => {
 describe('routing', () => {
   it('builds each page back to its own URL', () => {
     expect(homeRouter()).toBe('/')
-    expect(threadRouter({ threadId: 'shell-retro' })).toBe('/thread/shell-retro')
+    expect(threadRouter({ threadId: 'thread-1' })).toBe('/thread/thread-1')
     expect(settingsIndexRouter()).toBe('/settings')
     expect(settingsGeneralRouter()).toBe('/settings/general')
     expect(settingsProvidersRouter()).toBe('/settings/providers')
@@ -825,8 +694,8 @@ describe('routing', () => {
 
   it('parses every settings section to its own route, with a fallback', () => {
     expect(urlToAppRoute(urlForPath('/'))).toEqual(AppRoute.Home())
-    expect(urlToAppRoute(urlForPath('/thread/shell-retro'))).toEqual(
-      AppRoute.Thread({ threadId: 'shell-retro' }),
+    expect(urlToAppRoute(urlForPath('/thread/thread-1'))).toEqual(
+      AppRoute.Thread({ threadId: 'thread-1' }),
     )
     expect(urlToAppRoute(urlForPath('/settings'))).toEqual(AppRoute.SettingsGeneral())
     expect(urlToAppRoute(urlForPath('/settings/general'))).toEqual(AppRoute.SettingsGeneral())
@@ -837,7 +706,7 @@ describe('routing', () => {
 
   it('titles each route from the section list', () => {
     expect(titleForRoute(AppRoute.Home())).toBe('oru')
-    expect(titleForRoute(AppRoute.Thread({ threadId: 'shell-retro' }))).toBe('Thread | oru')
+    expect(titleForRoute(AppRoute.Thread({ threadId: 'thread-1' }))).toBe('Thread | oru')
     expect(titleForRoute(AppRoute.SettingsGeneral())).toBe('General - Settings | oru')
     expect(titleForRoute(AppRoute.SettingsProviders())).toBe('Providers - Settings | oru')
     expect(titleForRoute(AppRoute.NotFound({ path: '/nope' }))).toBe('Not found | oru')

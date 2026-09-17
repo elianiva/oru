@@ -30,7 +30,7 @@ const seedThread = (): Promise<string> =>
 
 test('the picker offers the host default harness and its catalogue', async ({ page }) => {
   await page.goto('/')
-  await page.locator('[data-composer-action="model"]').click()
+  await page.locator('[data-model-picker-trigger]').click()
 
   await expect(page.locator('[data-model-panel]')).toBeVisible()
   await expect(page.locator('[data-harness-label]')).toHaveText('pi')
@@ -46,17 +46,17 @@ test('a chosen model configures the thread and is still selected after a reload'
   const threadId = await seedThread()
   await page.goto(`/thread/${threadId}`)
 
-  await page.locator('[data-composer-action="model"]').click()
+  await page.locator('[data-model-picker-trigger]').click()
   await expect(page.locator('[data-model-panel]')).toBeVisible()
   await page.locator('[data-model-search]').fill('scripted-mini')
   await expect(page.locator('[data-model-row]')).toHaveCount(1)
   await page.locator('[data-model-row="scripted/scripted-mini"]').click()
 
   await expect(page.locator('[data-model-panel]')).toHaveCount(0)
-  await expect(page.locator('[data-composer-action="model"]')).toContainText('Scripted Mini')
+  await expect(page.locator('[data-model-picker-trigger]')).toContainText('Scripted Mini')
 
   await page.reload()
 
   await expect(page.locator('[data-conversation]')).toBeVisible()
-  await expect(page.locator('[data-composer-action="model"]')).toContainText('Scripted Mini')
+  await expect(page.locator('[data-model-picker-trigger]')).toContainText('Scripted Mini')
 })

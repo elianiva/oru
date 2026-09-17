@@ -17,6 +17,7 @@ import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { describe, expect, it } from 'vitest'
 import { ProjectClient, ThreadClient, clientsFor } from '@oru/rpc'
+import * as ProjectPicker from '../src/project-picker.ts'
 import * as Projects from '../src/projects.ts'
 import {
   ListProjects,
@@ -102,7 +103,7 @@ describe('the app’s seam to a running host', () => {
     expect(init(homeUrl).commands?.map((command) => command.name)).toEqual(['ListProjects'])
   })
 
-  it('renders the host’s answer: no projects is an empty state, not an empty list', async () => {
+  it('renders the host’s answer: no projects renders nothing', async () => {
     await withHost(async (hostUrl) => {
       const message = await listProjects(hostUrl)
 
@@ -116,9 +117,9 @@ describe('the app’s seam to a running host', () => {
       Scene.scene(
         { update, view },
         Scene.given(model),
-        Scene.expect(Scene.selector('[data-projects-empty]')).toExist(),
-        Scene.expect(Scene.text('No projects yet')).toExist(),
+        Scene.expect(Scene.selector('[data-projects]')).toExist(),
         Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
+        Scene.expect(Scene.text('No projects yet')).not.toExist(),
       )
     })
   })
@@ -148,7 +149,6 @@ describe('the app’s seam to a running host', () => {
         Scene.given(model),
         Scene.expect(Scene.selector(`[data-project="${created.id}"]`)).toContainText('oru'),
         Scene.expect(Scene.selector(`[data-project="${created.id}"]`)).toContainText(cwd),
-        Scene.expect(Scene.selector('[data-projects-empty]')).not.toExist(),
       )
     })
   })
@@ -213,7 +213,7 @@ describe('the app’s seam to a running host', () => {
         Scene.given(recovered),
         Scene.expect(Scene.selector('[data-host-unreachable]')).not.toExist(),
         Scene.expect(Scene.selector('[data-main]')).toExist(),
-        Scene.expect(Scene.selector('[data-projects-empty]')).toExist(),
+        Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
       )
     })
   })
@@ -237,7 +237,7 @@ describe('the app’s seam to a running host', () => {
         Scene.given(model),
         Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText('oru'),
         Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText(cwd),
-        Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('oru'),
+        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
       )
     })
   })
@@ -271,7 +271,7 @@ describe('the app’s seam to a running host', () => {
         { update, view },
         Scene.given(model),
         Scene.expect(Scene.selector(`[data-project="${project.id}"]`)).toContainText('after'),
-        Scene.expect(Scene.selector('[data-composer-chip="project"]')).toContainText('after'),
+        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('after'),
       )
     })
   })
@@ -285,8 +285,8 @@ describe('the app’s seam to a running host', () => {
         CreateProject({ name: 'oru', cwd: 'relative/place' }).effect,
       )
       expect(refusedCreate).toEqual(
-        Message.GotProjects({
-          message: Projects.Message.CreateRefused({
+        Message.GotProjectPicker({
+          message: ProjectPicker.Message.CreateRefused({
             refusal: Projects.RelativeCwd.make({ cwd: 'relative/place' }),
           }),
         }),

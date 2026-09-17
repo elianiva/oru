@@ -122,8 +122,8 @@ Open the printed URL and check these, in order.
 3. Drag the seam between the thread list and the composer. The list widens, the middle column narrows by the same amount, and `Details` keeps its width.
 4. Click the panel icon on the left of the header. The thread list closes and the middle column takes the room. Click it again. The list reopens at the width it had.
 5. Click the panel icon on the right of the header, then reload the page. `Details` stays closed and every other width comes back.
-6. Click a thread row. The URL becomes `/thread/<id>`, the row keeps a ring, `Details` lists the thread's project, location, status, and pull request, and the middle column is the conversation rather than the hero composer. Reload: you are in the same thread. Go back: the hero composer returns.
-7. Click the `Inactive (2)` header. The shelf closes and its header keeps the row count.
+6. Open `/thread/<id>`. The middle column is the conversation rather than the hero composer. Reload: you are in the same thread. Go back: the hero composer returns. (Thread rows arrive from the host's thread integration; an empty host lists none.)
+7. Collapse a thread section from its header. The shelf closes and its header keeps the row count.
 8. Type a message in the composer and click the send button. The box clears and the send button returns to disabled.
 9. Stop the host and reload. The app says `Host unreachable` with the reason and a `Retry`, and no column pretends to hold a fact. Start the host again and click `Retry`: the app comes back.
 
@@ -140,7 +140,7 @@ agent-browser open <url>
 agent-browser set viewport 1440 900
 agent-browser wait --text "No projects yet"
 agent-browser screenshot 01-fresh-host-empty-projects.png
-agent-browser open <url>/thread/shell-retro
+agent-browser open <url>/thread/<thread-id>
 agent-browser screenshot 03-thread-url-conversation.png
 agent-browser click "[data-host-retry]"
 agent-browser screenshot 05-retry-recovered.png

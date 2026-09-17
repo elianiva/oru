@@ -51,12 +51,12 @@ test('an unknown path explains itself with a way back', async ({ page }) => {
 test('the Projects page renames a project the host recorded', async ({ page }) => {
   const cwd = dirname(fileURLToPath(import.meta.url))
   await page.goto('/')
-  await page.locator('[data-composer-chip="project"]').click()
-  await page.locator('[data-composer-chip-option="new-project"]').click()
-  await page.locator('[data-composer-chip-field="name"]').fill('rename-me')
-  await page.locator('[data-composer-chip-field="cwd"]').fill(cwd)
-  await page.locator('[data-composer-chip-submit="project"]').click()
-  await expect(page.locator('[data-composer-chip="project"]')).toContainText('rename-me')
+  await page.locator('[data-project-picker-trigger]').click()
+  await page.locator('[data-project-picker-option="new-project"]').click()
+  await page.locator('[data-project-picker-field="name"]').fill('rename-me')
+  await page.locator('[data-project-picker-field="cwd"]').fill(cwd)
+  await page.locator('[data-project-picker-submit]').click()
+  await expect(page.locator('[data-project-picker-trigger]')).toContainText('rename-me')
 
   await page.goto('/settings/projects')
   const row = page.locator('[data-projects-row]', { hasText: 'rename-me' })

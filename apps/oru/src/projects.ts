@@ -6,8 +6,9 @@
  * answers that it has no projects, is a fact to render — with a retry — not a
  * defect to die on.
  *
- * This model owns the create and edit drafts too, so the chip's form and the
- * settings page edit one host answer instead of keeping copies of it.
+ * This model owns the host answer and the settings edit draft. The composer's
+ * project picker owns its own selection and create draft next to the state
+ * they derive from, and reads the list this model holds.
  */
 import { Match, Predicate, Schema } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
@@ -15,14 +16,12 @@ import { defineMessageUnion } from 'foldkit/message'
 import { defineView } from 'foldkit/submodel'
 import { evo } from 'foldkit/struct'
 import type * as Update from 'foldkit/update'
-import { FolderGit, Plus } from 'lucide'
+import { FolderGit } from 'lucide'
 import { ProjectId } from '@oru/kernel'
 import { Project } from '@oru/rpc'
 import { button } from '@/components/ui/button.ts'
-import { Empty } from '@/components/ui/empty.ts'
 import { icon } from '@/lib/icons.ts'
 import { card, section, textRow } from '@/settings/controls.ts'
-import type { ComposerChip, ComposerChipOption, ComposerChipPanel } from './composer.ts'
 
 export const Loading = Schema.TaggedStruct('Loading', {})
 export const Loaded = Schema.TaggedStruct('Loaded', { projects: Schema.Array(Project) })
@@ -45,21 +44,6 @@ export type RelativeCwd = typeof RelativeCwd.Type
 export type UnknownProject = typeof UnknownProject.Type
 export type Refusal = typeof Refusal.Type
 
-/**
- * The composer chip's panel. Presence of a draft is what makes the panel a
- * form, so "the form is open" and "a draft exists" cannot disagree.
- */
-export const PanelClosed = Schema.TaggedStruct('PanelClosed', {})
-export const PanelBrowsing = Schema.TaggedStruct('PanelBrowsing', {})
-export const PanelComposing = Schema.TaggedStruct('PanelComposing', {
-  name: Schema.String,
-  cwd: Schema.String,
-  refusal: Schema.UndefinedOr(RelativeCwd),
-  isSaving: Schema.Boolean,
-})
-export const CreatePanel = Schema.Union([PanelClosed, PanelBrowsing, PanelComposing])
-export type CreatePanel = typeof CreatePanel.Type
-
 /** One settings row in edit mode, seeded from the host's own row. */
 export const Edit = Schema.Struct({
   project: ProjectId,
@@ -72,20 +56,10 @@ export type Edit = typeof Edit.Type
 
 export const Model = Schema.Struct({
   host: Host,
-  /**
-   * The project the composer points at, as an id. A name is read back out of
-   * `host` on every render, so a row the host no longer lists stops resolving
-   * instead of being rendered from a stale copy.
-   */
-  selected: Schema.UndefinedOr(ProjectId),
-  panel: CreatePanel,
   edit: Schema.UndefinedOr(Edit),
 })
 export type Model = typeof Model.Type
 
-export const CHIP_ID = 'project'
-/** The menu row that opens the compose form. */
-export const CREATE_ROW = 'new-project'
 export const FIELDS = { name: 'name', cwd: 'cwd' } as const
 export type Field = (typeof FIELDS)[keyof typeof FIELDS]
 
@@ -98,17 +72,9 @@ export const Message = defineMessageUnion({
   HostUnreachable: { reason: Schema.String },
   ProjectCreated: { project: Project },
   ProjectUpdated: { project: Project },
-  CreateRefused: { refusal: RelativeCwd },
   UpdateRefused: { refusal: Refusal },
 
-  // The composer chip. Root routes these by chip id, so the id stops there.
-  ToggledCreatePanel: {},
-  ChangedCreateField: { field: Schema.String, value: Schema.String },
-  SelectedCreateOption: { option: Schema.String },
-  CanceledCreate: {},
-  SubmittedCreate: {},
-
-  // Settings → Projects, this same submodel at another slot.
+  // Settings → Projects.
   ClickedEdit: { project: ProjectId },
   ChangedEditField: { field: Schema.String, value: Schema.String },
   ClickedEditSave: {},
@@ -120,7 +86,6 @@ export type Message = typeof Message.Type
 
 export const OutMessage = defineMessageUnion({
   RequestedRetry: {},
-  RequestedCreate: { name: Schema.NonEmptyString, cwd: Schema.NonEmptyString },
   RequestedUpdate: {
     project: ProjectId,
     name: Schema.NonEmptyString,
@@ -131,8 +96,6 @@ export type OutMessage = typeof OutMessage.Type
 
 export const init = (): Model => ({
   host: Loading.make({}),
-  selected: undefined,
-  panel: PanelClosed.make({}),
   edit: undefined,
 })
 
@@ -146,18 +109,7 @@ export const isUnreachable = (model: Model): boolean =>
 export const projectsOf = (model: Model): ReadonlyArray<Project> =>
   Predicate.isTagged(model.host, 'Loaded') ? model.host.projects : []
 
-/** The project the user pointed the composer at, if they have picked one yet. */
-export const chosenProject = (model: Model): Project | undefined =>
-  projectsOf(model).find((project) => project.id === model.selected)
-
-/**
- * The project the chip names and a thread would run in: the one the user picked
- * while the host still lists it, otherwise the host's first, the way the harness
- * registry resolves `preferred()` for a thread that names no harness. Nothing is
- * stored by that fallback, so the menu marks only a pick.
- */
-export const selectedProject = (model: Model): Project | undefined =>
-  chosenProject(model) ?? projectsOf(model)[0]
+export const isLoading = (model: Model): boolean => Predicate.isTagged(model.host, 'Loading')
 
 /** Replaces a listed project, or states a newly answered one. */
 const upsert = (projects: ReadonlyArray<Project>, project: Project): ReadonlyArray<Project> =>
@@ -186,28 +138,15 @@ export const refusalText = (refusal: Refusal): string =>
   )
 
 /**
- * A host that stopped answering is not a write in flight, so neither draft stays
- * pending through the retry that follows.
+ * A host that stopped answering is not a write in flight, so the edit does
+ * not stay pending through the retry that follows.
  */
 const settled = (model: Model): Model =>
   evo(model, {
     edit: (edit) => (edit === undefined ? edit : evo(edit, { isSaving: () => false })),
-    panel: (panel) =>
-      Predicate.isTagged(panel, 'PanelComposing')
-        ? PanelComposing.make({ ...panel, isSaving: false })
-        : panel,
   })
 
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>
-
-/**
- * A draft the host owes an answer for. It cannot be dismissed, replaced, or
- * amended while the write is in flight, so an answer can only reach the draft
- * that made the request: a refusal lands on the form that asked for it and never
- * on one that replaced it.
- */
-const isPending = (panel: CreatePanel): boolean =>
-  Predicate.isTagged(panel, 'PanelComposing') && panel.isSaving
 
 const editIsPending = (model: Model): boolean => model.edit?.isSaving === true
 
@@ -220,11 +159,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: settled(evo(model, { host: () => Unreachable.make({ reason }) })),
     }),
     ProjectCreated: ({ project }) => ({
-      model: evo(model, {
-        host: (host) => upserted(host, project),
-        selected: () => project.id,
-        panel: () => PanelClosed.make({}),
-      }),
+      // Creating a project is the host recording a fact, so the created row
+      // is what reaches the screen. The picker's own selection follows
+      // through the message root forwards to it.
+      model: evo(model, { host: (host) => upserted(host, project) }),
     }),
     ProjectUpdated: ({ project }) => ({
       model: evo(model, {
@@ -232,23 +170,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         edit: () => undefined,
       }),
     }),
-    CreateRefused: ({ refusal }) =>
-      Match.value(model.panel).pipe(
-        Match.tagsExhaustive({
-          PanelComposing: (composing) => ({
-            model: evo(model, {
-              panel: () =>
-                PanelComposing.make({
-                  ...composing,
-                  refusal,
-                  isSaving: false,
-                }),
-            }),
-          }),
-          PanelClosed: () => ({ model }),
-          PanelBrowsing: () => ({ model }),
-        }),
-      ),
     UpdateRefused: ({ refusal }) => {
       const edit = model.edit
       return {
@@ -258,77 +179,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             : evo(model, { edit: () => ({ ...edit, refusal, isSaving: false }) }),
       }
     },
-
-    ToggledCreatePanel: () => {
-      if (isPending(model.panel)) return { model }
-      return {
-        model: evo(model, {
-          panel: (panel) =>
-            Predicate.isTagged(panel, 'PanelClosed')
-              ? PanelBrowsing.make({})
-              : PanelClosed.make({}),
-        }),
-      }
-    },
-    ChangedCreateField: ({ field, value }) => {
-      if (!isField(field) || isPending(model.panel)) return { model }
-      return Match.value(model.panel).pipe(
-        Match.tagsExhaustive({
-          // The refusal answered the old text, so editing retires it.
-          PanelComposing: (composing) => ({
-            model: evo(model, {
-              panel: () =>
-                PanelComposing.make({
-                  ...composing,
-                  ...(field === FIELDS.name ? { name: value } : { cwd: value }),
-                  refusal: undefined,
-                }),
-            }),
-          }),
-          PanelClosed: () => ({ model }),
-          PanelBrowsing: () => ({ model }),
-        }),
-      )
-    },
-    SelectedCreateOption: ({ option }) => {
-      if (isPending(model.panel)) return { model }
-      if (option === CREATE_ROW) {
-        return {
-          model: evo(model, {
-            panel: () =>
-              PanelComposing.make({ name: '', cwd: '', refusal: undefined, isSaving: false }),
-          }),
-        }
-      }
-      // An id no host answer carries is not a selection.
-      if (!projectsOf(model).some((project) => project.id === option)) return { model }
-      return { model: evo(model, { selected: () => option, panel: () => PanelClosed.make({}) }) }
-    },
-    CanceledCreate: () => {
-      if (isPending(model.panel)) return { model }
-      return { model: evo(model, { panel: () => PanelClosed.make({}) }) }
-    },
-    SubmittedCreate: () =>
-      Match.value(model.panel).pipe(
-        Match.tagsExhaustive({
-          PanelComposing: (composing) => {
-            const name = composing.name.trim()
-            const cwd = composing.cwd.trim()
-            // The wire's own precondition, not a second opinion about what a
-            // host accepts: which cwd *is* acceptable stays the host's answer.
-            if (composing.isSaving || name.length === 0 || cwd.length === 0) return { model }
-            return {
-              model: evo(model, {
-                panel: () =>
-                  PanelComposing.make({ ...composing, refusal: undefined, isSaving: true }),
-              }),
-              outMessage: OutMessage.RequestedCreate({ name, cwd }),
-            }
-          },
-          PanelClosed: () => ({ model }),
-          PanelBrowsing: () => ({ model }),
-        }),
-      ),
 
     ClickedEdit: ({ project }) => {
       if (editIsPending(model)) return { model }
@@ -381,96 +231,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedRetry: () => ({ model: retrying(model), outMessage: OutMessage.RequestedRetry() }),
   })
 
-/** One menu row: a project the host lists, or the way into a new one. */
-type ChipRow = Readonly<{
-  id: string
-  kind: 'project' | 'create'
-  label: string
-  description?: string | undefined
-  isSelected?: boolean | undefined
-}>
-
-const chipRows = (model: Model): ReadonlyArray<ChipRow> => {
-  if (!Predicate.isTagged(model.host, 'Loaded')) return []
-  const chosen = chosenProject(model)
-  return [
-    ...model.host.projects.map((project): ChipRow => ({
-      id: project.id,
-      kind: 'project',
-      label: project.name,
-      description: project.cwd,
-      isSelected: chosen?.id === project.id,
-    })),
-    { id: CREATE_ROW, kind: 'create', label: 'New project…' },
-  ]
-}
-
-const chipLabel = (model: Model): string =>
-  Predicate.isTagged(model.host, 'Loaded')
-    ? (selectedProject(model)?.name ?? 'No project')
-    : 'Project'
-
-const hostMenu = (model: Model): ComposerChipPanel => ({
-  kind: 'menu',
-  options: chipRows(model).map((row): ComposerChipOption => ({
-    id: row.id,
-    label: row.label,
-    description: row.description,
-    isSelected: row.isSelected,
-    isSeparated: row.kind === 'create',
-    icon: row.kind === 'create' ? Plus : undefined,
-  })),
-  note: Predicate.isTagged(model.host, 'Loading') ? 'Reading the host’s projects…' : undefined,
-})
-
-const newProjectForm = (composing: typeof PanelComposing.Type): ComposerChipPanel => ({
-  kind: 'form',
-  title: 'New project',
-  fields: [
-    {
-      id: FIELDS.name,
-      label: 'Name',
-      value: composing.name,
-      placeholder: 'oru',
-      isMonospace: false,
-    },
-    {
-      id: FIELDS.cwd,
-      label: 'Cwd',
-      value: composing.cwd,
-      placeholder: '/Users/you/code/oru',
-      isMonospace: true,
-    },
-  ],
-  submitLabel: composing.isSaving ? 'Creating…' : 'Create project',
-  cancelLabel: 'Cancel',
-  isCancelDisabled: composing.isSaving,
-  isSubmitDisabled:
-    composing.isSaving || composing.name.trim().length === 0 || composing.cwd.trim().length === 0,
-  error: composing.refusal === undefined ? undefined : cwdRefusalText(composing.refusal),
-})
-
-/**
- * This submodel's own chip, in the composer's vocabulary. Built here, next to
- * the state it is derived from.
- */
-export const chip = (model: Model): ComposerChip => {
-  const panel = Match.value(model.panel).pipe(
-    Match.tagsExhaustive({
-      PanelClosed: (): ComposerChipPanel | undefined => undefined,
-      PanelBrowsing: () => hostMenu(model),
-      PanelComposing: (composing) => newProjectForm(composing),
-    }),
-  )
-  return {
-    id: CHIP_ID,
-    label: chipLabel(model),
-    icon: FolderGit,
-    isOpen: panel !== undefined,
-    panel,
-  }
-}
-
 const projectRow = (project: Project, h: HtmlBuilder<Message>): Html =>
   h.li(
     [
@@ -483,28 +243,6 @@ const projectRow = (project: Project, h: HtmlBuilder<Message>): Html =>
       icon(h, FolderGit, 'size-4 shrink-0 self-center text-muted-foreground'),
       h.span([h.Class('truncate text-sm font-medium')], [project.name]),
       h.span([h.Class('min-w-0 truncate font-mono text-xs text-muted-foreground')], [project.cwd]),
-    ],
-  )
-
-const emptyState = (h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.DataAttribute('projects-empty', ''), h.Class('flex-none')],
-    [
-      Empty(
-        { className: 'flex-none' },
-        [
-          Empty.header(
-            {},
-            [
-              Empty.media({ variant: 'icon' }, [icon(h, FolderGit, 'size-4')], h),
-              Empty.title({}, ['No projects yet'], h),
-              Empty.description({}, ['This host has recorded no projects.'], h),
-            ],
-            h,
-          ),
-        ],
-        h,
-      ),
     ],
   )
 
@@ -548,7 +286,7 @@ export const view = defineView<Model, Message>((model, h) =>
         Loading: (): ReadonlyArray<Html> => [],
         Loaded: ({ projects }): ReadonlyArray<Html> =>
           projects.length === 0
-            ? [emptyState(h)]
+            ? []
             : [
                 h.ul(
                   [

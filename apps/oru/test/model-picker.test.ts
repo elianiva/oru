@@ -95,7 +95,7 @@ describe('the catalogue', () => {
 describe('the panel', () => {
   it('narrows the rows as the query changes, and says so when nothing matches', () => {
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened()),
       Scene.expectAll(Scene.all.selector('[data-model-row]')).toHaveCount(4),
       Scene.type(Scene.selector('[data-model-search]'), 'deepseek'),
@@ -110,7 +110,7 @@ describe('the panel', () => {
 
   it('renders a header per provider with its own rows under it', () => {
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened()),
       Scene.expect(Scene.selector('[data-model-group-header="deepseek"]')).toHaveText('deepseek'),
       Scene.expect(Scene.selector('[data-model-group-header="github-copilot"]')).toHaveText(
@@ -133,7 +133,7 @@ describe('the panel', () => {
 
   it('marks the harness default and the chosen row', () => {
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(
         opened(ready, {
           harness: 'pi',
@@ -151,7 +151,7 @@ describe('the panel', () => {
 
   it('offers the levels a model reports, and none for the one that reports none', () => {
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened(ready, flash)),
       Scene.expect(Scene.selector('[data-reasoning="off"]')).toExist(),
       Scene.expect(Scene.selector('[data-reasoning="max"]')).toExist(),
@@ -177,7 +177,7 @@ describe('the panel', () => {
       ModelPicker.Message.Opened(),
     ).model
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(switched),
       Scene.expect(Scene.selector('[data-model-reasoning]')).not.toExist(),
       Scene.expect(Scene.selector('[data-reasoning="low"]')).not.toExist(),
@@ -215,8 +215,10 @@ describe('the harness fact', () => {
       Scene.given(ModelPicker.init()),
       Scene.expect(Scene.selector('[data-model-picker]')).not.toExist(),
     )
+    // The catalogue lives in the composer's `leading` slot now; the status
+    // view keeps only the harness's health.
     Scene.scene(
-      { update: ModelPicker.update, view: pickerView },
+      { update: ModelPicker.update, view: ModelPicker.triggerView },
       Scene.given(opened()),
       Scene.expect(Scene.selector('[data-harness-install]')).not.toExist(),
       Scene.expect(Scene.selector('[data-harness-copy]')).not.toExist(),

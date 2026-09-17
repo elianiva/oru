@@ -16,13 +16,11 @@ import type { IconNode } from 'lucide'
 import {
   Asterisk,
   Bug,
-  ChartColumn,
   ChevronDown,
   Computer,
   Download,
   FolderGit,
   GitBranch,
-  GitFork,
   MessageCirclePlus,
   Plug,
   Search,
@@ -33,7 +31,7 @@ import {
 } from 'lucide'
 import { icon } from '@/lib/icons.ts'
 import { cn } from '@/lib/utils.ts'
-import { settingsIndexRouter } from './route.ts'
+import { homeRouter, settingsIndexRouter } from './route.ts'
 import type { ThreadProject, ThreadRow, ThreadSection, ThreadStatus } from './threads.ts'
 
 const CLOCK_INTERVAL_MS = 30_000
@@ -445,24 +443,25 @@ const NAV_ROWS: ReadonlyArray<Readonly<{ id: string; label: string; icon: IconNo
   { id: 'skills', label: 'Skills', icon: Zap },
   { id: 'search', label: 'Search threads', icon: Search },
   { id: 'automations', label: 'Automations', icon: Undo2 },
-  // Lucide ships no GitHub mark, so the row takes the closest git-hosting glyph.
-  { id: 'github', label: 'GitHub+', icon: GitFork },
-  { id: 'usage', label: 'Usage', icon: ChartColumn },
 ]
 
 const navRow = (
   row: Readonly<{ id: string; label: string; icon: IconNode }>,
   h: HtmlBuilder<Message>,
-): Html =>
-  h.div(
-    [
-      h.DataAttribute('nav', row.id),
-      h.Class(
-        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-foreground/80 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-      ),
-    ],
-    [icon(h, row.icon, 'size-4'), h.span([h.Class('truncate')], [row.label])],
-  )
+): Html => {
+  const attrs = [
+    h.DataAttribute('nav', row.id),
+    h.Class(
+      'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-foreground/80 transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+    ),
+  ] as const
+  const children = [icon(h, row.icon, 'size-4'), h.span([h.Class('truncate')], [row.label])]
+  // `/` is the new-thread route, so the row is a link; the rest stay visual
+  // until the app grows the features behind them.
+  return row.id === 'new-thread'
+    ? h.a([h.Href(homeRouter()), ...attrs], [...children])
+    : h.div([...attrs], [...children])
+}
 
 const navMenu = (h: HtmlBuilder<Message>): Html =>
   h.nav(
