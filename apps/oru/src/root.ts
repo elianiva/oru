@@ -122,7 +122,9 @@ export const CreateProject = Command.define('CreateProject', {
   messages: [Message.GotProjects, Message.GotProjectPicker],
   execute: ({ name, cwd, icon }) =>
     ProjectClient.pipe(
-      Effect.flatMap((client) => client.create(name, cwd, icon)),
+      Effect.flatMap((client) =>
+        icon === undefined ? client.create(name, cwd) : client.create(name, cwd, icon),
+      ),
       Effect.map((created) =>
         Message.GotProjects({ message: Projects.Message.ProjectCreated({ project: created }) }),
       ),
@@ -152,7 +154,11 @@ export const UpdateProject = Command.define('UpdateProject', {
   messages: [Message.GotProjects],
   execute: ({ project, name, cwd, icon }) =>
     ProjectClient.pipe(
-      Effect.flatMap((client) => client.update(project, { name, cwd, icon })),
+      Effect.flatMap((client) =>
+        icon === undefined
+          ? client.update(project, { name, cwd })
+          : client.update(project, { name, cwd, icon }),
+      ),
       Effect.map((updated) =>
         Message.GotProjects({ message: Projects.Message.ProjectUpdated({ project: updated }) }),
       ),
@@ -203,11 +209,13 @@ export const DeleteProject = Command.define('DeleteProject', {
  * while its own browser is open.
  */
 export const ListDirectory = Command.define('ListDirectory', {
-  args: { path: Schema.UndefinedOr(Schema.String) },
+  args: { path: Schema.optional(Schema.String) },
   messages: [Message.GotProjects],
   execute: ({ path }) =>
     ProjectClient.pipe(
-      Effect.flatMap((client) => client.listDirectory(path)),
+      Effect.flatMap((client) =>
+        path === undefined ? client.listDirectory() : client.listDirectory(path),
+      ),
       Effect.map((listing) =>
         Message.GotProjects({ message: Projects.Message.DirectoryArrived({ listing }) }),
       ),
