@@ -92,6 +92,14 @@ export class RelativeCwd extends Schema.TaggedError<RelativeCwd>()('RelativeCwd'
   cwd: Schema.String,
 }) {}
 
+export class NotDirectory extends Schema.TaggedError<NotDirectory>()('NotDirectory', {
+  path: Schema.String,
+}) {}
+
+export class DirectoryMissing extends Schema.TaggedError<DirectoryMissing>()('DirectoryMissing', {
+  path: Schema.String,
+}) {}
+
 export class ApprovalUndecided extends Schema.TaggedError<ApprovalUndecided>()(
   'ApprovalUndecided',
   {

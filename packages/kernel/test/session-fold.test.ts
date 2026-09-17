@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MessageAppended,
   ProjectCreated,
+  ProjectDeleted,
   ProjectUpdated,
   SessionActivated,
   ThreadCreated,
@@ -105,9 +106,49 @@ describe('foldProjects', () => {
       project: 'p1',
       name: 'oru',
       cwd: '/tmp/oru',
+      icon: undefined,
     })
     expect(foldProjects([created])).toEqual([{ id: 'p1', name: 'oru', cwd: '/tmp/oru' }])
     expect(foldProject([created], 'p1')).toEqual({ id: 'p1', name: 'oru', cwd: '/tmp/oru' })
+  })
+
+  it('carries the icon from project/created through an update', () => {
+    const created = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+      icon: '/icons/oru.svg',
+    })
+    expect(foldProject([created], 'p1')?.icon).toBe('/icons/oru.svg')
+    const relabeled = ProjectUpdated.make({
+      ...unsignedTree,
+      id: 'e2',
+      project: 'p1',
+      name: 'oru-app',
+      cwd: '/tmp/oru',
+      icon: undefined,
+    })
+    expect(foldProject([created, relabeled], 'p1')).toEqual({
+      id: 'p1',
+      name: 'oru-app',
+      cwd: '/tmp/oru',
+    })
+  })
+
+  it('drops a project project/deleted names', () => {
+    const created = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+      icon: undefined,
+    })
+    const deleted = ProjectDeleted.make({ ...unsignedTree, id: 'e2', project: 'p1' })
+    expect(foldProjects([created, deleted])).toEqual([])
+    expect(foldProject([created, deleted], 'p1')).toBeUndefined()
   })
 
   it('lets the latest project/updated carry the whole project', () => {
@@ -117,6 +158,7 @@ describe('foldProjects', () => {
       project: 'p1',
       name: 'oru',
       cwd: '/tmp/oru',
+      icon: undefined,
     })
     const renamed = ProjectUpdated.make({
       ...unsignedTree,
@@ -124,6 +166,7 @@ describe('foldProjects', () => {
       project: 'p1',
       name: 'oru-app',
       cwd: '/tmp/oru',
+      icon: undefined,
     })
     const moved = ProjectUpdated.make({
       ...unsignedTree,
@@ -131,6 +174,7 @@ describe('foldProjects', () => {
       project: 'p1',
       name: 'oru-app',
       cwd: '/tmp/elsewhere',
+      icon: undefined,
     })
     expect(foldProjects([created, renamed, moved])).toEqual([
       { id: 'p1', name: 'oru-app', cwd: '/tmp/elsewhere' },
@@ -149,6 +193,7 @@ describe('foldProjects', () => {
       project: 'p-ghost',
       name: 'ghost',
       cwd: '/tmp/ghost',
+      icon: undefined,
     })
     expect(foldProjects([stranded])).toEqual([])
     expect(foldProject([stranded], 'p-ghost')).toBeUndefined()
@@ -163,6 +208,7 @@ describe('foldThreadCwd', () => {
       project: 'p1',
       name: 'oru',
       cwd: '/tmp/oru',
+      icon: undefined,
     })
     const thread = ThreadCreated.make({
       ...unsignedTree,
@@ -180,6 +226,7 @@ describe('foldThreadCwd', () => {
       project: 'p1',
       name: 'oru',
       cwd: '/tmp/oru',
+      icon: undefined,
     })
     const thread = ThreadCreated.make({
       ...unsignedTree,
@@ -193,6 +240,7 @@ describe('foldThreadCwd', () => {
       project: 'p1',
       name: 'oru',
       cwd: '/tmp/moved',
+      icon: undefined,
     })
     expect(foldThreadCwd([project, thread, moved], 't1')).toBe('/tmp/moved')
   })

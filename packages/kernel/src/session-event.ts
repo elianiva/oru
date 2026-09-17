@@ -33,6 +33,7 @@ export const ProjectCreated = Schema.TaggedStruct('project/created', {
   project: ProjectId,
   name: Schema.NonEmptyString,
   cwd: Schema.NonEmptyString,
+  icon: Schema.optional(Schema.String),
 })
 
 /**
@@ -46,6 +47,12 @@ export const ProjectUpdated = Schema.TaggedStruct('project/updated', {
   project: ProjectId,
   name: Schema.NonEmptyString,
   cwd: Schema.NonEmptyString,
+  icon: Schema.optional(Schema.String),
+})
+
+export const ProjectDeleted = Schema.TaggedStruct('project/deleted', {
+  ...Tree,
+  project: ProjectId,
 })
 
 export const ThreadCreated = Schema.TaggedStruct('thread/created', {
@@ -185,6 +192,7 @@ export const SessionEvent = Schema.Union([
   PluginDeactivated,
   ProjectCreated,
   ProjectUpdated,
+  ProjectDeleted,
   ThreadCreated,
   ThreadConfigured,
   TurnStarted,
