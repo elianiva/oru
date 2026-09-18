@@ -180,6 +180,9 @@ importers:
 
   apps/oru:
     dependencies:
+      '@foldkit/devtools':
+        specifier: 0.158.2
+        version: 0.158.2(@effect/platform-browser@4.0.0-rc.112(effect@4.0.0-rc.112))(@foldkit/ui@0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112)))(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
       '@foldkit/ui':
         specifier: 0.158.2
         version: 0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
@@ -536,6 +539,11 @@ packages:
     peerDependencies:
       effect: '>=4.0.0-rc.111 <5.0.0'
 
+  '@effect/platform-browser@4.0.0-rc.112':
+    resolution: {integrity: sha512-GSlqNDnjILz2EqOFPhVdMEHxlPq6SGb8+KOpNnLfRvVJjXRTMawEO+v1PCuwt2CHAqESbJAa2Nk+qcQvTrv4MQ==}
+    peerDependencies:
+      effect: ^4.0.0-rc.112
+
   '@effect/platform-node-shared@4.0.0-rc.112':
     resolution: {integrity: sha512-ttjz0xKamFN7vL8pNDYVwddJLjZvqKePc05djlz2VcdaKbLsnYbtMnL1rbOfHgEnIUSHGh7FkjaN4DM1Ov81sQ==}
     engines: {node: '>=18.0.0'}
@@ -718,6 +726,15 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@foldkit/devtools@0.158.2':
+    resolution: {integrity: sha512-p/hWaYo0PmQjFeDfiAJfAV/uUDMkPhA6dGQQ5QNUMTeupaMmCNIJtt/BXooDzBdDMAdSTbGzZNNfltt0G5br6w==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@effect/platform-browser': 4.0.0-rc.112
+      '@foldkit/ui': ^0
+      effect: 4.0.0-rc.112
+      foldkit: '>=0.153.0'
 
   '@foldkit/ui@0.158.2':
     resolution: {integrity: sha512-0bAIsQ8hiL0ilc0mzM19G6QF0VnrvedL0y1IzTilR8Su/mW/uOEMqKQXS6onWNYWI6Xsw9fTszJ0xhGHj/BvxQ==}
@@ -1804,6 +1821,10 @@ packages:
   chalk@5.6.2:
     resolution: {integrity: sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
+  clsx@2.1.1:
+    resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
+    engines: {node: '>=6'}
 
   cluster-key-slot@1.1.2:
     resolution: {integrity: sha512-RMr0FhtfXemyinomL4hrWcYJxmX6deFdCxpJzhDttxgO1+bcCnkk+9drydLVDmAMG7NE6aN/fl4F7ucU/90gAA==}
@@ -2971,6 +2992,10 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.0-rc.112
 
+  '@effect/platform-browser@4.0.0-rc.112(effect@4.0.0-rc.112)':
+    dependencies:
+      effect: 4.0.0-rc.112
+
   '@effect/platform-node-shared@4.0.0-rc.112(effect@4.0.0-rc.112)':
     dependencies:
       '@types/ws': 8.18.1
@@ -3083,6 +3108,14 @@ snapshots:
       '@floating-ui/utils': 0.2.12
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@foldkit/devtools@0.158.2(@effect/platform-browser@4.0.0-rc.112(effect@4.0.0-rc.112))(@foldkit/ui@0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112)))(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))':
+    dependencies:
+      '@effect/platform-browser': 4.0.0-rc.112(effect@4.0.0-rc.112)
+      '@foldkit/ui': 0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))
+      clsx: 2.1.1
+      effect: 4.0.0-rc.112
+      foldkit: 0.158.2(effect@4.0.0-rc.112)
 
   '@foldkit/ui@0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))':
     dependencies:
@@ -3754,6 +3787,8 @@ snapshots:
   chai@6.2.2: {}
 
   chalk@5.6.2: {}
+
+  clsx@2.1.1: {}
 
   cluster-key-slot@1.1.2: {}
 

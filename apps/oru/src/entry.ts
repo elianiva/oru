@@ -25,6 +25,11 @@ const program = Effect.gen(function* () {
       onUrlChange: (url) => Message.ChangedUrl({ url }),
     },
     resources: clientsFor(hostUrl),
+    devTools: {
+      show: 'Always',
+      mode: { development: 'TimeTravel', production: 'Inspect' },
+      Message,
+    },
   })
   Runtime.run(application)
   yield* Effect.never

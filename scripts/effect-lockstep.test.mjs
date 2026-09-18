@@ -34,6 +34,9 @@ snapshots:
   '@effect-uai/core@0.15.0(effect@4.0.0-rc.112)':
     dependencies:
       effect: 4.0.0-rc.112
+  '@foldkit/devtools@0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))':
+    dependencies:
+      effect: 4.0.0-rc.112
   '@foldkit/ui@0.158.2(effect@4.0.0-rc.112)(foldkit@0.158.2(effect@4.0.0-rc.112))':
     dependencies:
       effect: 4.0.0-rc.112
@@ -79,6 +82,7 @@ void test('missing Foldkit fails with the package name', () => {
   assert.equal(result.kind, 'failed')
   const message = formatEffectLockstepFailure(result)
   assert.match(message, /foldkit/)
+  assert.match(message, /@foldkit\/devtools/)
   assert.match(message, /@foldkit\/ui/)
   assert.match(message, /@foldkit\/vite-plugin/)
 })

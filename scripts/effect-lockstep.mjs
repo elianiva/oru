@@ -1,6 +1,12 @@
 const REQUIRED_IMPORTERS = ['packages/kernel', 'packages/harness', 'plugins/inference']
 
-const REQUIRED_PACKAGES = ['@effect-uai/core', '@foldkit/ui', '@foldkit/vite-plugin', 'foldkit']
+const REQUIRED_PACKAGES = [
+  '@effect-uai/core',
+  '@foldkit/devtools',
+  '@foldkit/ui',
+  '@foldkit/vite-plugin',
+  'foldkit',
+]
 
 export const collectEffectPins = (lockfileText) => {
   const doc = lastYamlDocument(lockfileText)

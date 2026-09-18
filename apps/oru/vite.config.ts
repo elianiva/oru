@@ -8,7 +8,7 @@ import { defaultPort } from '@oru/host/cli'
 const root = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
-  plugins: [foldkit(), tailwindcss()],
+  plugins: [foldkit({ devToolsMcpPort: 9989 }), tailwindcss()],
   resolve: {
     alias: {
       '@': path.join(root, 'src'),
