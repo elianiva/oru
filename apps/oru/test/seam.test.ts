@@ -17,7 +17,6 @@ import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { describe, expect, it } from 'vitest'
 import { ProjectClient, ThreadClient, clientsFor } from '@oru/rpc'
-import * as ProjectPicker from '../src/project-picker.ts'
 import * as Projects from '../src/projects.ts'
 import {
   ListProjects,
@@ -122,7 +121,9 @@ describe('the app’s seam to a running host', () => {
       Scene.scene(
         { update, view },
         Scene.given(model),
-        Scene.expect(Scene.selector('[data-projects]')).toExist(),
+        Scene.expect(Scene.selector('[data-main]')).toExist(),
+        Scene.expect(Scene.selector('[data-composer]')).toExist(),
+        Scene.expect(Scene.selector('[data-projects]')).not.toExist(),
         Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
         Scene.expect(Scene.text('No projects yet')).not.toExist(),
       )
@@ -152,8 +153,9 @@ describe('the app’s seam to a running host', () => {
       Scene.scene(
         { update, view },
         Scene.given(model),
-        Scene.expect(Scene.selector(`[data-project="${created.id}"]`)).toContainText('oru'),
-        Scene.expect(Scene.selector(`[data-project="${created.id}"]`)).toContainText(cwd),
+        Scene.expect(Scene.selector('[data-main]')).toExist(),
+        Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
+        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
       )
     })
   })
@@ -240,8 +242,7 @@ describe('the app’s seam to a running host', () => {
       Scene.scene(
         { update, view },
         Scene.given(model),
-        Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText('oru'),
-        Scene.expect(Scene.selector(`[data-project="${created.project.id}"]`)).toContainText(cwd),
+        Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
         Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
       )
     })
@@ -275,7 +276,7 @@ describe('the app’s seam to a running host', () => {
       Scene.scene(
         { update, view },
         Scene.given(model),
-        Scene.expect(Scene.selector(`[data-project="${project.id}"]`)).toContainText('after'),
+        Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
         Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('after'),
       )
     })
@@ -290,8 +291,8 @@ describe('the app’s seam to a running host', () => {
         CreateProject({ name: 'oru', cwd: 'relative/place' }).effect,
       )
       expect(refusedCreate).toEqual(
-        Message.GotProjectPicker({
-          message: ProjectPicker.Message.CreateRefused({
+        Message.GotProjects({
+          message: Projects.Message.CreateRefused({
             refusal: Projects.RelativeCwd.make({ cwd: 'relative/place' }),
           }),
         }),

@@ -148,6 +148,49 @@ export const foldProject = (
   project: ProjectId,
 ): NamedProject | undefined => foldProjects(events).find((entry) => entry.id === project)
 
+/** When the log first named the project, as a timestamp. Undefined when never created. */
+export const foldProjectCreatedAt = (
+  events: readonly SessionEvent[],
+  project: ProjectId,
+): number | undefined => {
+  for (const event of events) {
+    if (Schema.is(ProjectCreated)(event) && event.project === project) return event.timestamp
+  }
+  return undefined
+}
+
+/** The threads the log created against the project, oldest first. */
+export const foldProjectThreads = (
+  events: readonly SessionEvent[],
+  project: ProjectId,
+): ReadonlyArray<ThreadId> => {
+  const threads: Array<ThreadId> = []
+  for (const event of events) {
+    if (Schema.is(ThreadCreated)(event) && event.project === project) threads.push(event.thread)
+  }
+  return threads
+}
+
+/**
+ * What new threads in the project start with: the latest `thread/configured`
+ * fact on any of the project's threads. The host remembers the last options
+ * used here, so a project with no configured thread has no defaults.
+ */
+export const foldProjectThreadDefaults = (
+  events: readonly SessionEvent[],
+  project: ProjectId,
+): ThreadConfig | undefined => {
+  const threads = new Set(foldProjectThreads(events, project))
+  if (threads.size === 0) return undefined
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    if (event !== undefined && Schema.is(ThreadConfigured)(event) && threads.has(event.thread)) {
+      return { harness: event.harness, model: event.model, reasoning: event.reasoning }
+    }
+  }
+  return undefined
+}
+
 export const foldThreadPath = (
   events: readonly SessionEvent[],
   thread: ThreadId,

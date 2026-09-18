@@ -1,4 +1,6 @@
+import { execFile } from 'node:child_process'
 import { readdir, stat } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { Effect, Option, Predicate } from 'effect'
 import {
@@ -11,6 +13,9 @@ import {
   SessionLog,
   UnknownProject,
   foldProject,
+  foldProjectCreatedAt,
+  foldProjectThreadDefaults,
+  foldProjectThreads,
   foldProjects,
   newId,
   unsignedTree,
@@ -136,6 +141,57 @@ export const projectRpcHandlers = {
           }),
         )
         return { project: payload.project }
+      }),
+    ),
+  GetProjectDetail: (payload: { readonly project: ProjectId }) =>
+    keepProjectError(
+      Effect.gen(function* () {
+        const log = yield* SessionLog
+        const entries = yield* log.entries
+        const named = foldProject(entries, payload.project)
+        if (named === undefined) {
+          return yield* new UnknownProject({ project: payload.project })
+        }
+        const threads = foldProjectThreads(entries, payload.project)
+        const defaults = foldProjectThreadDefaults(entries, payload.project)
+        const createdAt = foldProjectCreatedAt(entries, payload.project) ?? Date.now()
+        const gitRemote = yield* Effect.tryPromise({
+          try: () =>
+            new Promise<string | undefined>((resolveRemote) => {
+              execFile(
+                'git',
+                ['-C', named.cwd, 'config', '--get', 'remote.origin.url'],
+                { timeout: 2000 },
+                (error, stdout) => {
+                  if (error) {
+                    resolveRemote(undefined)
+                    return
+                  }
+                  const remote = stdout.trim()
+                  resolveRemote(remote.length === 0 ? undefined : remote)
+                },
+              )
+            }),
+          catch: () => new UnknownProject({ project: payload.project }),
+        }).pipe(
+          Effect.catch(() => Effect.succeed<string | undefined>(undefined)),
+          Effect.orDie,
+        )
+        return {
+          project: named,
+          threadCount: threads.length,
+          createdAt,
+          gitRemote,
+          checkout: { machine: hostname(), path: named.cwd },
+          threadDefaults:
+            defaults === undefined
+              ? undefined
+              : {
+                  harness: defaults.harness,
+                  model: defaults.model,
+                  reasoning: defaults.reasoning,
+                },
+        }
       }),
     ),
   GetProject: (payload: { readonly project: ProjectId }) =>

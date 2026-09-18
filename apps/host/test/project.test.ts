@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -279,16 +280,59 @@ describe('DeleteProject', () => {
   })
 })
 
+describe('GetProjectDetail', () => {
+  it('answers checkout, thread count, creation time, and no git remote for a plain dir', async () => {
+    const file = sessionFile()
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-detail-'))
+
+    const detail = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const threads = yield* ThreadClient
+          const project = yield* projects.create('demo', cwd)
+          yield* threads.create(project.id)
+          yield* threads.create(project.id)
+          return yield* projects.detail(project.id)
+        }),
+      ),
+    )
+
+    expect(detail.project).toEqual({ id: detail.project.id, name: 'demo', cwd })
+    expect(detail.threadCount).toBe(2)
+    expect(detail.checkout.path).toBe(cwd)
+    expect(detail.checkout.machine.length).toBeGreaterThan(0)
+    expect(detail.createdAt).toBeGreaterThan(0)
+    expect(detail.gitRemote).toBeUndefined()
+    expect(detail.threadDefaults).toBeUndefined()
+  })
+
+  it("refuses an unknown project with the host's own error", async () => {
+    const file = sessionFile()
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* Effect.flip(projects.detail('p-ghost'))
+        }),
+      ),
+    )
+
+    expect(refused).toEqual(new UnknownProject({ project: 'p-ghost' }))
+  })
+})
+
 describe('ListDirectory', () => {
   it('lists a directory with its parent and directory flags', async () => {
     const file = sessionFile()
     const parent = mkdtempSync(join(tmpdir(), 'oru-project-ls-'))
-    await import('node:fs/promises').then((fs) =>
-      Promise.all([
-        fs.mkdir(join(parent, 'child'), { recursive: true }),
-        fs.writeFile(join(parent, 'note.txt'), 'hi'),
-      ]),
-    )
+    await Promise.all([
+      mkdir(join(parent, 'child'), { recursive: true }),
+      writeFile(join(parent, 'note.txt'), 'hi'),
+    ])
 
     const listing = await Effect.runPromise(
       withHost(
@@ -329,7 +373,7 @@ describe('ListDirectory', () => {
     const parent = mkdtempSync(join(tmpdir(), 'oru-project-ls-err-'))
     const missing = join(parent, 'nope')
     const filho = join(parent, 'note.txt')
-    await import('node:fs/promises').then((fs) => fs.writeFile(filho, 'hi'))
+    await writeFile(filho, 'hi')
 
     const refused = await Effect.runPromise(
       withHost(

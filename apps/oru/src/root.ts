@@ -109,6 +109,61 @@ export const ListProjects = Command.define('ListProjects', {
   ),
 })
 
+export const GetProjectDetail = Command.define('GetProjectDetail', {
+  args: { project: Schema.NonEmptyString },
+  messages: [Message.GotProjects],
+  execute: ({ project }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.detail(project)),
+      Effect.map((detail) =>
+        Message.GotProjects({ message: Projects.Message.DetailArrived({ detail }) }),
+      ),
+      Effect.catchTags({
+        UnknownProject: () =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.DetailFailed({
+                project,
+                reason: `This host has no project "${project}".`,
+              }),
+            }),
+          ),
+        HostUnreachable: (error) =>
+          Effect.succeed(
+            Message.GotProjects({
+              message: Projects.Message.DetailFailed({
+                project,
+                reason: `${error.operation}: ${error.reason}`,
+              }),
+            }),
+          ),
+      }),
+    ),
+})
+
+/**
+ * A hover preload warms the dialog cache. Success joins the cache silently;
+ * failure stays silent too, and the click that follows fetches loudly.
+ */
+export const PreloadDirectory = Command.define('PreloadDirectory', {
+  args: { path: Schema.NonEmptyString },
+  messages: [Message.GotProjects],
+  execute: ({ path }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.listDirectory(path)),
+      Effect.map((listing) =>
+        Message.GotProjects({ message: Projects.Message.DirectoryCached({ listing }) }),
+      ),
+      Effect.catch(() =>
+        Effect.succeed(
+          Message.GotProjects({
+            message: Projects.Message.DirectoryCacheFailed({ path }),
+          }),
+        ),
+      ),
+    ),
+})
+
 /**
  * Creating a project is the host recording a fact, so the created row is what
  * reaches the screen — never the draft that asked for it.
@@ -119,7 +174,7 @@ export const CreateProject = Command.define('CreateProject', {
     cwd: Schema.NonEmptyString,
     icon: Schema.optional(Schema.String),
   },
-  messages: [Message.GotProjects, Message.GotProjectPicker],
+  messages: [Message.GotProjects],
   execute: ({ name, cwd, icon }) =>
     ProjectClient.pipe(
       Effect.flatMap((client) =>
@@ -129,12 +184,12 @@ export const CreateProject = Command.define('CreateProject', {
         Message.GotProjects({ message: Projects.Message.ProjectCreated({ project: created }) }),
       ),
       Effect.catchTags({
-        // The picker's own form hears the refusal: the host's words render
+        // The shared dialog hears the refusal: the host's words render
         // where the write was attempted.
         RelativeCwd: (error) =>
           Effect.succeed(
-            Message.GotProjectPicker({
-              message: ProjectPicker.Message.CreateRefused({
+            Message.GotProjects({
+              message: Projects.Message.CreateRefused({
                 refusal: Projects.RelativeCwd.make({ cwd: error.cwd }),
               }),
             }),
@@ -323,14 +378,44 @@ const pickerLoad = (route: AppRoute): Update.Commands<Message, ThreadClient> =>
     Match.orElse((): Update.Commands<Message, ThreadClient> => []),
   )
 
+/**
+ * A project detail page asks the host about that project. The route owns the
+ * selection, so a cold load and a back/forward navigation both fetch it.
+ */
+const detailLoad = (route: AppRoute): Update.Commands<Message, ProjectClient> =>
+  AppRoute.match(route, {
+    Home: () => [],
+    Thread: () => [],
+    SettingsGeneral: () => [],
+    SettingsProviders: () => [],
+    SettingsAppearance: () => [],
+    SettingsKeyboard: () => [],
+    SettingsBrowser: () => [],
+    SettingsUsageLimits: () => [],
+    SettingsFiles: () => [],
+    SettingsProjects: () => [],
+    SettingsProjectDetail: ({ projectId }) => [GetProjectDetail({ project: projectId })],
+    SettingsMachines: () => [],
+    SettingsUpdates: () => [],
+    SettingsInstalledPlugins: () => [],
+    SettingsPluginMarketplaces: () => [],
+    SettingsExperiments: () => [],
+    SettingsCommunity: () => [],
+    NotFound: () => [],
+  })
+
 export const init = (url: Url.Url) => {
   const route = urlToAppRoute(url)
+  const projects = AppRoute.guards.SettingsProjectDetail(route)
+    ? Projects.update(Projects.init(), Projects.Message.OpenedDetail({ project: route.projectId }))
+        .model
+    : Projects.init()
   return {
     model: {
       route,
       shell: Shell.init(),
       threads: LeftPanel.init(),
-      projects: Projects.init(),
+      projects,
       picker: ModelPicker.init(),
       projectPicker: ProjectPicker.init(),
       worktree: WorktreePicker.init(),
@@ -339,7 +424,7 @@ export const init = (url: Url.Url) => {
       composer: Composer.init(),
       settings: General.init(),
     },
-    commands: [ListProjects(), ...pickerLoad(route)],
+    commands: [ListProjects(), ...pickerLoad(route), ...detailLoad(route)],
   }
 }
 
@@ -361,18 +446,18 @@ const foldThreads = Update.foldChild({
   read: (model: Model) => Option.some(model.threads),
   write: (model, nextChild) => evo(model, { threads: () => nextChild }),
   toParentMessage: (message: LeftPanel.Message) => Message.GotThreads({ message }),
-  foldOutMessage: (outMessage: LeftPanel.OutMessage): Update.Step<Model, Message> =>
-    LeftPanel.OutMessage.match<Update.Step<Model, Message>>(outMessage, {
+  foldOutMessage: (outMessage: LeftPanel.OutMessage): Update.Step<Model, Message, ProjectClient> =>
+    LeftPanel.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
       Selected:
         ({ id }) =>
         (model) => ({
           model,
           commands: [NavigateInternal({ url: threadRouter({ threadId: id }) })],
         }),
-      RequestedNewProject: () => (model) => ({
-        model,
-        commands: [NavigateInternal({ url: settingsProjectsRouter() })],
-      }),
+      // The filter opens the same create dialog as every other entry point;
+      // nothing redirects to the projects page.
+      RequestedNewProject: () => (model) =>
+        Update.combine(model, [(next) => foldProjects(next, Projects.Message.ClickedCreate())]),
     }),
 })
 
@@ -407,13 +492,18 @@ const foldProjects = Update.foldChild({
       RequestedDirectory:
         ({ path }) =>
         (model) => ({ model, commands: [ListDirectory({ path })] }),
+      RequestedPreload:
+        ({ path }) =>
+        (model) => ({ model, commands: [PreloadDirectory({ path })] }),
+      RequestedDetail:
+        ({ project }) =>
+        (model) => ({ model, commands: [GetProjectDetail({ project })] }),
     }),
 })
 
 /**
- * The composer's project picker. Its create asks the host, so the request
- * leaves here as a Command and the host's answer comes back through
- * `GotProjects` and is forwarded below.
+ * The composer's project picker. Its New row opens the shared create dialog;
+ * the created project arrives through `GotProjects` and selects itself.
  */
 const foldProjectPicker = Update.foldChild({
   update: ProjectPicker.update,
@@ -424,15 +514,8 @@ const foldProjectPicker = Update.foldChild({
     outMessage: ProjectPicker.OutMessage,
   ): Update.Step<Model, Message, ProjectClient> =>
     ProjectPicker.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
-      RequestedCreate:
-        ({ name, cwd, icon }) =>
-        (model) => {
-          const args = icon === undefined ? { name, cwd } : { name, cwd, icon }
-          return { model, commands: [CreateProject(args)] }
-        },
-      RequestedDirectory:
-        ({ path }) =>
-        (model) => ({ model, commands: [ListDirectory({ path })] }),
+      RequestedCreateDialog: () => (model) =>
+        Update.combine(model, [(next) => foldProjects(next, Projects.Message.ClickedCreate())]),
     }),
 })
 
@@ -536,9 +619,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
     ChangedUrl: ({ url }) => {
       const route = urlToAppRoute(url)
+      const projects = AppRoute.guards.SettingsProjectDetail(route)
+        ? Projects.update(
+            model.projects,
+            Projects.Message.OpenedDetail({ project: route.projectId }),
+          ).model
+        : model.projects
       return {
-        model: evo(model, { route: () => route, picker: () => ModelPicker.init() }),
-        commands: pickerLoad(route),
+        model: evo(model, {
+          route: () => route,
+          picker: () => ModelPicker.init(),
+          projects: () => projects,
+        }),
+        commands: [...pickerLoad(route), ...detailLoad(route)],
       }
     },
     GotPicker: ({ message: childMessage }) => foldPicker(model, childMessage),
@@ -568,7 +661,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ])
       }
       if (Predicate.isTagged(childMessage, 'ProjectDeleted')) {
-        return Update.combine(model, [
+        const combined = Update.combine(model, [
           (next) => foldProjects(next, childMessage),
           (next) =>
             foldProjectPicker(
@@ -576,47 +669,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               ProjectPicker.Message.ProjectDeleted({ project: childMessage.project }),
             ),
         ])
+        if (
+          AppRoute.guards.SettingsProjectDetail(model.route) &&
+          model.route.projectId === childMessage.project
+        ) {
+          const pending = 'commands' in combined ? combined.commands : undefined
+          return {
+            model: combined.model,
+            commands: [...(pending ?? []), NavigateInternal({ url: settingsProjectsRouter() })],
+          }
+        }
+        return combined
       }
-      if (Predicate.isTagged(childMessage, 'DirectoryArrived')) {
-        return Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) =>
-            foldProjectPicker(
-              next,
-              ProjectPicker.Message.DirectoryArrived({ listing: childMessage.listing }),
-            ),
-        ])
-      }
-      if (Predicate.isTagged(childMessage, 'DirectoryFailed')) {
-        return Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) =>
-            foldProjectPicker(
-              next,
-              ProjectPicker.Message.DirectoryFailed({ error: childMessage.error }),
-            ),
-        ])
-      }
-      if (Predicate.isTagged(childMessage, 'HostUnreachable')) {
-        return Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) => foldProjectPicker(next, ProjectPicker.Message.HostUnreachable()),
-        ])
-      }
+      // Directory answers belong to the shared dialog alone now; the picker
+      // holds no browser for them to reach.
       return foldProjects(model, childMessage)
     },
-    GotProjectPicker: ({ message: childMessage }) => {
-      // A create refusal answers whichever form asked: the picker or the
-      // settings page. Each keeps it only while its own draft is pending.
-      if (Predicate.isTagged(childMessage, 'CreateRefused')) {
-        return Update.combine(model, [
-          (next) => foldProjectPicker(next, childMessage),
-          (next) =>
-            foldProjects(next, Projects.Message.CreateRefused({ refusal: childMessage.refusal })),
-        ])
-      }
-      return foldProjectPicker(model, childMessage)
-    },
+    GotProjectPicker: ({ message: childMessage }) => foldProjectPicker(model, childMessage),
     GotWorktree: ({ message: childMessage }) => foldWorktree(model, childMessage),
     GotBranch: ({ message: childMessage }) => foldBranch(model, childMessage),
     GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
@@ -741,11 +810,7 @@ const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
       h.Attribute('data-main', ''),
       h.Class('flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6'),
     ],
-    [
-      h.div([h.Class('w-full max-w-3xl')], [projectsSlot(model, h)]),
-      pickerStatusSlot(model, h),
-      composerSlot(model, 'What should we build in oru?', h),
-    ],
+    [pickerStatusSlot(model, h), composerSlot(model, 'What should we build in oru?', h)],
   )
 
 /**
@@ -833,6 +898,19 @@ const settingsProjectsView = (model: Model, h: HtmlBuilder<Message>): Html =>
     h,
   )
 
+const settingsProjectDetailView = (model: Model, h: HtmlBuilder<Message>): Html =>
+  settingsView(
+    model,
+    (contentH) =>
+      contentH.submodel({
+        slotId: 'settings-project-detail',
+        model: model.projects,
+        view: Projects.detailView,
+        toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
+      }),
+    h,
+  )
+
 const generalView = (model: Model, h: HtmlBuilder<Message>): Html =>
   settingsView(
     model,
@@ -878,6 +956,7 @@ const routeView = (model: Model, h: HtmlBuilder<Message>): Html =>
       settingsView(model, (contentH) => SettingsPages.usageLimitsView(contentH), h),
     SettingsFiles: () => settingsView(model, (contentH) => SettingsPages.filesView(contentH), h),
     SettingsProjects: () => settingsProjectsView(model, h),
+    SettingsProjectDetail: () => settingsProjectDetailView(model, h),
     SettingsMachines: () =>
       settingsView(model, (contentH) => SettingsPages.machinesView(contentH), h),
     SettingsUpdates: () =>
@@ -893,6 +972,15 @@ const routeView = (model: Model, h: HtmlBuilder<Message>): Html =>
     NotFound: ({ path }) => notFoundView(path, h),
   })
 
+/** The shared create dialogs, mounted once above every page. */
+const projectsDialogs = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.submodel({
+    slotId: 'settings-project-dialogs',
+    model: model.projects,
+    view: Projects.dialogsView,
+    toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
+  })
+
 /**
  * A host that did not answer replaces the whole shell: no column can show a
  * fact the host never gave, and the retry is the only thing that reaches it.
@@ -904,5 +992,5 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
         [h.Class('flex h-svh items-center justify-center bg-sidebar p-6')],
         [h.div([h.Class('w-full max-w-md')], [projectsSlot(model, h)])],
       )
-    : routeView(model, h),
+    : h.div([h.Class('contents')], [routeView(model, h), projectsDialogs(model, h)]),
 })

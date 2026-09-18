@@ -1,5 +1,12 @@
 export { HostRpc } from './host-rpc.ts'
-export { DirectoryEntry, DirectoryListing, ProjectRpc } from './project-rpc.ts'
+export {
+  Checkout,
+  DirectoryEntry,
+  DirectoryListing,
+  ProjectDetail,
+  ProjectRpc,
+  ProjectThreadDefaults,
+} from './project-rpc.ts'
 export { ThreadRpc } from './thread-rpc.ts'
 export { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
 export {

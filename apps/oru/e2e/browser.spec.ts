@@ -231,16 +231,24 @@ test('the project picker creates a project, and its name survives a reload', asy
 
   await page.locator('[data-project-picker-trigger]').click()
   await page.locator('[data-project-picker-option="new-project"]').click()
-  await page.locator('[data-project-picker-field="name"]').fill('oru-app')
-  await page.locator('[data-project-picker-field="cwd"]').fill('relative/place')
-  await page.locator('[data-project-picker-submit]').click()
+
+  // The shared directory dialog opens; confirming the home folder moves on.
+  await expect(page.locator('[data-projects-dialog]')).toBeVisible()
+  await expect(page.locator('[data-projects-dir]').first()).toBeVisible()
+  await page.locator('[data-projects-use-dir]').click()
+
+  // The details dialog follows with the folder's own name suggested.
+  await expect(page.locator('[data-projects-create]')).toBeVisible()
+  await page.locator('#settings-project-create-name').fill('oru-app')
+  await page.locator('#settings-project-create-cwd').fill('relative/place')
+  await page.locator('[data-projects-create-save]').click()
 
   // The host refused the cwd, so its own words are inline and nothing was made.
-  await expect(page.locator('[data-project-picker-error]')).toContainText('absolute')
+  await expect(page.locator('[data-projects-create-error]')).toContainText('absolute')
   await expect(page.locator('[data-project]')).toHaveCount(0)
 
-  await page.locator('[data-project-picker-field="cwd"]').fill(cwd)
-  await page.locator('[data-project-picker-submit]').click()
+  await page.locator('#settings-project-create-cwd').fill(cwd)
+  await page.locator('[data-projects-create-save]').click()
 
   await expect(page.locator('[data-project-picker-trigger]')).toContainText('oru-app')
   await expect(page.locator('[data-project]')).toContainText(cwd)

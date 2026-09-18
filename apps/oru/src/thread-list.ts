@@ -14,11 +14,8 @@ import { defineView } from 'foldkit/submodel'
 import * as Subscription from 'foldkit/subscription'
 import type { IconNode } from 'lucide'
 import {
-  Asterisk,
-  Bug,
   ChevronDown,
   Computer,
-  Download,
   FolderGit,
   GitBranch,
   MessageCirclePlus,
@@ -26,7 +23,6 @@ import {
   Plus,
   Search,
   Settings,
-  Smartphone,
   Undo2,
   Zap,
 } from 'lucide'
@@ -497,7 +493,7 @@ const navRow = (
 
 const navMenu = (h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.DataAttribute('sidebar-menu', ''), h.Class('flex shrink-0 flex-col gap-px px-1.5 pt-1.5')],
+    [h.DataAttribute('sidebar-menu', ''), h.Class('flex shrink-0 flex-col gap-px')],
     NAV_ROWS.map((row) => navRow(row, h)),
   )
 
@@ -530,7 +526,7 @@ const projectFilter = (
 ): Html => {
   const isOpen = S.is(FilterOpen)(model.filter)
   return h.div(
-    [h.DataAttribute('project-filter', ''), h.Class('relative mt-1.5 shrink-0 px-1.5')],
+    [h.DataAttribute('project-filter', ''), h.Class('relative mt-1.5 shrink-0')],
     [
       h.button(
         [
@@ -618,7 +614,7 @@ const bottomBar = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [
       h.DataAttribute('sidebar-actions', ''),
-      h.Class('flex shrink-0 items-center gap-5 px-4 py-3 text-muted-foreground'),
+      h.Class('flex shrink-0 items-center gap-5 text-muted-foreground'),
     ],
     [
       h.a(
@@ -631,16 +627,6 @@ const bottomBar = (h: HtmlBuilder<Message>): Html =>
           ),
         ],
         [icon(h, Settings, 'size-4')],
-      ),
-      icon(h, Smartphone, 'size-4'),
-      icon(h, Bug, 'size-4'),
-      h.span(
-        [
-          h.Class(
-            'ml-auto flex items-center gap-1.5 rounded-full bg-background px-2.5 py-1 text-foreground shadow-sm',
-          ),
-        ],
-        [icon(h, Download, 'size-4'), icon(h, Asterisk, 'size-4')],
       ),
     ],
   )

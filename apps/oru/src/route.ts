@@ -36,6 +36,7 @@ export const AppRoute = Route.defineRouteUnion({
   SettingsUsageLimits: {},
   SettingsFiles: {},
   SettingsProjects: {},
+  SettingsProjectDetail: { projectId: Schema.String },
   SettingsMachines: {},
   SettingsUpdates: {},
   SettingsInstalledPlugins: {},
@@ -109,6 +110,13 @@ export const settingsProjectsRouter = pipe(
   Route.mapTo(AppRoute.SettingsProjects),
 )
 
+export const settingsProjectDetailRouter = pipe(
+  Route.literal('settings'),
+  Route.slash(Route.literal('projects')),
+  Route.slash(Route.string('projectId')),
+  Route.mapTo(AppRoute.SettingsProjectDetail),
+)
+
 export const settingsMachinesRouter = pipe(
   Route.literal('settings'),
   Route.slash(Route.literal('machines')),
@@ -152,6 +160,7 @@ export const settingsCommunityRouter = pipe(
  * list so nothing generic can ever claim its first segment.
  */
 const routeParser = Route.oneOf(
+  settingsProjectDetailRouter,
   threadRouter,
   settingsGeneralRouter,
   settingsProvidersRouter,
@@ -249,6 +258,7 @@ const sectionIdForRoute = (route: AppRoute): SettingsSectionId | undefined =>
     SettingsUsageLimits: () => 'usage-limits',
     SettingsFiles: () => 'files',
     SettingsProjects: () => 'projects',
+    SettingsProjectDetail: () => 'projects',
     SettingsMachines: () => 'machines',
     SettingsUpdates: () => 'updates',
     SettingsInstalledPlugins: () => 'installed-plugins',

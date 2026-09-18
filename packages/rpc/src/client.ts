@@ -16,7 +16,7 @@ import { HostRpc } from './host-rpc.ts'
 import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
 import { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
-import type { DirectoryListing } from './project-rpc.ts'
+import type { DirectoryListing, ProjectDetail } from './project-rpc.ts'
 import type { Project } from './project.ts'
 import type { ThreadConfig, ThreadConfiguration, ThreadOptions } from './thread-options.ts'
 import type { ThreadSignal } from './thread-signal.ts'
@@ -59,6 +59,9 @@ export interface ProjectClientContract {
   readonly listDirectory: (
     path?: string | undefined,
   ) => Effect.Effect<DirectoryListing, DirectoryMissing | NotDirectory | HostUnreachable>
+  readonly detail: (
+    project: ProjectId,
+  ) => Effect.Effect<ProjectDetail, UnknownProject | HostUnreachable>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientContract>()(
@@ -214,6 +217,7 @@ export const projectClientOf = (
       ),
     remove: (project) => reachableNew('DeleteProject', client.DeleteProject({ project })),
     listDirectory: (path) => reachableDirectory('ListDirectory', client.ListDirectory({ path })),
+    detail: (project) => reachableNew('GetProjectDetail', client.GetProjectDetail({ project })),
   })
 
 export const threadClientOf = (
