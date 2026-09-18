@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Effect, Predicate, Stream } from 'effect'
 import { isAssistantMessage, userText } from '@oru/harness'
-import { ClaudeConfig, openClaudeHarness } from '../src/index.ts'
+import { ClaudeCodeConfig, openClaudeCodeHarness } from '../src/index.ts'
 
 /**
  * The bridge against the real `claude` CLI and a real model: one tiny turn,
@@ -41,8 +41,8 @@ const readiness: E2EReadiness = await Effect.runPromise(
     }
     const dir = mkdtempSync(join(tmpdir(), 'oru-claude-e2e-probe-'))
     cleanups.push(dir)
-    const probe = yield* openClaudeHarness.pipe(
-      Effect.provideService(ClaudeConfig, {
+    const probe = yield* openClaudeCodeHarness.pipe(
+      Effect.provideService(ClaudeCodeConfig, {
         env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'sessions') },
         log: () => undefined,
       }),
@@ -67,14 +67,14 @@ if (!readiness.run) {
   process.stdout.write(`Muse e2e skipped: ${readiness.reason}\n`)
 }
 
-describe.runIf(readiness.run)('oru driving Muse, for real', () => {
+describe.runIf(readiness.run)('oru driving Claude Code, for real', () => {
   it('runs one tiny turn and reports its text and usage', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oru-claude-e2e-'))
     const cwd = mkdtempSync(join(tmpdir(), 'oru-claude-e2e-cwd-'))
     cleanups.push(dir, cwd)
     const model = MODEL ?? ''
     const harness = await Effect.runPromise(
-      Effect.provideService(openClaudeHarness, ClaudeConfig, {
+      Effect.provideService(openClaudeCodeHarness, ClaudeCodeConfig, {
         env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'sessions') },
         log: (message: string) => process.stdout.write(`Muse: ${message}\n`),
       }),
@@ -91,7 +91,7 @@ describe.runIf(readiness.run)('oru driving Muse, for real', () => {
         ),
       )
       const complete = collected.find((event) => Predicate.isTagged(event, 'TurnComplete'))
-      if (!Predicate.isTagged(complete, 'TurnComplete')) expect.fail('Muse reported no turn')
+      if (!Predicate.isTagged(complete, 'TurnComplete')) expect.fail('Claude Code reported no turn')
       expect(complete.turn.items.length).toBe(1)
       const [item] = complete.turn.items
       if (item === undefined || !isAssistantMessage(item)) {

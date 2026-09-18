@@ -2,8 +2,12 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ClaudeCatalog, DEFAULT_CLAUDE_MODEL, hasUsableOauth } from '../src/claude/catalog.ts'
-import { resolveClaudeLaunch } from '../src/claude/launch.ts'
+import {
+  ClaudeCodeCatalog,
+  DEFAULT_CLAUDE_CODE_MODEL,
+  hasUsableOauth,
+} from '../src/claude/catalog.ts'
+import { resolveClaudeCodeLaunch } from '../src/claude/launch.ts'
 
 /**
  * The catalogue and its health, against local probes only.
@@ -34,8 +38,8 @@ const fakeClaude = (home: string, version: string): string => {
   return script
 }
 
-const catalog = (env: NodeJS.ProcessEnv): ClaudeCatalog =>
-  new ClaudeCatalog({ env, launch: resolveClaudeLaunch(env), log: () => undefined })
+const catalog = (env: NodeJS.ProcessEnv): ClaudeCodeCatalog =>
+  new ClaudeCodeCatalog({ env, launch: resolveClaudeCodeLaunch(env), log: () => undefined })
 
 const envWith = (
   home: string,
@@ -49,15 +53,15 @@ const envWith = (
 
 describe('Claude launch', () => {
   it('sends extras to the default command when no command is named', () => {
-    const launch = resolveClaudeLaunch({ ORU_CLAUDE_ARGS: '["--foo"]' })
+    const launch = resolveClaudeCodeLaunch({ ORU_CLAUDE_ARGS: '["--foo"]' })
     expect(launch).toEqual({ command: 'claude', args: ['--foo'] })
   })
 
   it('rejects extras that are not a JSON array of strings', () => {
-    expect(() => resolveClaudeLaunch({ ORU_CLAUDE_ARGS: 'not json' })).toThrow(
+    expect(() => resolveClaudeCodeLaunch({ ORU_CLAUDE_ARGS: 'not json' })).toThrow(
       'ORU_CLAUDE_ARGS must be a JSON array of strings',
     )
-    expect(() => resolveClaudeLaunch({ ORU_CLAUDE_ARGS: '{"foo":1}' })).toThrow(
+    expect(() => resolveClaudeCodeLaunch({ ORU_CLAUDE_ARGS: '{"foo":1}' })).toThrow(
       'ORU_CLAUDE_ARGS must be a JSON array of strings',
     )
   })
@@ -69,7 +73,7 @@ describe('Claude models', () => {
     const models = await catalog(envWith(home)).models()
     expect(models.map((model) => model.id)).toEqual([
       'claude-fable-5-1',
-      DEFAULT_CLAUDE_MODEL,
+      DEFAULT_CLAUDE_CODE_MODEL,
       'claude-opus-4-8[1m]',
       'claude-opus-4-7[1m]',
       'claude-sonnet-5',
@@ -80,7 +84,7 @@ describe('Claude models', () => {
       expect('reasoningLevels' in model).toBe(false)
     }
     expect(models.filter((model) => model.isDefault === true).map((model) => model.id)).toEqual([
-      DEFAULT_CLAUDE_MODEL,
+      DEFAULT_CLAUDE_CODE_MODEL,
     ])
   })
 

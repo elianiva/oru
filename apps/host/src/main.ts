@@ -4,7 +4,7 @@ import { ServeError } from 'effect/unstable/http/HttpServerError'
 import type { BootError } from '@oru/kernel'
 import type { JournalOpenError } from '@oru/kernel/sqlite'
 import { HarnessDefaultsService } from '@oru/harness'
-import { ClaudeConfig } from '@oru/harness-claude-code/config'
+import { ClaudeCodeConfig } from '@oru/harness-claude-code/config'
 import { PiBridgeConfig } from '@oru/harness-pi/config'
 import { packageVersion, parseArgs, usage } from './cli.ts'
 import {
@@ -151,7 +151,7 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             Effect.provideService(PiBridgeConfig, {
               env: piEnvOf(process.env, settings),
             }),
-            Effect.provideService(ClaudeConfig, {
+            Effect.provideService(ClaudeCodeConfig, {
               env: process.env,
             }),
           )

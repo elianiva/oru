@@ -8,7 +8,7 @@ import { Harnesses } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
 import { makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import { PiBridgeConfig, harnessPiPlugin } from '@oru/harness-pi'
-import { ClaudeConfig, harnessClaudeCodePlugin } from '../src/index.ts'
+import { ClaudeCodeConfig, harnessClaudeCodePlugin } from '../src/index.ts'
 
 /**
  * Both harnesses in one host, side by side.
@@ -16,7 +16,7 @@ import { ClaudeConfig, harnessClaudeCodePlugin } from '../src/index.ts'
  * This proves the composition the stock host boots with: the registry offers
  * `pi` and `claude` at once, each under its own plugin id with its own
  * capabilities. It runs no turns: pi would need its scripted provider and
- * Muse would spend a model call, and neither is what this composes.
+ * Claude Code would spend a model call, and neither is what this composes.
  */
 
 const cleanups: string[] = []
@@ -34,7 +34,7 @@ const run = <A, E>(
     ),
   )
 
-describe('pi and Muse in one host', () => {
+describe('pi and Claude Code in one host', () => {
   it('registers both harnesses under their own plugin ids', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oru-claude-bridge-'))
     cleanups.push(dir)
@@ -53,15 +53,15 @@ describe('pi and Muse in one host', () => {
         // What the picker shows: both harnesses, each from its own plugin.
         const registry = yield* host.service(Harnesses)
         const offered = yield* registry.list()
-        expect(offered.map((entry) => entry.harness.meta.id).sort()).toEqual(['Muse', 'pi'])
+        expect(offered.map((entry) => entry.harness.meta.id).sort()).toEqual(['claude-code', 'pi'])
         expect(offered.map((entry) => entry.plugin).sort()).toEqual([
           'oru/harness-claude-code',
           'oru/harness-pi',
         ])
 
-        const Muse = Option.getOrThrow(yield* registry.get('Muse'))
-        expect(Muse.plugin).toBe('oru/harness-claude-code')
-        expect(Muse.harness.capabilities).toMatchObject({
+        const claudeCode = Option.getOrThrow(yield* registry.get('claude-code'))
+        expect(claudeCode.plugin).toBe('oru/harness-claude-code')
+        expect(claudeCode.harness.capabilities).toMatchObject({
           modelListing: true,
           streaming: true,
           tools: false,
@@ -73,7 +73,7 @@ describe('pi and Muse in one host', () => {
           interruption: true,
         })
         // The catalogue is static, so listing it runs nothing.
-        expect((yield* Muse.harness.listModels()).map((model) => model.provider)).toEqual(
+        expect((yield* claudeCode.harness.listModels()).map((model) => model.provider)).toEqual(
           expect.arrayContaining(['anthropic']),
         )
 
@@ -85,7 +85,7 @@ describe('pi and Muse in one host', () => {
           env: { ...process.env, ORU_PI_SESSION_DIR: join(dir, 'pi-sessions') },
           log: () => undefined,
         }),
-        Effect.provideService(ClaudeConfig, {
+        Effect.provideService(ClaudeCodeConfig, {
           env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'claude-sessions') },
           log: () => undefined,
         }),

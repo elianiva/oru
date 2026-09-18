@@ -1,5 +1,14 @@
-export { harnessClaudeCodePlugin, openClaudeHarness, plugin, type ClaudeHarness } from './plugin.ts'
-export { ClaudeConfig, type ClaudeConfigValue } from './config.ts'
+export {
+  harnessClaudeCodePlugin,
+  openClaudeCodeHarness,
+  plugin,
+  type ClaudeHarness,
+} from './plugin.ts'
+export { ClaudeCodeConfig, type ClaudeCodeConfigValue } from './config.ts'
 export { default } from './plugin.ts'
-export { ClaudeSession, ClaudeBridgeError } from './claude/session.ts'
-export { MINIMUM_CLAUDE_VERSION, parseClaudeVersion, probeClaudeVersion } from './claude/launch.ts'
+export { ClaudeCodeSession, ClaudeCodeBridgeError } from './claude/session.ts'
+export {
+  MINIMUM_CLAUDE_CODE_VERSION,
+  parseClaudeCodeVersion,
+  probeClaudeCodeVersion,
+} from './claude/launch.ts'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assistantText, userText } from '@oru/harness'
-import { isSupportedVersion, parseClaudeVersion } from '../src/claude/launch.ts'
+import { isSupportedVersion, parseClaudeCodeVersion } from '../src/claude/launch.ts'
 import {
   historyToPrompt,
   isResumeUnknown,
@@ -161,15 +161,15 @@ describe('resume failures', () => {
 
 describe('Claude versions', () => {
   it('parses what `Muse --version` prints', () => {
-    expect(parseClaudeVersion('2.1.8')?.major).toBe(2)
-    expect(parseClaudeVersion('2.0.0 (Claude Code)')?.patch).toBe(0)
-    expect(parseClaudeVersion('nope')).toBeUndefined()
+    expect(parseClaudeCodeVersion('2.1.8')?.major).toBe(2)
+    expect(parseClaudeCodeVersion('2.0.0 (Claude Code)')?.patch).toBe(0)
+    expect(parseClaudeCodeVersion('nope')).toBeUndefined()
   })
 
   it('gates on 2.0.0', () => {
-    const old = parseClaudeVersion('1.0.0')
-    const minimum = parseClaudeVersion('2.0.0')
-    const newer = parseClaudeVersion('2.1.0')
+    const old = parseClaudeCodeVersion('1.0.0')
+    const minimum = parseClaudeCodeVersion('2.0.0')
+    const newer = parseClaudeCodeVersion('2.1.0')
     if (old === undefined || minimum === undefined || newer === undefined) {
       expect.fail('the version fixtures did not parse')
     }

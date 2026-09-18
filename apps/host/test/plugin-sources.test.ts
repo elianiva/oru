@@ -15,7 +15,7 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-pi'])
   })
 
-  it('loads the Muse bridge through the generic loader, not a static import', async () => {
+  it('loads the Claude Code bridge through the generic loader, not a static import', async () => {
     const plugins = await run(loadPluginSource({ specifier: '@oru/harness-claude-code' }))
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-claude-code'])
   })

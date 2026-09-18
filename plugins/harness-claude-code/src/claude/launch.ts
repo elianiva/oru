@@ -13,23 +13,23 @@ import { Option, Schema } from 'effect'
 export const CLAUDE_COMMAND_ENV = 'ORU_CLAUDE_COMMAND'
 export const CLAUDE_ARGS_ENV = 'ORU_CLAUDE_ARGS'
 
-export const MINIMUM_CLAUDE_VERSION = '2.0.0'
+export const MINIMUM_CLAUDE_CODE_VERSION = '2.0.0'
 
-export interface ClaudeVersion {
+export interface ClaudeCodeVersion {
   readonly raw: string
   readonly major: number
   readonly minor: number
   readonly patch: number
 }
 
-export interface ClaudeLaunch {
+export interface ClaudeCodeLaunch {
   readonly command: string
   readonly args: readonly string[]
 }
 
 /** A bridge failure with a stable message, so the runtime records why. */
-export class ClaudeLaunchError extends Schema.TaggedError<ClaudeLaunchError>()(
-  'ClaudeLaunchError',
+export class ClaudeCodeLaunchError extends Schema.TaggedError<ClaudeCodeLaunchError>()(
+  'ClaudeCodeLaunchError',
   {
     message: Schema.String,
   },
@@ -46,7 +46,7 @@ const ExtraArgs = Schema.Array(Schema.String)
  * apply to the default command too: naming args without a command still sends
  * them to the `claude` on `PATH`.
  */
-export const resolveClaudeLaunch = (env: NodeJS.ProcessEnv): ClaudeLaunch => {
+export const resolveClaudeCodeLaunch = (env: NodeJS.ProcessEnv): ClaudeCodeLaunch => {
   const command = env[CLAUDE_COMMAND_ENV]
   const resolved = command === undefined || command === '' ? 'claude' : command
   const rawArgs = env[CLAUDE_ARGS_ENV]
@@ -55,17 +55,21 @@ export const resolveClaudeLaunch = (env: NodeJS.ProcessEnv): ClaudeLaunch => {
   try {
     parsed = JSON.parse(rawArgs)
   } catch {
-    throw new ClaudeLaunchError({ message: `${CLAUDE_ARGS_ENV} must be a JSON array of strings` })
+    throw new ClaudeCodeLaunchError({
+      message: `${CLAUDE_ARGS_ENV} must be a JSON array of strings`,
+    })
   }
   const args = decodeOption(ExtraArgs)(parsed)
   if (Option.isNone(args)) {
-    throw new ClaudeLaunchError({ message: `${CLAUDE_ARGS_ENV} must be a JSON array of strings` })
+    throw new ClaudeCodeLaunchError({
+      message: `${CLAUDE_ARGS_ENV} must be a JSON array of strings`,
+    })
   }
   return { command: resolved, args: args.value }
 }
 
 /** `2.1.8` and `2.0.0 (Claude Code)` both parse; anything else is unknown. */
-export const parseClaudeVersion = (raw: string): ClaudeVersion | undefined => {
+export const parseClaudeCodeVersion = (raw: string): ClaudeCodeVersion | undefined => {
   const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(raw.trim())
   if (match === null) return undefined
   const [, major, minor, patch] = match
@@ -77,8 +81,9 @@ export const parseClaudeVersion = (raw: string): ClaudeVersion | undefined => {
   }
 }
 
-export const isSupportedVersion = (version: ClaudeVersion): boolean => {
-  const [minimumMajor, minimumMinor, minimumPatch] = MINIMUM_CLAUDE_VERSION.split('.').map(Number)
+export const isSupportedVersion = (version: ClaudeCodeVersion): boolean => {
+  const [minimumMajor, minimumMinor, minimumPatch] =
+    MINIMUM_CLAUDE_CODE_VERSION.split('.').map(Number)
   if (minimumMajor === undefined || minimumMinor === undefined || minimumPatch === undefined) {
     return false
   }
@@ -92,8 +97,8 @@ export const isSupportedVersion = (version: ClaudeVersion): boolean => {
  * A `claude` behind a wrapper reports its version through its arguments, not
  * through its name. Absent or unreadable means not installed.
  */
-export const probeClaudeVersion = (
-  launch: ClaudeLaunch,
+export const probeClaudeCodeVersion = (
+  launch: ClaudeCodeLaunch,
   env: NodeJS.ProcessEnv,
 ): string | undefined => {
   try {

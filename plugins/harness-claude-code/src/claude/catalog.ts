@@ -5,14 +5,14 @@ import { Option, Schema } from 'effect'
 import { HarnessHealth, type Mutable, type ProviderInfo, type ModelInfo } from '@oru/harness'
 import {
   isSupportedVersion,
-  MINIMUM_CLAUDE_VERSION,
-  parseClaudeVersion,
-  probeClaudeVersion,
-  type ClaudeLaunch,
+  MINIMUM_CLAUDE_CODE_VERSION,
+  parseClaudeCodeVersion,
+  probeClaudeCodeVersion,
+  type ClaudeCodeLaunch,
 } from './launch.ts'
 
 /**
- * Muse's catalogue and its health, from local probes only (ADR-0007).
+ * Claude Code's catalogue and its health, from local probes only (ADR-0007).
  *
  * The models are a static list curated from bb's provider catalogue: the ids
  * are what the CLI accepts on `--model`, and the one default is what the CLI
@@ -21,13 +21,13 @@ import {
  * both read locally, so asking never spends money or signs anything in.
  */
 
-export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5[1m]'
+export const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-5[1m]'
 
 const INSTALL_COMMAND = 'npm i -g @anthropic-ai/claude-code'
 
 const CLAUDE_MODELS: readonly { readonly id: string; readonly label: string }[] = [
   { id: 'claude-fable-5-1', label: 'Fable 5.1' },
-  { id: DEFAULT_CLAUDE_MODEL, label: 'Opus 5 (1M)' },
+  { id: DEFAULT_CLAUDE_CODE_MODEL, label: 'Opus 5 (1M)' },
   { id: 'claude-opus-4-8[1m]', label: 'Opus 4.8 (1M)' },
   { id: 'claude-opus-4-7[1m]', label: 'Opus 4.7 (1M)' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
@@ -35,9 +35,9 @@ const CLAUDE_MODELS: readonly { readonly id: string; readonly label: string }[] 
 
 const CACHE_TTL_MS = 30_000
 
-export interface ClaudeCatalogDeps {
+export interface ClaudeCodeCatalogDeps {
   readonly env: NodeJS.ProcessEnv
-  readonly launch: ClaudeLaunch
+  readonly launch: ClaudeCodeLaunch
   readonly log: (message: string) => void
 }
 
@@ -74,11 +74,11 @@ export const hasUsableOauth = (raw: string): boolean => {
   return Date.now() < expiresAt
 }
 
-export class ClaudeCatalog {
+export class ClaudeCodeCatalog {
   private version: { readonly at: number; readonly raw: string | undefined } | null = null
-  private readonly deps: ClaudeCatalogDeps
+  private readonly deps: ClaudeCodeCatalogDeps
 
-  constructor(deps: ClaudeCatalogDeps) {
+  constructor(deps: ClaudeCodeCatalogDeps) {
     this.deps = deps
   }
 
@@ -88,7 +88,7 @@ export class ClaudeCatalog {
       id: model.id,
       label: model.label,
       provider: 'anthropic',
-      isDefault: model.id === DEFAULT_CLAUDE_MODEL,
+      isDefault: model.id === DEFAULT_CLAUDE_CODE_MODEL,
     }))
   }
 
@@ -99,7 +99,7 @@ export class ClaudeCatalog {
 
   async health(): Promise<HarnessHealth> {
     const base = {
-      minimumSupportedVersion: MINIMUM_CLAUDE_VERSION,
+      minimumSupportedVersion: MINIMUM_CLAUDE_CODE_VERSION,
       installCommand: INSTALL_COMMAND,
     }
     const version = await this.installedVersion()
@@ -110,7 +110,7 @@ export class ClaudeCatalog {
         message: 'Muse is not on PATH',
       })
     }
-    const parsed = parseClaudeVersion(version)
+    const parsed = parseClaudeCodeVersion(version)
     if (parsed === undefined) {
       return HarnessHealth.make({
         ...base,
@@ -123,7 +123,7 @@ export class ClaudeCatalog {
       return HarnessHealth.make({
         ...base,
         status: 'unsupported_version',
-        message: `Muse ${parsed.raw} is older than ${MINIMUM_CLAUDE_VERSION}`,
+        message: `Muse ${parsed.raw} is older than ${MINIMUM_CLAUDE_CODE_VERSION}`,
         installedVersion: parsed.raw,
       })
     }
@@ -148,7 +148,7 @@ export class ClaudeCatalog {
   private async installedVersion(): Promise<string | undefined> {
     const now = Date.now()
     if (this.version !== null && now - this.version.at < CACHE_TTL_MS) return this.version.raw
-    const raw = probeClaudeVersion(this.deps.launch, this.deps.env)
+    const raw = probeClaudeCodeVersion(this.deps.launch, this.deps.env)
     this.version = { at: now, raw }
     return raw
   }

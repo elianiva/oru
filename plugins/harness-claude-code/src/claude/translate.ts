@@ -18,7 +18,7 @@ import {
  * the CLI changed shape on is skipped rather than failing the turn.
  */
 
-/** Only the tail counts: Muse owns the loop, so anything else ends the history. */
+/** Only the tail counts: Claude Code owns the loop, so anything else ends the history. */
 export const latestUserText = (history: readonly HistoryItem[]): string | undefined => {
   const item = history.at(-1)
   if (item === undefined || !isUserMessage(item)) return undefined
@@ -101,7 +101,7 @@ const ResultLine = Schema.Struct({
   errors: Schema.optional(Schema.Array(Schema.Unknown)),
 })
 
-export interface ClaudeLineResult {
+export interface ClaudeCodeLineResult {
   /** The session this line belongs to, from any line that carries one. */
   readonly sessionId: string | undefined
   /** Incremental assistant text, from a partial-message delta. */
@@ -116,7 +116,7 @@ export interface ClaudeLineResult {
 }
 
 /** One `stream-json` line translated. Unreadable lines are skipped, not failed. */
-export const translateLine = (line: string): ClaudeLineResult | undefined => {
+export const translateLine = (line: string): ClaudeCodeLineResult | undefined => {
   const trimmed = line.trim()
   if (trimmed === '') return undefined
   let parsed: unknown
@@ -170,7 +170,7 @@ export const translateLine = (line: string): ClaudeLineResult | undefined => {
     if (failed) {
       const message =
         event.errors === undefined
-          ? (event.result ?? event.subtype ?? 'Muse reported the turn as failed')
+          ? (event.result ?? event.subtype ?? 'Claude Code reported the turn as failed')
           : event.errors.map((error) => String(error)).join('; ')
       return {
         sessionId: event.session_id,

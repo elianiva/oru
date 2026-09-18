@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Option, Queue, Schema, Stream } from 'effect'
 import { definePlugin, type AnyPlugin } from '@oru/kernel'
-import { ClaudeConfig } from './config.ts'
+import { ClaudeCodeConfig } from './config.ts'
 import {
   HarnessKind,
   HarnessError,
@@ -9,15 +9,19 @@ import {
   type HarnessService,
   type HarnessTurnRequest,
 } from '@oru/harness'
-import { ClaudeCatalog, DEFAULT_CLAUDE_MODEL } from './claude/catalog.ts'
-import { resolveClaudeLaunch } from './claude/launch.ts'
-import { resolveClaudePaths } from './claude/paths.ts'
-import { ClaudeBridgeError, ClaudeSession, type ClaudeRunInput } from './claude/session.ts'
+import { ClaudeCodeCatalog, DEFAULT_CLAUDE_CODE_MODEL } from './claude/catalog.ts'
+import { resolveClaudeCodeLaunch } from './claude/launch.ts'
+import { resolveClaudeCodePaths } from './claude/paths.ts'
+import {
+  ClaudeCodeBridgeError,
+  ClaudeCodeSession,
+  type ClaudeCodeRunInput,
+} from './claude/session.ts'
 
 /**
- * `harness-claude-code`, Muse as an oru harness.
+ * `harness-claude-code`, Claude Code as an oru harness.
  *
- * Muse owns the agent loop (its own session, compaction, steering) and oru
+ * Claude Code owns the agent loop (its own session, compaction, steering) and oru
  * owns the record and the turn boundary. The bridge is a one-shot `claude -p`
  * child per turn with `--resume` pointing at the thread's session, and oru
  * keeps only the thread-to-session pointer. Nothing here installs, signs in,
@@ -38,7 +42,7 @@ import { ClaudeBridgeError, ClaudeSession, type ClaudeRunInput } from './claude/
  * the plugin reads whichever is active through its coeffects.
  */
 const toHarnessError = (cause: unknown): HarnessError => {
-  if (Schema.is(ClaudeBridgeError)(cause)) {
+  if (Schema.is(ClaudeCodeBridgeError)(cause)) {
     return new HarnessError({
       message: cause.message,
       code: cause.code,
@@ -63,33 +67,33 @@ export interface ClaudeHarness {
  * so a test providing a scripted environment gets an isolated bridge without
  * touching another.
  */
-export const openClaudeHarness: Effect.Effect<ClaudeHarness, never, ClaudeConfig> = Effect.gen(
-  function* () {
-    const config = yield* ClaudeConfig
+export const openClaudeCodeHarness: Effect.Effect<ClaudeHarness, never, ClaudeCodeConfig> =
+  Effect.gen(function* () {
+    const config = yield* ClaudeCodeConfig
     const env = config.env ?? process.env
     const log =
       config.log ??
       ((message: string) => process.stderr.write(`oru harness-claude-code: ${message}\n`))
-    const sessions = new Map<string, ClaudeSession>()
-    const launch = resolveClaudeLaunch(env)
-    const catalog = new ClaudeCatalog({ env, launch, log })
-    const paths = resolveClaudePaths(env)
+    const sessions = new Map<string, ClaudeCodeSession>()
+    const launch = resolveClaudeCodeLaunch(env)
+    const catalog = new ClaudeCodeCatalog({ env, launch, log })
+    const paths = resolveClaudeCodePaths(env)
 
-    const sessionFor = (threadId: string): ClaudeSession => {
+    const sessionFor = (threadId: string): ClaudeCodeSession => {
       const existing = sessions.get(threadId)
       if (existing !== undefined) return existing
-      const created = new ClaudeSession(threadId, {
+      const created = new ClaudeCodeSession(threadId, {
         env,
         paths,
         launch,
-        defaultModel: DEFAULT_CLAUDE_MODEL,
+        defaultModel: DEFAULT_CLAUDE_CODE_MODEL,
         log,
       })
       sessions.set(threadId, created)
       return created
     }
 
-    const inputOf = (request: HarnessTurnRequest): ClaudeRunInput => ({
+    const inputOf = (request: HarnessTurnRequest): ClaudeCodeRunInput => ({
       cwd: request.cwd ?? process.cwd(),
       history: request.history,
       model: request.model,
@@ -97,7 +101,7 @@ export const openClaudeHarness: Effect.Effect<ClaudeHarness, never, ClaudeConfig
     })
 
     const service = defineHarness({
-      meta: { id: 'Muse', label: 'Muse', icon: 'terminal' },
+      meta: { id: 'claude-code', label: 'Claude Code', icon: 'terminal' },
       capabilities: {
         modelListing: true,
         streaming: true,
@@ -107,7 +111,7 @@ export const openClaudeHarness: Effect.Effect<ClaudeHarness, never, ClaudeConfig
         // The mapping file outlives the process, so a restarted oru resumes
         // the thread where it was.
         sessionRestore: true,
-        // Muse owns the conversation: the runtime's history seeds it on
+        // Claude Code owns the conversation: the runtime's history seeds it on
         // the first turn, and the CLI's own state is authoritative after.
         ownsHistory: true,
         // Steering arrives as the next turn's prompt; the runtime queues it.
@@ -160,24 +164,23 @@ export const openClaudeHarness: Effect.Effect<ClaudeHarness, never, ClaudeConfig
       shutdown: () => {
         for (const session of sessions.values()) {
           void session.stop().catch((cause: unknown) => {
-            log(`failed to stop a Muse session: ${toHarnessError(cause).message}`)
+            log(`failed to stop a Claude Code session: ${toHarnessError(cause).message}`)
           })
         }
         sessions.clear()
         catalog.invalidate()
       },
     }
-  },
-)
+  })
 
 /**
- * The Muse bridge, as a plugin.
+ * The Claude Code bridge, as a plugin.
  *
  * A constant rather than a factory because the bridge's environment is a
- * coeffect now: the plugin reads `ClaudeConfig` and contributes the harness
+ * coeffect now: the plugin reads `ClaudeCodeConfig` and contributes the harness
  * the config builds. A test points the bridge at a scripted `claude` by
  * providing another config value, and the app provides the `claude` the user
- * installed. Both are the same plugin id, so a host has exactly one Muse
+ * installed. Both are the same plugin id, so a host has exactly one Claude Code
  * bridge. The harness is explicit: no ambient singleton reads `process.env`
  * at import time.
  */
@@ -191,10 +194,14 @@ export const harnessClaudeCodePlugin: AnyPlugin = definePlugin({
         // kernel's facades only forward method bags. Absent configuration
         // opens the bridge on the process environment, the way the old
         // no-argument factory did; importing the module never reads it.
-        const config = yield* Effect.serviceOption(ClaudeConfig).pipe(
+        const config = yield* Effect.serviceOption(ClaudeCodeConfig).pipe(
           Effect.map((option) => Option.getOrElse(option, () => ({}))),
         )
-        const harness = yield* Effect.provideService(openClaudeHarness, ClaudeConfig, config)
+        const harness = yield* Effect.provideService(
+          openClaudeCodeHarness,
+          ClaudeCodeConfig,
+          config,
+        )
         // The contributed value is built here, so setup registers the harness
         // plus the teardown that kills every `claude` child this instance
         // spawned (ADR-0007).

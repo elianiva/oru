@@ -11,11 +11,11 @@ import { Context } from 'effect'
  * stays dependency-free so the host can provide the value without statically
  * importing the bridge.
  */
-export interface ClaudeConfigValue {
+export interface ClaudeCodeConfigValue {
   readonly env?: NodeJS.ProcessEnv | undefined
   readonly log?: ((message: string) => void) | undefined
 }
 
-export class ClaudeConfig extends Context.Service<ClaudeConfig, ClaudeConfigValue>()(
+export class ClaudeCodeConfig extends Context.Service<ClaudeCodeConfig, ClaudeCodeConfigValue>()(
   'oru/harness-claude-code/config',
 ) {}

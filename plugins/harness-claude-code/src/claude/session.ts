@@ -9,12 +9,12 @@ import {
   type HistoryItem,
   type TurnUsage,
 } from '@oru/harness'
-import { CLAUDE_ARGS_ENV, CLAUDE_COMMAND_ENV, type ClaudeLaunch } from './launch.ts'
-import { mapFileFor, type ClaudePaths } from './paths.ts'
+import { CLAUDE_ARGS_ENV, CLAUDE_COMMAND_ENV, type ClaudeCodeLaunch } from './launch.ts'
+import { mapFileFor, type ClaudeCodePaths } from './paths.ts'
 import { historyToPrompt, isResumeUnknown, latestUserText, translateLine } from './translate.ts'
 
 /**
- * One Muse thread: a one-shot `claude -p` child per turn plus the
+ * One Claude Code thread: a one-shot `claude -p` child per turn plus the
  * thread-to-session pointer that makes `--resume` work.
  *
  * The CLI owns the conversation (its own session, compaction, steering) and
@@ -28,8 +28,8 @@ const STDERR_TAIL_BYTES = 4_096
 const SIGKILL_ESCALATION_MS = 4_000
 
 /** A bridge failure with a stable code, so the runtime records why. */
-export class ClaudeBridgeError extends Schema.TaggedError<ClaudeBridgeError>()(
-  'ClaudeBridgeError',
+export class ClaudeCodeBridgeError extends Schema.TaggedError<ClaudeCodeBridgeError>()(
+  'ClaudeCodeBridgeError',
   {
     code: Schema.String,
     message: Schema.String,
@@ -37,17 +37,17 @@ export class ClaudeBridgeError extends Schema.TaggedError<ClaudeBridgeError>()(
   },
 ) {}
 
-export interface ClaudeRunInput {
+export interface ClaudeCodeRunInput {
   readonly cwd: string
   readonly history: readonly HistoryItem[]
   readonly model: string | undefined
   readonly instructions: string | undefined
 }
 
-export interface ClaudeSessionDeps {
+export interface ClaudeCodeSessionDeps {
   readonly env: NodeJS.ProcessEnv
-  readonly paths: ClaudePaths
-  readonly launch: ClaudeLaunch
+  readonly paths: ClaudeCodePaths
+  readonly launch: ClaudeCodeLaunch
   readonly defaultModel: string
   /** Warnings go to stderr: the bridge talks to people through oru, not around it. */
   readonly log: (message: string) => void
@@ -80,18 +80,18 @@ const claudeChildEnv = (base: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
 }
 
 /**
- * A thread's Muse session.
+ * A thread's Claude Code session.
  *
  * One turn at a time, like every harness: the runtime serialises turns per
  * thread, and two overlapping one-shot runs would race on one mapping file.
  */
-export class ClaudeSession {
+export class ClaudeCodeSession {
   private child: ChildProcess | null = null
   private abortRequested = false
   private readonly threadId: string
-  private readonly deps: ClaudeSessionDeps
+  private readonly deps: ClaudeCodeSessionDeps
 
-  constructor(threadId: string, deps: ClaudeSessionDeps) {
+  constructor(threadId: string, deps: ClaudeCodeSessionDeps) {
     this.threadId = threadId
     this.deps = deps
   }
@@ -104,9 +104,9 @@ export class ClaudeSession {
    * first turn seeds the session with the thread's full history, later turns
    * send only the latest user text while `--resume` carries the session.
    */
-  async run(input: ClaudeRunInput, emit: (event: HarnessEvent) => void): Promise<void> {
+  async run(input: ClaudeCodeRunInput, emit: (event: HarnessEvent) => void): Promise<void> {
     if (this.child !== null) {
-      throw new ClaudeBridgeError({
+      throw new ClaudeCodeBridgeError({
         code: 'busy',
         message: `thread ${this.threadId} is already running a turn`,
         retryable: false,
@@ -119,15 +119,15 @@ export class ClaudeSession {
       if (mapping !== null && mapping.cwd !== input.cwd) {
         emit(
           HarnessEvent.SessionReplaced({
-            reason: 'the thread working directory changed, so Muse started a fresh session',
+            reason: 'the thread working directory changed, so Claude Code started a fresh session',
           }),
         )
       }
       const prompt = fresh ? historyToPrompt(input.history) : latestUserText(input.history)
       if (prompt === undefined || prompt === '') {
-        throw new ClaudeBridgeError({
+        throw new ClaudeCodeBridgeError({
           code: 'no_prompt',
-          message: `thread ${this.threadId} has no user message for Muse to answer`,
+          message: `thread ${this.threadId} has no user message for Claude Code to answer`,
           retryable: false,
         })
       }
@@ -147,12 +147,13 @@ export class ClaudeSession {
         if (
           resumeId !== undefined &&
           !this.abortRequested &&
-          Schema.is(ClaudeBridgeError)(cause) &&
+          Schema.is(ClaudeCodeBridgeError)(cause) &&
           isResumeUnknown(cause.message)
         ) {
           emit(
             HarnessEvent.SessionReplaced({
-              reason: 'the resumed Muse session was unknown, so Muse started a fresh session',
+              reason:
+                'the resumed Claude Code session was unknown, so Claude Code started a fresh session',
             }),
           )
           await this.attemptTurn(
@@ -201,9 +202,9 @@ export class ClaudeSession {
   async fork(request: HarnessForkRequest): Promise<void> {
     const source = this.readMappingFile(request.sourceThreadId)
     if (source === null) {
-      throw new ClaudeBridgeError({
+      throw new ClaudeCodeBridgeError({
         code: 'no_session',
-        message: `thread ${request.sourceThreadId} has no Muse session to fork`,
+        message: `thread ${request.sourceThreadId} has no Claude Code session to fork`,
         retryable: false,
       })
     }
@@ -284,14 +285,14 @@ export class ClaudeSession {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false
-      const fail = (error: ClaudeBridgeError): void => {
+      const fail = (error: ClaudeCodeBridgeError): void => {
         if (settled) return
         settled = true
         reject(error)
       }
       child.on('error', (error: Error) => {
         fail(
-          new ClaudeBridgeError({
+          new ClaudeCodeBridgeError({
             code: 'spawn_failed',
             message: `could not start Muse: ${error.message}`,
             retryable: false,
@@ -304,7 +305,7 @@ export class ClaudeSession {
         if (remainder.trim() !== '') onLine(remainder)
         if (this.abortRequested) {
           reject(
-            new ClaudeBridgeError({
+            new ClaudeCodeBridgeError({
               code: 'aborted',
               message: `the turn on thread ${this.threadId} was aborted`,
               retryable: false,
@@ -332,7 +333,7 @@ export class ClaudeSession {
           return
         }
         reject(
-          new ClaudeBridgeError({
+          new ClaudeCodeBridgeError({
             code: 'turn_failed',
             message:
               output.trim() === ''
