@@ -30,7 +30,7 @@ const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-durable-'
 describe('one journal, two hosts', () => {
   it('reconstructs the plugin graph from the facts the first host wrote', async () => {
     const file = sessionFile()
-    const plugins = [harnessRegistryPlugin(), runtimePlugin, echoToolPlugin] as const
+    const plugins = [harnessRegistryPlugin, runtimePlugin, echoToolPlugin] as const
 
     const live = await Effect.runPromise(
       Effect.scoped(

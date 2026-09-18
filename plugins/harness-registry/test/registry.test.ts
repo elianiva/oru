@@ -3,6 +3,7 @@ import { Effect, Option, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import {
+  HarnessDefaultsService,
   HarnessKind,
   Harnesses,
   defaultCapabilities,
@@ -42,7 +43,7 @@ describe('harness registry', () => {
     await run(
       Effect.gen(function* () {
         // Two bridges at once: a contribution kind, not a service token.
-        const host = yield* makeHost([harnessRegistryPlugin(), beta, alpha])
+        const host = yield* makeHost([harnessRegistryPlugin, beta, alpha])
         const registry = yield* host.service(Harnesses)
         const listed = yield* registry.list()
         expect(listed.map((entry) => entry.plugin)).toEqual([
@@ -66,7 +67,9 @@ describe('harness registry', () => {
   it('prefers the host\u2019s configured default, and falls back when it is not registered', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin({ harness: 'beta' }), alpha, beta])
+        const host = yield* makeHost([harnessRegistryPlugin, alpha, beta]).pipe(
+          Effect.provideService(HarnessDefaultsService, { harness: 'beta' }),
+        )
         const registry = yield* host.service(Harnesses)
 
         // Sorted order would pick alpha; the host's config picks beta.
@@ -78,7 +81,9 @@ describe('harness registry', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin({ harness: 'gamma' }), alpha, beta])
+        const host = yield* makeHost([harnessRegistryPlugin, alpha, beta]).pipe(
+          Effect.provideService(HarnessDefaultsService, { harness: 'gamma' }),
+        )
         const registry = yield* host.service(Harnesses)
 
         // A configured default no plugin registered is not a dead end.
@@ -90,7 +95,7 @@ describe('harness registry', () => {
   it('changes the answer live when a harness plugin deactivates', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin(), alpha, beta])
+        const host = yield* makeHost([harnessRegistryPlugin, alpha, beta])
         const registry = yield* host.service(Harnesses)
         expect((yield* registry.list()).length).toBe(2)
 
@@ -110,7 +115,7 @@ describe('harness registry', () => {
   it('provides the token a consumer depends on without naming a harness', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin(), alpha])
+        const host = yield* makeHost([harnessRegistryPlugin, alpha])
         const graph = yield* host.graph
         expect(graph.providers.get(Harnesses.key)).toBe('oru/harness-registry')
         expect(graph.providers.has(HarnessKind.id)).toBe(false)

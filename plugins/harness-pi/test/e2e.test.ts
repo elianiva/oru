@@ -25,7 +25,7 @@ import {
   unsignedTree,
   type SessionEvent,
 } from '@oru/kernel'
-import { harnessPiPlugin, makePiHarness, type PiHarness } from '../src/index.ts'
+import { PiBridgeConfig, harnessPiPlugin, openPiHarness } from '../src/index.ts'
 import { PI_CLI } from './scripted-provider.ts'
 
 /**
@@ -81,7 +81,9 @@ interface E2EReadiness {
 const readiness = await Effect.runPromise(
   Effect.gen(function* () {
     const dir = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-probe-'))
-    const probe = makePiHarness({ env: e2eEnv(dir), log: () => undefined })
+    const probe = yield* openPiHarness.pipe(
+      Effect.provideService(PiBridgeConfig, { env: e2eEnv(dir), log: () => undefined }),
+    )
     try {
       const health = yield* probe.service.health!()
       if (health.status !== 'ready') {
@@ -115,16 +117,10 @@ afterEach(() => {
 
 const sessionsDir = (dir: string): string => join(dir, 'sessions')
 
-const bridge = (dir: string): PiHarness => {
-  const harness = makePiHarness({
-    env: e2eEnv(dir),
-    log: (message) => process.stdout.write(`pi: ${message}\n`),
-  })
-  cleanups.push(() => {
-    harness.shutdown()
-  })
-  return harness
-}
+const bridge = (dir: string) => ({
+  env: e2eEnv(dir),
+  log: (message: string) => process.stdout.write(`pi: ${message}\n`),
+})
 
 const run = <A, E>(
   effect: Effect.Effect<A, E, EventJournal.EventJournal | Scope.Scope | SessionLog>,
@@ -202,14 +198,14 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
       rmSync(dir, { recursive: true, force: true })
       rmSync(cwd, { recursive: true, force: true })
     })
-    const harness = bridge(dir)
+    const config = bridge(dir)
 
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
-          harnessRegistryPlugin(),
+          harnessRegistryPlugin,
           echoToolPlugin,
-          harnessPiPlugin(harness),
+          harnessPiPlugin,
           runtimePlugin,
         ])
         const registry = yield* host.service(Harnesses)
@@ -268,7 +264,7 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         const sessionFile = join(sessionsDir(dir), `${thread}.jsonl`)
         expect(existsSync(sessionFile)).toBe(true)
         expect(readFileSync(sessionFile, 'utf8')).toContain('"type":"session"')
-      }),
+      }).pipe(Effect.provideService(PiBridgeConfig, config)),
     )
   })
 })

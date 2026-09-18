@@ -1,8 +1,7 @@
 import { Context, Effect, Schema } from 'effect'
 import { definePlugin, defineService, type AnyPlugin } from '@oru/kernel'
-import { defineTool, runtimePlugin, ToolKind, type HarnessDefaults } from '@oru/harness'
+import { defineTool, runtimePlugin, ToolKind } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
-import { harnessPiPlugin, makePiHarness } from '@oru/harness-pi'
 import { PanelUi } from './panel.ts'
 
 interface LoggerService {
@@ -65,33 +64,30 @@ export const echoToolPlugin = definePlugin({
 })
 
 /**
- * The host's plugin set without the pi bridge.
+ * The host's plugin set without any bridge.
  *
- * The bridge is the one plugin whose environment is a process, so it is the one
- * plugin a test swaps or leaves out: this is what the transport suite composes
- * to keep `pnpm test` hermetic. The defaults are the host's configured harness
- * and model, handed to the registry the way `config.json` resolved them.
+ * A bridge is an external plugin now, so this is what the transport suite
+ * composes to keep `pnpm test` hermetic. The registry reads its defaults from
+ * ambient `HarnessDefaultsService` configuration: absent it carries no
+ * configured default, and a composition that resolves `config.json` provides
+ * its own value with `Effect.provideService`.
  */
-export const corePluginsWith = (defaults: HarnessDefaults = {}): readonly AnyPlugin[] => [
+export const corePlugins: readonly AnyPlugin[] = [
   ...fixturePlugins,
-  harnessRegistryPlugin(defaults),
+  harnessRegistryPlugin,
   echoToolPlugin,
   runtimePlugin,
 ]
-
-export const corePlugins = corePluginsWith()
 
 /**
  * The host's plugin set.
  *
  * The registry is what makes harnesses plural: any plugin that contributes
  * under `HarnessKind` shows up in the picker without the host knowing it
- * (ADR-0006). Only a node process can carry `oru/harness-pi`, because a bridge
- * spawns a process, and this is that process (ADR-0007).
+ * (ADR-0006). A bridge spawns a process, so only a node process can carry one,
+ * and this is that process (ADR-0007). The bridges load through the generic
+ * plugin-source loader, the same path a third-party harness takes: the host
+ * knows no harness by name. The caller appends whatever the sources resolve
+ * to `corePlugins` and provides its configured defaults and bridge environment
+ * with `Effect.provideService`.
  */
-export const hostPluginsWith = (env: NodeJS.ProcessEnv, defaults: HarnessDefaults = {}) => [
-  ...corePluginsWith(defaults),
-  harnessPiPlugin(makePiHarness({ env })),
-]
-
-export const hostPlugins = hostPluginsWith(process.env)

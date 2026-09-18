@@ -26,6 +26,7 @@ export {
   type HarnessCompaction,
   type HarnessCompactRequest,
   type HarnessDefaults,
+  HarnessDefaultsService,
   type HarnessEntry,
   type HarnessesContract,
   type HarnessForkRequest,

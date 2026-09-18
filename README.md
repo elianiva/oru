@@ -38,6 +38,7 @@ Status: active development.
 | [0016](./docs/adr/0016-harness-is-a-fact.md)           | The harness is a host fact; the model picker is a list                        |
 | [0017](./docs/adr/0017-composer-slot-pickers.md)       | The composer is a box with slots; pickers are submodels                       |
 | [0018](./docs/adr/0018-provider-metadata-and-tabs.md)  | Harness plugins name providers; the picker tabs by them                       |
+| [0019](./docs/adr/0019-external-harness-plugin.md)     | The pi bridge is an external plugin, loaded like any third-party harness      |
 
 ## Development
 
@@ -56,13 +57,13 @@ Optional, only for the live model test: the `pi` binary on `PATH` and a signed-i
 ### Layout
 
 ```
-apps/host        # the process: composes the kernel, serves HostRpc/ThreadRpc on loopback, owns harness-pi
+apps/host        # the process: composes the kernel, serves HostRpc/ThreadRpc on loopback, loads external plugins
 apps/oru         # the browser client of a running host (Foldkit view)
 packages/kernel  # @oru/kernel: contexts, services, activation, contributions
 packages/rpc     # @oru/rpc: RPC groups, wire schemas, client facades, route paths
 packages/harness # shared harness seams
 packages/plugin-build # facet bundling via oru-build-facet (esbuild)
-plugins/*        # harness-pi, harness-registry
+plugins/*        # harness-pi (standalone), harness-registry
 scripts/         # bump-version, version lockstep, pack-host, pack-smoke
 turbo.json       # typecheck / test / build / dev / e2e task graph
 pnpm-workspace.yaml # workspace globs (packages/*, plugins/*, apps/*)
@@ -76,7 +77,7 @@ TypeScript on Effect v4, Foldkit for the view, oru's own harness vocabulary for 
 
 ### Running
 
-`apps/host` is the process. It composes the kernel, serves `HostRpc` and `ThreadRpc` on loopback, and carries the one plugin a browser cannot: `oru/harness-pi` spawns `pi`.
+`apps/host` is the process. It composes the kernel, serves `HostRpc` and `ThreadRpc` on loopback, and loads external plugins by specifier. The stock set is one plugin a browser cannot carry: `oru/harness-pi` spawns `pi`.
 
 ```
 pnpm --filter @oru/host start          # http://127.0.0.1:7317
@@ -109,7 +110,7 @@ To run that host against the pi installed on this machine and an account that is
 ORU_PI_E2E_MODEL=<provider>/<model> pnpm --filter @oru/host test
 ```
 
-`pi --list-models` names the candidates. The test skips without one, because only you know which account to spend. `plugins/harness-pi/src/index.ts` is the bridge it drives.
+`pi --list-models` names the candidates. The test skips without one, because only you know which account to spend. `plugins/harness-pi/src/plugin.ts` is the bridge it drives.
 
 ### Browser check
 

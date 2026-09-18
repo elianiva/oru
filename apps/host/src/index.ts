@@ -27,10 +27,14 @@ export {
   echoToolPlugin,
   fixturePlugins,
   greeterPlugin,
-  hostPlugins,
-  hostPluginsWith,
   loggingPlugin,
 } from './plugins.ts'
+export {
+  defaultPluginSources,
+  loadExternalPlugins,
+  loadPluginSource,
+  type PluginSource,
+} from './plugin-sources.ts'
 export { hostRpcHandlers } from './handlers/host.ts'
 export { projectRpcHandlers } from './handlers/project.ts'
 export { threadRpcHandlers } from './handlers/thread.ts'

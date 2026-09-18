@@ -66,7 +66,7 @@ Unknown keys are rejected.
 
 ## Environment the pi bridge sees
 
-The host copies the process environment and overwrites the product `ORU_*` / `ORU_PI_*` names with the resolved values, then passes that bag to `makePiHarness`. The bridge still reads an env argument. It does not read a second copy of `process.env` for those product keys when the host started it.
+The host copies the process environment and overwrites the product `ORU_*` / `ORU_PI_*` names with the resolved values, then provides that bag as the `PiBridgeConfig` service. The bridge reads it through its coeffects, never through a factory parameter. It does not read a second copy of `process.env` for those product keys when the host started it.
 
 Two names stay outside this layer:
 

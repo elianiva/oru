@@ -3,6 +3,8 @@ import { Effect, Match, Schema, type Scope } from 'effect'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
 import type { BootError } from '@oru/kernel'
 import type { JournalOpenError } from '@oru/kernel/sqlite'
+import { HarnessDefaultsService } from '@oru/harness'
+import { PiBridgeConfig } from '@oru/harness-pi/config'
 import { packageVersion, parseArgs, usage } from './cli.ts'
 import {
   ConfigError,
@@ -16,7 +18,8 @@ import {
   unsetFileKey,
   writeFileConfig,
 } from './config.ts'
-import { hostPluginsWith } from './plugins.ts'
+import { corePlugins } from './plugins.ts'
+import { defaultPluginSources, loadExternalPlugins } from './plugin-sources.ts'
 import { serveHost } from './server.ts'
 
 const write = (line: string, stream: NodeJS.WriteStream) =>
@@ -130,15 +133,24 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             ensureLayout(settings.home.value)
             return settings
           })
+          const external = yield* loadExternalPlugins(defaultPluginSources)
           const running = yield* serveHost({
-            plugins: hostPluginsWith(piEnvOf(process.env, settings), {
-              harness: settings.defaultHarness.value,
-              model: settings.defaultModel.value,
-            }),
+            plugins: [...corePlugins, ...external],
             hostname: settings.hostname.value,
             port: settings.port.value,
             journal: settings.journal.value,
-          })
+          }).pipe(
+            // Configuration reaches plugins as services: the resolved settings
+            // provide the registry defaults and the bridge environment, and
+            // every plugin setup reads whichever value is ambient.
+            Effect.provideService(HarnessDefaultsService, {
+              harness: settings.defaultHarness.value,
+              model: settings.defaultModel.value,
+            }),
+            Effect.provideService(PiBridgeConfig, {
+              env: piEnvOf(process.env, settings),
+            }),
+          )
           yield* write(`oru host listening on ${running.url}\n`, process.stdout)
           yield* askedToStop
           return 0
