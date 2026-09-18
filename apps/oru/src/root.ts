@@ -29,6 +29,12 @@ import {
 } from './route.ts'
 import { emptyThreadSections } from './threads.ts'
 
+export const Submit = Schema.Struct({
+  pending: Schema.Boolean,
+  error: Schema.UndefinedOr(Schema.String),
+})
+export type Submit = typeof Submit.Type
+
 export const Model = Schema.Struct({
   route: AppRoute,
   shell: Shell.Model,
@@ -41,6 +47,7 @@ export const Model = Schema.Struct({
   access: AccessPicker.Model,
   composer: Composer.Model,
   settings: General.Model,
+  submit: Submit,
 })
 export type Model = typeof Model.Type
 
@@ -59,6 +66,11 @@ export const Message = defineMessageUnion({
   GotAccess: { message: AccessPicker.Message },
   GotComposer: { message: Composer.Message },
   GotSettings: { message: General.Message },
+  ThreadCreated: { threadId: Schema.String },
+  ThreadCreateFailed: { reason: Schema.String, text: Schema.String },
+  ThreadMessageSent: {},
+  ThreadMessageFailed: { reason: Schema.String, text: Schema.String },
+  DismissedSubmitError: {},
 })
 export type Message = typeof Message.Type
 
@@ -347,6 +359,66 @@ export const ConfigureThread = Command.define('ConfigureThread', {
     ),
 })
 
+/**
+ * ThreadCreated means the draft is sent: the update handler navigates on it
+ * with no second command. Provisioning stays on the host, which opens the
+ * thread on creation.
+ */
+export const CreateThreadAndSend = Command.define('CreateThreadAndSend', {
+  args: {
+    project: Schema.NonEmptyString,
+    harness: Schema.UndefinedOr(Schema.String),
+    model: Schema.UndefinedOr(Schema.String),
+    reasoning: Schema.UndefinedOr(Schema.String),
+    text: Schema.NonEmptyString,
+  },
+  messages: [Message.ThreadCreated, Message.ThreadCreateFailed],
+  execute: ({ project, harness, model, reasoning, text }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) =>
+        Effect.gen(function* () {
+          const created = yield* client.create(project, { harness, model, reasoning })
+          yield* client.send(created.threadId, text)
+          return Message.ThreadCreated({ threadId: created.threadId })
+        }),
+      ),
+      Effect.catchTags({
+        UnknownProject: (error) =>
+          Effect.succeed(
+            Message.ThreadCreateFailed({
+              reason: `This host has no project "${error.project}".`,
+              text,
+            }),
+          ),
+        HostUnreachable: (error) =>
+          Effect.succeed(
+            Message.ThreadCreateFailed({
+              reason: `${error.operation}: ${error.reason}`,
+              text,
+            }),
+          ),
+      }),
+    ),
+})
+
+export const SendThreadMessage = Command.define('SendThreadMessage', {
+  args: { threadId: Schema.NonEmptyString, text: Schema.NonEmptyString },
+  messages: [Message.ThreadMessageSent, Message.ThreadMessageFailed],
+  execute: ({ threadId, text }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.send(threadId, text)),
+      Effect.map(() => Message.ThreadMessageSent()),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.ThreadMessageFailed({
+            reason: `${error.operation}: ${error.reason}`,
+            text,
+          }),
+        ),
+      ),
+    ),
+})
+
 export const CopyText = Command.define('CopyText', {
   args: { text: Schema.String },
   messages: [Message.GotPicker],
@@ -423,6 +495,7 @@ export const init = (url: Url.Url) => {
       access: AccessPicker.init(),
       composer: Composer.init(),
       settings: General.init(),
+      submit: Submit.make({ pending: false, error: undefined }),
     },
     commands: [ListProjects(), ...pickerLoad(route), ...detailLoad(route)],
   }
@@ -576,6 +649,60 @@ const foldPicker = Update.foldChild({
     }),
 })
 
+const submitting = (model: Model): Model =>
+  evo(model, { submit: () => ({ pending: true, error: undefined }) })
+
+const submitFailed = (model: Model, reason: string, text: string): Model =>
+  evo(submitting(model), {
+    submit: () => ({ pending: false, error: reason }),
+    composer: () =>
+      Composer.update(model.composer, Composer.Message.ChangedDraft({ value: text })).model,
+  })
+
+const submitIntent = (
+  model: Model,
+  text: string,
+): Update.Return<Model, Message, ProjectClient | ThreadClient> => {
+  if (model.submit.pending) {
+    return {
+      model: evo(model, {
+        composer: () =>
+          Composer.update(model.composer, Composer.Message.ChangedDraft({ value: text })).model,
+      }),
+    }
+  }
+  const threadId = Option.getOrUndefined(selectedThread(model))
+  if (threadId !== undefined) {
+    return {
+      model: submitting(model),
+      commands: [SendThreadMessage({ threadId, text })],
+    }
+  }
+  const project = ProjectPicker.selectedProject(
+    model.projectPicker,
+    Projects.projectsOf(model.projects),
+  )
+  if (project === undefined) {
+    return { model: submitFailed(model, 'Select a project first.', text) }
+  }
+  const options = ModelPicker.loadedOptions(model.picker)
+  const harness = model.picker.selection.harness ?? options?.harness
+  const chosen = model.picker.selection.model ?? options?.config.model
+  const reasoning = model.picker.selection.reasoning ?? options?.config.reasoning
+  return {
+    model: submitting(model),
+    commands: [
+      CreateThreadAndSend({
+        project: project.id,
+        harness,
+        model: chosen,
+        reasoning,
+        text,
+      }),
+    ],
+  }
+}
+
 const foldComposer = Update.foldChild({
   update: Composer.update,
   read: (model: Model) => Option.some(model.composer),
@@ -587,10 +714,10 @@ const foldComposer = Update.foldChild({
     Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient | ThreadClient>>(
       outMessage,
       {
-        // The draft is the composer's; everything it points at lives in the
-        // picker submodels, which the thread's creation reads when it needs
-        // them. Nothing is copied here.
-        Submitted: () => (model) => ({ model }),
+        Submitted:
+          ({ text }) =>
+          (current) =>
+            submitIntent(current, text),
       },
     ),
 })
@@ -691,6 +818,25 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
     GotComposer: ({ message: childMessage }) => foldComposer(model, childMessage),
     GotSettings: ({ message: childMessage }) => foldSettings(model, childMessage),
+    ThreadCreated: ({ threadId }) => ({
+      model: evo(model, { submit: () => ({ pending: false, error: undefined }) }),
+      commands:
+        model.settings.navigateToThreads === false
+          ? []
+          : [NavigateInternal({ url: threadRouter({ threadId }) })],
+    }),
+    ThreadCreateFailed: ({ reason, text }) => ({
+      model: submitFailed(model, reason, text),
+    }),
+    ThreadMessageSent: () => ({
+      model: evo(model, { submit: () => ({ pending: false, error: undefined }) }),
+    }),
+    ThreadMessageFailed: ({ reason, text }) => ({
+      model: submitFailed(model, reason, text),
+    }),
+    DismissedSubmitError: () => ({
+      model: evo(model, { submit: () => ({ pending: model.submit.pending, error: undefined }) }),
+    }),
   })
 
 const shellSubs = Subscription.lift(Shell.subscriptions)({
@@ -804,22 +950,54 @@ const pickerStatusSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
     toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
   })
 
-const homeMain = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
+const submitErrorSlot = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
+  const error = model.submit.error
+  if (error === undefined) return undefined
+  return h.div(
+    [
+      h.DataAttribute('submit-error', ''),
+      h.Class(
+        'w-full max-w-3xl rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm',
+      ),
+    ],
+    [
+      h.span([h.DataAttribute('submit-error-text', '')], [error]),
+      h.button(
+        [
+          h.Type('button'),
+          h.OnClick(Message.DismissedSubmitError()),
+          h.DataAttribute('submit-error-dismiss', ''),
+          h.Class('ml-2 underline'),
+        ],
+        ['Dismiss'],
+      ),
+    ],
+  )
+}
+
+const homeMain = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const error = submitErrorSlot(model, h)
+  return h.div(
     [
       h.Attribute('data-main', ''),
       h.Class('flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6'),
     ],
-    [pickerStatusSlot(model, h), composerSlot(model, 'What should we build in oru?', h)],
+    [
+      pickerStatusSlot(model, h),
+      ...(error === undefined ? [] : [error]),
+      composerSlot(model, 'What should we build in oru?', h),
+    ],
   )
+}
 
 /**
  * A thread's conversation. The header names the thread the route selected, and
  * the column between it and the composer holds nothing because nothing about
  * this thread is recorded by the app yet.
  */
-const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
+const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const error = submitErrorSlot(model, h)
+  return h.div(
     [h.Attribute('data-conversation', ''), h.Class('flex min-h-0 flex-1 flex-col')],
     [
       h.header(
@@ -834,10 +1012,15 @@ const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html =>
       h.div([h.Class('min-h-0 flex-1')], []),
       h.div(
         [h.Class('flex shrink-0 flex-col items-center gap-2 px-6 pb-6')],
-        [pickerStatusSlot(model, h), composerSlot(model, undefined, h)],
+        [
+          pickerStatusSlot(model, h),
+          ...(error === undefined ? [] : [error]),
+          composerSlot(model, undefined, h),
+        ],
       ),
     ],
   )
+}
 
 const threadName = (id: string): string => id
 

@@ -9,6 +9,7 @@ import * as Composer from '../src/composer.ts'
 import * as ModelPicker from '../src/model-picker.ts'
 import {
   CreateProject,
+  CreateThreadAndSend,
   DeleteProject,
   GetProjectDetail,
   ListDirectory,
@@ -689,7 +690,7 @@ describe('composer', () => {
     )
   })
 
-  it('submits a draft through the root loop, clearing the box', () => {
+  it('keeps the draft and names the reason when no project is selected', () => {
     const typed = update(
       init(homeUrl).model,
       Message.GotComposer({
@@ -701,8 +702,116 @@ describe('composer', () => {
       Scene.given(typed.model),
       Scene.expect(Scene.selector('[data-composer-submit]')).toExist(),
       Scene.click(Scene.selector('[data-composer-submit]')),
-      Scene.expect(Scene.selector('[data-composer-submit][data-disabled]')).toExist(),
+      Scene.expect(Scene.selector('[data-submit-error-text]')).toContainText(
+        'Select a project first.',
+      ),
+      Scene.expect(Scene.selector('[data-composer-input]')).toHaveValue('hello composer'),
+      Scene.click(Scene.selector('[data-submit-error-dismiss]')),
+      Scene.expect(Scene.selector('[data-submit-error]')).not.toExist(),
     )
+  })
+
+  it('creates the thread with the pickers\u2019 configuration and navigates to it', () => {
+    const options: ThreadOptions = {
+      config: { harness: 'pi', model: undefined, reasoning: undefined },
+      harness: 'pi',
+      harnesses: [{ id: 'pi', label: 'pi', icon: 'terminal', health: { status: 'ready' } }],
+      providers: [],
+      models: [
+        {
+          id: 'muse/claude-1.3-contributor',
+          label: 'Contributor',
+          provider: 'muse',
+          reasoningLevels: ['low', 'high'],
+        },
+      ],
+    }
+    const ready = [
+      Message.GotProjects({
+        message: Projects.Message.ProjectsArrived({
+          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
+        }),
+      }),
+      Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
+      Message.GotPicker({
+        message: ModelPicker.Message.ChosenModel({ model: 'muse/claude-1.3-contributor' }),
+      }),
+      Message.GotPicker({ message: ModelPicker.Message.ChosenReasoning({ level: 'high' }) }),
+      Message.GotComposer({
+        message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
+      }),
+    ].reduce((current, message) => update(current, message).model, init(homeUrl).model)
+
+    Scene.scene(
+      { update, view },
+      Scene.given(ready),
+      Scene.click(Scene.selector('[data-composer-submit]')),
+      Scene.Command.expectHas(CreateThreadAndSend),
+      Scene.expect(Scene.selector('[data-composer-submit][data-disabled]')).toExist(),
+      Scene.Command.resolve(CreateThreadAndSend, Message.ThreadCreated({ threadId: 'thread-1' })),
+      Scene.Command.expectHas(NavigateInternal),
+      Scene.Command.resolve(NavigateInternal, Message.CompletedNavigateInternal()),
+      Scene.expect(Scene.selector('[data-submit-error]')).not.toExist(),
+    )
+
+    const submitted = update(
+      ready,
+      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    expect(submitted.commands?.[0]?.name).toBe('CreateThreadAndSend')
+    expect(submitted.commands?.[0]?.args).toEqual({
+      project: 'p1',
+      harness: 'pi',
+      model: 'muse/claude-1.3-contributor',
+      reasoning: 'high',
+      text: 'hello composer',
+    })
+    const created = update(submitted.model, Message.ThreadCreated({ threadId: 'thread-1' }))
+    expect(created.commands?.[0]?.name).toBe('NavigateInternal')
+    expect(created.commands?.[0]?.args).toEqual({ url: '/thread/thread-1' })
+  })
+
+  it('restores the draft when the host refuses the creation', () => {
+    const submitted = update(
+      update(
+        listOne(),
+        Message.GotComposer({
+          message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
+        }),
+      ).model,
+      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    expect(submitted.commands?.[0]?.name).toBe('CreateThreadAndSend')
+    const failed = update(
+      submitted.model,
+      Message.ThreadCreateFailed({ reason: 'SendMessage: boom', text: 'hello composer' }),
+    )
+    expect(failed.model.submit).toEqual({ pending: false, error: 'SendMessage: boom' })
+    expect(failed.model.composer.draft).toBe('hello composer')
+  })
+
+  it('sends a follow-up straight to the thread the route selected', () => {
+    const typed = update(
+      init(urlForPath('/thread/thread-1')).model,
+      Message.GotComposer({
+        message: Composer.Message.ChangedDraft({ value: 'follow up' }),
+      }),
+    )
+    const submitted = update(
+      typed.model,
+      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    expect(submitted.commands?.[0]?.name).toBe('SendThreadMessage')
+    expect(submitted.commands?.[0]?.args).toEqual({ threadId: 'thread-1', text: 'follow up' })
+    expect(submitted.model.submit.pending).toBe(true)
+    const sent = update(submitted.model, Message.ThreadMessageSent())
+    expect(sent.model.submit).toEqual({ pending: false, error: undefined })
+    const failed = update(
+      submitted.model,
+      Message.ThreadMessageFailed({ reason: 'SendMessage: boom', text: 'follow up' }),
+    )
+    expect(failed.model.submit).toEqual({ pending: false, error: 'SendMessage: boom' })
+    expect(failed.model.composer.draft).toBe('follow up')
   })
 
   it('emits Submitted with the draft text and clears it', () => {

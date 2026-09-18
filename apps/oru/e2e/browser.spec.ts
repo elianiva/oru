@@ -206,15 +206,15 @@ test('a host that is down renders a named state, and the retry recovers', async 
   await expect(page.locator('[data-projects-list]')).toHaveCount(0)
 })
 
-test('the composer still submits a draft and clears the box', async ({ page }) => {
+test('a submit with no project keeps the draft and names the reason', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-composer-headline]')).toContainText(
     'What should we build in oru?',
   )
   await page.locator('[data-composer-input]').fill('hello composer')
   await page.locator('[data-composer-submit]').click()
-  await expect(page.locator('[data-composer-input]')).toHaveValue('')
-  await expect(page.locator('[data-composer-submit][data-disabled]')).toHaveCount(1)
+  await expect(page.locator('[data-submit-error-text]')).toContainText('Select a project first.')
+  await expect(page.locator('[data-composer-input]')).toHaveValue('hello composer')
 })
 
 /**

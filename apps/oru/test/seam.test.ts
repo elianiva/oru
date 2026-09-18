@@ -22,6 +22,8 @@ import {
   ListProjects,
   LoadThreadOptions,
   CreateProject,
+  CreateThreadAndSend,
+  GetProjectDetail,
   UpdateProject,
   Message,
   init,
@@ -245,6 +247,46 @@ describe('the app’s seam to a running host', () => {
         Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
         Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
       )
+    })
+  })
+
+  it('creates a thread with the composer’s configuration and sends the draft', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-submit-'))
+
+    await withHost(async (hostUrl) => {
+      const project = await runEffect(
+        hostUrl,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* projects.create('oru', cwd)
+        }),
+      )
+      const created = await runEffect(
+        hostUrl,
+        CreateThreadAndSend({
+          project: project.id,
+          harness: 'pi',
+          model: undefined,
+          reasoning: undefined,
+          text: 'hello composer',
+        }).effect,
+      )
+      if (!Predicate.isTagged(created, 'ThreadCreated')) {
+        expect.fail(`the host refused a submit it should have accepted: ${created._tag}`)
+      }
+
+      const options = await runEffect(
+        hostUrl,
+        LoadThreadOptions({ threadId: created.threadId, refresh: false }).effect,
+      )
+      if (!Predicate.isTagged(options, 'GotPicker')) expect.fail('the options produced no answer')
+      expect(options.message).toMatchObject({
+        options: { harness: 'pi', config: { harness: 'pi' } },
+      })
+
+      const detail = await runEffect(hostUrl, GetProjectDetail({ project: project.id }).effect)
+      if (!Predicate.isTagged(detail, 'GotProjects')) expect.fail('the detail produced no answer')
+      expect(detail.message).toMatchObject({ detail: { threadCount: 1 } })
     })
   })
 
