@@ -79,4 +79,7 @@ export const loadExternalPlugins = (
   })
 
 /** The plugins a stock host loads. Third-party harnesses join by extending this list. */
-export const defaultPluginSources: readonly PluginSource[] = [{ specifier: '@oru/harness-pi' }]
+export const defaultPluginSources: readonly PluginSource[] = [
+  { specifier: '@oru/harness-pi' },
+  { specifier: '@oru/harness-claude-code' },
+]

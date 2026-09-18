@@ -74,3 +74,7 @@ Two names stay outside this layer:
 - `ORU_PI_TOOLS_FILE` is a scratch path the bridge sets per child.
 
 The injected pi extension still reads `ORU_PI_TOOLS_FILE` from its own process environment. That is the child's env, which the bridge builds.
+
+## Environment the Muse bridge sees
+
+The host hands the Muse bridge the process environment unchanged, as the `ClaudeConfig` service. The bridge reads three names out of it: `ORU_CLAUDE_COMMAND` (default `claude`), `ORU_CLAUDE_ARGS` (a JSON array of extra CLI args, unset by default), and `ORU_CLAUDE_SESSION_DIR` (default `~/.oru/Muse/sessions`, holding one thread-to-session pointer file per thread). `ORU_CLAUDE_E2E_MODEL` is only for the live end-to-end test.

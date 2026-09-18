@@ -15,6 +15,11 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-pi'])
   })
 
+  it('loads the Muse bridge through the generic loader, not a static import', async () => {
+    const plugins = await run(loadPluginSource({ specifier: '@oru/harness-claude-code' }))
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-claude-code'])
+  })
+
   it('resolves a missing source to no plugins without throwing', async () => {
     const messages: string[] = []
     const plugins = await run(
@@ -30,7 +35,10 @@ describe('an external plugin source', () => {
         // A test has no one to tell about the missing source.
       }),
     )
-    expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-pi'])
+    expect(plugins.map((plugin) => plugin.id)).toEqual([
+      'oru/harness-pi',
+      'oru/harness-claude-code',
+    ])
   })
 })
 
@@ -44,7 +52,8 @@ describe('the host plugin set', () => {
       'tools/echo',
     ])
 
-    const withPi = await run(loadExternalPlugins(defaultPluginSources, () => undefined))
-    expect(withPi.map((plugin) => plugin.id)).toContain('oru/harness-pi')
+    const withBridges = await run(loadExternalPlugins(defaultPluginSources, () => undefined))
+    expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-pi')
+    expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-claude-code')
   })
 })

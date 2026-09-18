@@ -146,6 +146,9 @@ importers:
       '@oru/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@oru/harness-claude-code':
+        specifier: workspace:*
+        version: link:../../plugins/harness-claude-code
       '@oru/harness-pi':
         specifier: workspace:*
         version: link:../../plugins/harness-pi
@@ -301,6 +304,34 @@ importers:
       vitest:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@22.20.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  plugins/harness-claude-code:
+    dependencies:
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      '@oru/harness-pi':
+        specifier: workspace:*
+        version: link:../harness-pi
+      '@oru/harness-registry':
+        specifier: workspace:*
+        version: link:../harness-registry
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
   plugins/harness-pi:
     dependencies:
