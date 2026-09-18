@@ -54,7 +54,6 @@ import {
   type ModelInfo,
   type Mutable,
 } from '@oru/harness'
-import { demoModelId } from './demo-model.ts'
 import { decodeReportedUsage, recordedUsageOf } from './reported-usage.ts'
 import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
 import {
@@ -844,11 +843,8 @@ const merged = <K extends keyof ThreadConfigurationInput>(
 ): string | undefined => (key in input ? input[key] : current)
 
 const defaultModelOf = (models: readonly ModelInfo[]): string => {
-  // Keep `mock` first when the catalogue lists it, so existing tests stay stable.
-  const demo = models.find((model) => model.id === demoModelId)
-  if (demo !== undefined) return demo.id
   const preferred = models.find((model) => model.isDefault === true)
-  return preferred?.id ?? models[0]?.id ?? demoModelId
+  return preferred?.id ?? models[0]?.id ?? ''
 }
 
 const lastUserText = (history: readonly Items.HistoryItem[]): string | undefined => {

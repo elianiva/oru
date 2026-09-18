@@ -11,7 +11,6 @@ import {
   type Scope,
 } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import { LanguageModel, turnFromStream } from '@effect-uai/core/LanguageModel'
 import * as Items from '@effect-uai/core/Items'
 import * as Turn from '@effect-uai/core/Turn'
 import {
@@ -29,18 +28,8 @@ import {
 } from '@oru/kernel'
 import { HarnessKind, HarnessLifecycle, defaultCapabilities, defineHarness } from '@oru/harness'
 import { Harnesses } from '@oru/harness'
-import { harnessOruPlugin } from '@oru/harness-oru'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
-import {
-  demoModelPlugin,
-  defineTool,
-  foldThread,
-  Idle,
-  Inference,
-  inferencePlugin,
-  modelPlugin,
-  workOf,
-} from '../src/index.ts'
+import { defineTool, foldThread, Idle, Inference, inferencePlugin, workOf } from '../src/index.ts'
 import { ToolKind } from '../src/tool-kind.ts'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
@@ -60,7 +49,6 @@ const echoToolPlugin = definePlugin({
 })
 
 const harnessesKey = Harnesses.key
-const languageModelKey = LanguageModel.key
 
 const threadFacts = (events: readonly SessionEvent[], thread: string): readonly SessionEvent[] =>
   events.filter((event) =>
@@ -97,46 +85,59 @@ const run = <A, E>(
     ),
   )
 
-const approveOnRequest = (inference: Inference['Service'], thread: string) =>
-  Effect.gen(function* () {
-    const log = yield* SessionLog
-    const live = yield* log.subscribe
-    yield* live.pipe(
-      Stream.runForEach((event) =>
-        Predicate.isTagged(event, 'tool/requested') && event.thread === thread
-          ? inference.decide(thread, event.call, 'approve').pipe(Effect.orDie)
-          : Effect.void,
-      ),
-      Effect.forkScoped,
-    )
-  })
-
-const delayedModelPlugin = (releaseSecond: Deferred.Deferred<void>) => {
-  const streamTurn = () =>
-    Stream.concat(
-      Stream.succeed(Turn.TurnEvent.TextDelta({ text: 'hello ' })),
-      Stream.concat(
-        Stream.fromEffect(
-          Deferred.await(releaseSecond).pipe(
-            Effect.as(Turn.TurnEvent.TextDelta({ text: 'world' })),
+/** A harness that answers one canned line, for tests of the loop around it. */
+const cannedHarnessPlugin = definePlugin({
+  id: 'oru/harness-canned',
+  provides: [
+    HarnessKind.of(
+      defineHarness({
+        meta: { id: 'canned', label: 'Canned' },
+        streamTurn: () =>
+          Stream.succeed(
+            Turn.TurnEvent.TurnComplete({
+              turn: {
+                items: [Items.assistantText('done')],
+                usage: {},
+                stop_reason: 'stop',
+              },
+            }),
           ),
-        ),
-        Stream.succeed(
-          Turn.TurnEvent.TurnComplete({
-            turn: {
-              items: [Items.assistantText('hello world')],
-              usage: {},
-              stop_reason: 'stop',
-            },
-          }),
-        ),
+      }),
+    ),
+  ],
+})
+
+const delayedHarnessPlugin = (releaseSecond: Deferred.Deferred<void>) =>
+  definePlugin({
+    id: 'oru/harness-delayed',
+    provides: [
+      HarnessKind.of(
+        defineHarness({
+          meta: { id: 'delayed', label: 'Delayed' },
+          streamTurn: () =>
+            Stream.concat(
+              Stream.succeed(Turn.TurnEvent.TextDelta({ text: 'hello ' })),
+              Stream.concat(
+                Stream.fromEffect(
+                  Deferred.await(releaseSecond).pipe(
+                    Effect.as(Turn.TurnEvent.TextDelta({ text: 'world' })),
+                  ),
+                ),
+                Stream.succeed(
+                  Turn.TurnEvent.TurnComplete({
+                    turn: {
+                      items: [Items.assistantText('hello world')],
+                      usage: {},
+                      stop_reason: 'stop',
+                    },
+                  }),
+                ),
+              ),
+            ),
+        }),
       ),
-    )
-  return modelPlugin('oru/model-delayed', {
-    streamTurn,
-    turn: turnFromStream(streamTurn),
+    ],
   })
-}
 
 describe('inference architecture', () => {
   it('stays blocked until a harness registry names a harness', async () => {
@@ -150,39 +151,23 @@ describe('inference architecture', () => {
     )
   })
 
-  it('stays blocked until LanguageModel provides the oru harness', async () => {
-    await run(
-      Effect.gen(function* () {
-        const host = yield* makeHost([echoToolPlugin, harnessOruPlugin, inferencePlugin])
-        const graph = yield* host.graph
-        expect(graph.active.has('oru/harness-oru')).toBe(false)
-        expect(graph.active.has('oru/inference')).toBe(false)
-        expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
-        expect(graph.blocked.get('oru/inference')?.missing).toEqual([harnessesKey])
-      }),
-    )
-  })
-
-  it('empties the harness registry and blocks the harness plugin when its model is removed', async () => {
+  it('empties the harness registry while the loop stays up when its harness is removed', async () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost([
           harnessRegistryPlugin(),
           echoToolPlugin,
-          demoModelPlugin,
-          harnessOruPlugin,
+          cannedHarnessPlugin,
           inferencePlugin,
         ])
         expect((yield* host.graph).active.has('oru/inference')).toBe(true)
-        expect((yield* host.graph).active.has('oru/harness-oru')).toBe(true)
-        yield* host.deactivate(demoModelPlugin.id)
+        expect((yield* host.graph).active.has('oru/harness-canned')).toBe(true)
+        yield* host.deactivate(cannedHarnessPlugin.id)
         const graph = yield* host.graph
         // The registry is what inference depends on, and it is still there: the
         // bridge set changed, not the loop (ADR-0006).
         expect(graph.active.has('oru/inference')).toBe(true)
-        expect(graph.active.has('oru/harness-oru')).toBe(false)
-        expect(graph.active.has('oru/model-demo')).toBe(false)
-        expect(graph.blocked.get('oru/harness-oru')?.missing).toEqual([languageModelKey])
+        expect(graph.active.has('oru/harness-canned')).toBe(false)
         const registry = yield* host.service(Harnesses)
         expect(yield* registry.list()).toEqual([])
         expect(yield* registry.preferred()).toEqual(Option.none())
@@ -229,18 +214,11 @@ describe('inference architecture', () => {
         const host = yield* makeHost([
           harnessRegistryPlugin(),
           echoToolPlugin,
-          demoModelPlugin,
-          harnessOruPlugin,
           scriptedPlugin,
           inferencePlugin,
         ])
         const inference = yield* host.service(Inference)
         const log = yield* SessionLog
-        yield* approveOnRequest(inference, 'default')
-
-        // A thread that never chose runs the registry's default, `oru`.
-        yield* inference.send('default', 'hello')
-        yield* inference.whenIdle('default')
 
         yield* inference.configure('chosen', {
           harness: 'scripted',
@@ -296,8 +274,7 @@ describe('inference architecture', () => {
         const host = yield* makeHost([
           harnessRegistryPlugin(),
           echoToolPlugin,
-          delayedModelPlugin(releaseSecond),
-          harnessOruPlugin,
+          delayedHarnessPlugin(releaseSecond),
           inferencePlugin,
         ])
         const inference = yield* host.service(Inference)
@@ -315,7 +292,7 @@ describe('inference architecture', () => {
         )
         expect(graph.active.has('oru/inference')).toBe(true)
         expect(graph.active.has('tools/echo')).toBe(true)
-        expect(graph.active.has('oru/model-delayed')).toBe(true)
+        expect(graph.active.has('oru/harness-delayed')).toBe(true)
 
         yield* inference.send('t1', 'hello')
 
@@ -348,39 +325,6 @@ describe('inference architecture', () => {
         }
         expect(bodies).toEqual(['user:hello', 'assistant:hello world'])
         expect(workOf(foldThread(yield* log.entries, 't1'))).toEqual(Idle.make({}))
-      }),
-    )
-  })
-
-  it('runs a tool from streamed model output and reconstructs the same idle fold after replay', async () => {
-    await run(
-      Effect.gen(function* () {
-        const host = yield* makeHost([
-          harnessRegistryPlugin(),
-          echoToolPlugin,
-          demoModelPlugin,
-          harnessOruPlugin,
-          inferencePlugin,
-        ])
-        const inference = yield* host.service(Inference)
-        const log = yield* SessionLog
-        yield* approveOnRequest(inference, 't1')
-        yield* inference.send('t1', 'hello')
-        yield* inference.whenIdle('t1')
-
-        const entries = yield* log.entries
-        const tags = threadFacts(entries, 't1').map((event) => event._tag)
-        expect(tags).toEqual([
-          'message/appended',
-          'agent/inbox/spliced',
-          'turn/started',
-          'tool/requested',
-          'approval/decided',
-          'tool/completed',
-          'message/appended',
-        ])
-        expect(workOf(foldThread(entries, 't1'))).toEqual(Idle.make({}))
-        expect(workOf(foldThread([...entries], 't1'))).toEqual(Idle.make({}))
       }),
     )
   })

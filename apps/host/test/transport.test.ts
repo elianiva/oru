@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Predicate, Effect, Fiber, Option, Stream, type Scope } from 'effect'
+import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
 import { definePlugin } from '@oru/kernel'
 import { HarnessKind, Harnesses, defineHarness } from '@oru/harness'
 import { GraphRpc, ProjectClient, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
@@ -16,7 +16,11 @@ const withHost = <A, E>(
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const running = yield* serveHost({ plugins: corePlugins, hostname: '127.0.0.1', port: 0 })
+        const running = yield* serveHost({
+          plugins: corePlugins,
+          hostname: '127.0.0.1',
+          port: 0,
+        })
         return yield* effect.pipe(Effect.provide(clientsFor(running.url)))
       }),
     ),
@@ -87,57 +91,10 @@ describe('the RPC transport', () => {
     expect(seen[0]?.active).toEqual([])
   })
 
-  it('carries a turn: the thread, its facts, and its live signals', async () => {
-    const turn = await withHost(
-      Effect.gen(function* () {
-        const thread = yield* ThreadClient
-        const created = yield* openThread(process.cwd())
-        const facts = yield* thread.watch(created.threadId).pipe(
-          Stream.takeUntil(
-            (event) => Predicate.isTagged(event, 'message/appended') && event.role === 'assistant',
-          ),
-          Stream.runCollect,
-          Effect.forkScoped,
-        )
-        const signals = yield* thread.watchSignals(created.threadId).pipe(
-          Stream.takeUntil((signal) => Predicate.isTagged(signal, 'settled')),
-          Stream.runCollect,
-          Effect.forkScoped,
-        )
-        yield* thread.watch(created.threadId).pipe(
-          Stream.runForEach((event) =>
-            Predicate.isTagged(event, 'tool/requested')
-              ? thread.decide(created.threadId, event.call, 'approve')
-              : Effect.void,
-          ),
-          Effect.forkScoped,
-        )
-        // Live signals have no snapshot to replay, so the subscription has to
-        // exist before the turn starts.
-        yield* Effect.sleep('100 millis')
-        yield* thread.send(created.threadId, 'hello')
-        return {
-          facts: (yield* Fiber.join(facts)).map((event) => event._tag),
-          signals: [...(yield* Fiber.join(signals))].map((signal) => signal._tag),
-        }
-      }),
-    )
-
-    expect(turn.facts).toEqual([
-      'thread/created',
-      'message/appended',
-      'agent/inbox/spliced',
-      'turn/started',
-      'tool/requested',
-      'approval/decided',
-      'tool/completed',
-      'message/appended',
-    ])
-    expect(turn.signals).toContain('tool-start')
-    expect(turn.signals.at(-1)).toBe('settled')
-  })
-
-  it('answers with the harnesses this host has and the catalogue of the default', async () => {
+  it('answers with no harnesses on a host without a bridge', async () => {
+    // A turn over the wire is the pi bridge's end-to-end test; here the
+    // hermetic core carries no harness, so the pane shows the choice it
+    // cannot make.
     const options = await withHost(
       Effect.gen(function* () {
         const thread = yield* ThreadClient
@@ -146,13 +103,14 @@ describe('the RPC transport', () => {
       }),
     )
 
-    expect(options.harnesses.map((choice) => choice.id)).toEqual(['oru'])
+    expect(options.harnesses).toEqual([])
+    expect(options.harness).toBeUndefined()
     expect(options.config).toEqual({
       harness: undefined,
       model: undefined,
       reasoning: undefined,
     })
-    expect(options.models.map((model) => model.id)).toContain('mock')
+    expect(options.models).toEqual([])
   })
 
   it('creates, lists, and reads a project', async () => {

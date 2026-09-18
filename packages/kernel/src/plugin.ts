@@ -18,7 +18,7 @@ export interface PluginContext {
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
   /**
    * Contribute a payload only setup can build, because it depends on the
-   * plugin's coeffects: a harness assembled from a resolved `LanguageModel`.
+   * plugin's coeffects: a harness assembled from its resolved environment.
    * The kind owns construction, so a payload can never be paired with a kind it
    * does not belong to. Registered with the plugin's other contributions and
    * removed with them when the plugin deactivates.

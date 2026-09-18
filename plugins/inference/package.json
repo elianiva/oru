@@ -18,7 +18,6 @@
     "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
-    "@oru/harness-oru": "workspace:*",
     "@oru/harness-registry": "workspace:*",
     "@oru/plugin-build": "workspace:*",
     "typescript": "^7.0.2",

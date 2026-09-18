@@ -32,7 +32,6 @@ const FALLBACK_ICON_KEYS: Readonly<Record<string, string>> = {
   groq: 'gauge',
   lmstudio: 'monitor',
   mistral: 'wind',
-  mock: 'flask-conical',
   ollama: 'container',
   openai: 'hexagon',
   'openai-codex': 'code-xml',

@@ -70,8 +70,8 @@ describe('a thread born configured', () => {
           const threads = yield* ThreadClient
           const project = yield* projects.create('demo', cwd)
           const created = yield* threads.create(project.id, {
-            harness: 'oru',
-            model: 'claude-sonnet-4',
+            harness: 'pi',
+            model: 'test-model',
           })
           return created.threadId
         }),
@@ -85,8 +85,8 @@ describe('a thread born configured', () => {
     if (configured === undefined || !Predicate.isTagged(configured, 'thread/configured')) {
       expect.fail('the journal has no thread/configured for the thread')
     }
-    expect(configured.harness).toBe('oru')
-    expect(configured.model).toBe('claude-sonnet-4')
+    expect(configured.harness).toBe('pi')
+    expect(configured.model).toBe('test-model')
     expect(configured.reasoning).toBeUndefined()
   })
 
@@ -109,49 +109,5 @@ describe('a thread born configured', () => {
 
     const facts = await readJournal(file, (log) => factsOf(log, threadId))
     expect(facts.map((event) => event._tag)).toEqual(['thread/created'])
-  })
-
-  it('reports the configuration, the active harness, and its catalogue', async () => {
-    const file = sessionFile()
-    const cwd = mkdtempSync(join(tmpdir(), 'oru-thread-options-cwd-'))
-
-    await Effect.runPromise(
-      withHost(
-        file,
-        Effect.gen(function* () {
-          const projects = yield* ProjectClient
-          const threads = yield* ThreadClient
-          const project = yield* projects.create('demo', cwd)
-          const created = yield* threads.create(project.id, {
-            harness: 'oru',
-            model: 'claude-sonnet-4',
-            reasoning: undefined,
-          })
-
-          const options = yield* threads.options(created.threadId)
-          expect(options.config).toEqual({
-            harness: 'oru',
-            model: 'claude-sonnet-4',
-            reasoning: undefined,
-          })
-          expect(options.harness).toBe('oru')
-          expect(options.models.map((model) => model.id)).toEqual([
-            'mock',
-            'gpt-5.4-mini',
-            'claude-sonnet-4',
-          ])
-
-          // A thread that does not exist yet answers with the host's default.
-          const fresh = yield* threads.options(undefined)
-          expect(fresh.config).toEqual({
-            harness: undefined,
-            model: undefined,
-            reasoning: undefined,
-          })
-          expect(fresh.harness).toBe('oru')
-          expect(fresh.models.map((model) => model.id)).toHaveLength(3)
-        }),
-      ),
-    )
   })
 })

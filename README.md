@@ -62,7 +62,7 @@ packages/kernel  # @oru/kernel: contexts, services, activation, contributions
 packages/rpc     # @oru/rpc: RPC groups, wire schemas, client facades, route paths
 packages/harness # shared harness seams
 packages/plugin-build # facet bundling via oru-build-facet (esbuild)
-plugins/*        # harness-oru, harness-pi, harness-registry, inference
+plugins/*        # harness-pi, harness-registry, inference
 scripts/         # bump-version, version lockstep, pack-host, pack-smoke
 turbo.json       # typecheck / test / build / dev / e2e task graph
 pnpm-workspace.yaml # workspace globs (packages/*, plugins/*, apps/*)

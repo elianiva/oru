@@ -44,7 +44,7 @@ export interface Registry {
  * building a description, not doing the work, so the probe is free.
  *
  * The kind is preserved because `Effect.flatMap` would otherwise swallow a
- * `Stream` (and a `LanguageModel` or harness that streams through a facade is
+ * `Stream` (and a harness that streams through a facade is
  * the normal case, not an exotic one).
  */
 export const serviceFacade = <S>(peek: () => S | undefined, token: TokenId): S => {

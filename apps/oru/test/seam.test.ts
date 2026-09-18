@@ -170,7 +170,7 @@ describe('the app’s seam to a running host', () => {
           const projects = yield* ProjectClient
           const threads = yield* ThreadClient
           const project = yield* projects.create('oru', cwd)
-          return yield* threads.create(project.id, { harness: 'oru', model: 'claude-sonnet-4' })
+          return yield* threads.create(project.id, { harness: 'pi', model: 'test-model' })
         }),
       )
 
@@ -179,8 +179,8 @@ describe('the app’s seam to a running host', () => {
       const model = update(init(homeUrl).model, message).model
 
       expect(model.picker.selection).toEqual({
-        harness: 'oru',
-        model: 'claude-sonnet-4',
+        harness: 'pi',
+        model: 'test-model',
         reasoning: undefined,
       })
     })

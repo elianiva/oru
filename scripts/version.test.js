@@ -24,7 +24,6 @@ const workspace = (overrides) => ({
   'packages/rpc/package.json': { name: '@oru/rpc', version: '0.0.0', private: true },
   'plugins/inference/package.json': { name: '@oru/inference', version: '0.0.0', private: true },
   'plugins/harness-pi/package.json': { name: '@oru/harness-pi', version: '0.0.0', private: true },
-  'plugins/harness-oru/package.json': { name: '@oru/harness-oru', version: '0.0.0', private: true },
   'plugins/harness-registry/package.json': {
     name: '@oru/harness-registry',
     version: '0.0.0',
