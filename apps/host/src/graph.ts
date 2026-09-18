@@ -1,6 +1,6 @@
 import { Effect, Option } from 'effect'
 import type { AnyPlugin, Host, ThreadId } from '@oru/kernel'
-import { Inference } from '@oru/inference'
+import { Runtime } from '@oru/harness'
 import type { ViewGraph } from '@oru/rpc'
 import { decodePanelUi } from './panel.ts'
 
@@ -29,6 +29,6 @@ export const viewGraphOf = (
       tokens: [...graph.providers.keys()],
       // The view asks whether a thread has something to run, not which plugin
       // provides it, so the host answers that question here.
-      agent: graph.providers.has(Inference.key),
+      agent: graph.providers.has(Runtime.key),
     }
   })

@@ -1,6 +1,6 @@
 # Many harnesses on one host: a registry, declared session ownership, thread configuration
 
-A host keeps several harnesses active at once. A harness plugin contributes its service as a data contribution under `HarnessKind` (`oru/harness`), the same way a tool plugin contributes under `ToolKind`. A small `oru/harness-registry` plugin provides the `Harnesses` service, which answers from the live contribution set, and `oru/inference` needs `Harnesses` instead of a single `Harness`. A thread records which harness it runs, and the runtime resolves it per turn.
+A host keeps several harnesses active at once. A harness plugin contributes its service as a data contribution under `HarnessKind` (`oru/harness`), the same way a tool plugin contributes under `ToolKind`. A small `oru/harness-registry` plugin provides the `Harnesses` service, which answers from the live contribution set, and `oru/runtime` needs `Harnesses` instead of a single `Harness`. A thread records which harness it runs, and the runtime resolves it per turn.
 
 The harness contract carries two session patterns, declared by `HarnessCapabilities.ownsHistory`. A model-turn harness (`harness-oru`) is stateless: the runtime replays `request.history` every turn, and the session log is the conversation. An agent-run harness (`harness-pi`) owns a session of its own: it seeds that session from `request.history` when it has nothing for the thread, and afterwards treats its own state as authoritative for the model while the log is the trace. The runtime still receives every fact: an agent-run harness reports the turn's items (assistant messages, tool calls, tool outputs, usage) and the runtime appends them.
 
@@ -25,9 +25,9 @@ Which harness a thread runs, which model it uses, and how much it thinks are thr
 
 ## Consequences
 
-- `@oru/harness` exports `HarnessKind`, the `Harnesses` service and token, and the `HarnessService` interface. `Harness` as a token is gone, and every caller migrated in one cut: inference, harness-oru, harness-pi, the app's fixtures, and the architecture test.
-- Inference activates whether or not a harness is installed. A thread naming an unknown harness fails at its turn, not at boot. The registry answers from contributions on each call, so activating or deactivating a harness plugin changes what the picker offers without a restart.
-- `Harnesses` appears in the graph's service tokens, so the presentation facet lists harnesses without importing the inference plugin (ADR-0005).
+- `@oru/harness` exports `HarnessKind`, the `Harnesses` service and token, and the `HarnessService` interface. `Harness` as a token is gone, and every caller migrated in one cut: the runtime driver, harness-oru, harness-pi, the app's fixtures, and the architecture test.
+- The driver runs whether or not a harness is installed. A thread naming an unknown harness fails at its turn, not at boot. The registry answers from contributions on each call, so activating or deactivating a harness plugin changes what the picker offers without a restart.
+- `Harnesses` appears in the graph's service tokens, so the presentation facet lists harnesses without importing the runtime plugin (ADR-0005).
 - A bridge whose service is assembled from a coeffect contributes at setup rather than after activation, so `PluginContext` carries `contribute`: a plugin adds to its own contribution set while it is being set up, and deactivating it reverses every contribution by plugin id (ADR-0001). `harness-pi` needs this because its service is built from the process environment it was handed, not from anything the host injects later. A harness plugin's own coeffects are unchanged; only its provision changes from a token to a contribution.
 - ADR-0003 still holds for the runtime: oru's state is a projection of the log. For an `ownsHistory` harness the log is the trace and the harness's session is the model's memory. Two authorities, one declared boundary.
 - A thread with no harness session, forked, branched, or on a fresh host, is re-seeded from `request.history`. The log is what makes re-seeding possible at all.

@@ -1,6 +1,6 @@
 import { Clock, Context, Effect, Layer, Match, Schema, Semaphore, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
-import { Msgpack } from 'effect/unstable/encoding'
+import { SchemaBinary } from 'effect/unstable/encoding'
 import type { HostEvent } from './event.ts'
 import {
   PluginActivated as SessionPluginActivated,
@@ -27,7 +27,7 @@ export class SessionLog extends Context.Service<SessionLog, SessionLogContract>(
   'oru/SessionLog',
 ) {}
 
-const codec = Msgpack.schema(SessionEvent)
+const codec = SchemaBinary.toCodec(SessionEvent)
 const encodePayload = Schema.encodeEffect(codec)
 const decodePayload = Schema.decodeUnknownEffect(codec)
 

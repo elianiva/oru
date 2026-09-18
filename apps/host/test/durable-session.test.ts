@@ -6,7 +6,7 @@ import { Effect, Schema } from 'effect'
 import { definePlugin, foldActivePlugins, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import { sqliteJournalLayer } from '@oru/kernel/sqlite'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
-import { defineTool, inferencePlugin, ToolKind } from '@oru/inference'
+import { defineTool, runtimePlugin, ToolKind } from '@oru/harness'
 
 const EchoArgs = Schema.Struct({ text: Schema.String })
 
@@ -30,7 +30,7 @@ const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-durable-'
 describe('one journal, two hosts', () => {
   it('reconstructs the plugin graph from the facts the first host wrote', async () => {
     const file = sessionFile()
-    const plugins = [harnessRegistryPlugin(), inferencePlugin, echoToolPlugin] as const
+    const plugins = [harnessRegistryPlugin(), runtimePlugin, echoToolPlugin] as const
 
     const live = await Effect.runPromise(
       Effect.scoped(
@@ -41,7 +41,7 @@ describe('one journal, two hosts', () => {
         }).pipe(Effect.provide(sessionLogLayer), Effect.provide(sqliteJournalLayer(file))),
       ),
     )
-    expect(live).toEqual(['oru/harness-registry', 'oru/inference'])
+    expect(live).toEqual(['oru/harness-registry', 'oru/runtime'])
 
     // A second host against the file boots from the journal rather than from its
     // plugin list, so the deactivation the first one recorded still holds.

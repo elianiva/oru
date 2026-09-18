@@ -6,7 +6,7 @@
 
 `SessionEvent` gains `project/updated { project, name, cwd }`, a host-lane fact following `thread/configured`'s precedent: one fact per change, and the latest fact on the path is the whole answer. Both members are required. An update carrying only the changed member would make every reader replay two facts and merge them, and a reader that missed one would render a project that never existed.
 
-`foldProjects` applies creates and then updates for the same id. An update for an id the log never created is dropped rather than manufacturing a project out of a fact about one. `foldProject` and `foldThreadCwd` read through `foldProjects`, so a thread's directory follows the latest update. The inference loop resolves `request.cwd` from the log on every turn, so an edit applies to the next turn and rewrites no lane.
+`foldProjects` applies creates and then updates for the same id. An update for an id the log never created is dropped rather than manufacturing a project out of a fact about one. `foldProject` and `foldThreadCwd` read through `foldProjects`, so a thread's directory follows the latest update. The runtime driver resolves `request.cwd` from the log on every turn, so an edit applies to the next turn and rewrites no lane.
 
 `UpdateProject` refuses a relative cwd with the existing `RelativeCwd` and an id the log does not name with `UnknownProject` (`Schema.Union([RelativeCwd, UnknownProject])`). It writes the fact only after both checks pass and answers with the updated project.
 
@@ -20,7 +20,7 @@
 
 ## Consequences
 
-- `SessionEvent` is closed, so every `Match.tagsExhaustive` over it gained a `project/updated` case: the kernel's three folds and `session-tree.ts`'s lane assignment, the inference plugin's history and work folds, and the four test helpers that enumerate the union. It is a host-lane fact, so a project edit never appears on a thread's lane.
+- `SessionEvent` is closed, so every `Match.tagsExhaustive` over it gained a `project/updated` case: the kernel's three folds and `session-tree.ts`'s lane assignment, the runtime's history and work folds, and the four test helpers that enumerate the union. It is a host-lane fact, so a project edit never appears on a thread's lane.
 - `foldProjects` is the only place either project fact is interpreted; `foldProject` and `foldThreadCwd` read through it.
 - `ProjectClientContract.update` fails `RelativeCwd | UnknownProject | HostUnreachable` and leaves the host's own tags alone (ADR-0013).
 - A project's cwd edit is not retroactive to threads that already ran; it applies to the next turn of every thread that points at the project.

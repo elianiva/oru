@@ -1,6 +1,6 @@
 # oru
 
-oru is an agent control plane: a kernel of composable plugins that runs on effect-uai for the model-facing agent loop, and owns its own tools, sessions, and UI. Everything is a plugin. For the view, everything is a submodel.
+oru is an agent control plane: a kernel of composable plugins that owns its tools, sessions, and UI, and reaches models through harness bridges. Everything is a plugin. For the view, everything is a submodel.
 
 Status: active development.
 
@@ -24,7 +24,7 @@ Status: active development.
 | [0002](./docs/adr/0002-plugin-facets-and-scope.md)     | A plugin is one identity with facets, activated host-wide or per thread       |
 | [0003](./docs/adr/0003-session-log.md)                 | The session is an immutable event log, projected as state, stored as a tree   |
 | [0004](./docs/adr/0004-presentation-seam.md)           | Typed RPC to the server; the view mirrors the active graph                    |
-| [0005](./docs/adr/0005-inference-runtime.md)           | Inference is an ordinary plugin: effect-uai, model as plugin, tools as JSON   |
+| [0005](./docs/adr/0005-harness-runtime.md)             | The runtime drives turns; harnesses implement them: oru deltas, tools as JSON |
 | [0006](./docs/adr/0006-harness-layer.md)               | Many harnesses on one host: registry, session ownership, thread configuration |
 | [0007](./docs/adr/0007-pi-bridge.md)                   | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
 | [0008](./docs/adr/0008-monorepo-unpublished.md)        | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
@@ -62,7 +62,7 @@ packages/kernel  # @oru/kernel: contexts, services, activation, contributions
 packages/rpc     # @oru/rpc: RPC groups, wire schemas, client facades, route paths
 packages/harness # shared harness seams
 packages/plugin-build # facet bundling via oru-build-facet (esbuild)
-plugins/*        # harness-pi, harness-registry, inference
+plugins/*        # harness-pi, harness-registry
 scripts/         # bump-version, version lockstep, pack-host, pack-smoke
 turbo.json       # typecheck / test / build / dev / e2e task graph
 pnpm-workspace.yaml # workspace globs (packages/*, plugins/*, apps/*)
@@ -72,7 +72,7 @@ Decisions live in [docs/adr](./docs/adr) and vocabulary in [CONTEXT.md](./CONTEX
 
 ### Stack
 
-TypeScript on Effect v4, Foldkit for the view, effect-uai for the model and tool layer, Tardigrade's log-driven component model as prior art.
+TypeScript on Effect v4, Foldkit for the view, oru's own harness vocabulary for the model and tool layer, Tardigrade's log-driven component model as prior art.
 
 ### Running
 

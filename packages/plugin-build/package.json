@@ -14,12 +14,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "effect": "4.0.0-rc.112",
-    "esbuild": "^0.25.11"
+    "effect": "4.0.0-rc.115",
+    "esbuild": "^0.28.2"
   },
   "devDependencies": {
-    "@types/node": "^22.20.2",
+    "@types/node": "^26.6.1",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }

@@ -10,11 +10,11 @@ import {
   defineTool,
   foldThread,
   Idle,
-  Inference,
-  inferencePlugin,
+  Runtime,
+  runtimePlugin,
   ToolKind,
   workOf,
-} from '@oru/inference'
+} from '@oru/harness'
 import {
   definePlugin,
   makeHost,
@@ -135,14 +135,14 @@ const run = <A, E>(
     ),
   )
 
-const approveAll = (inference: Inference['Service']) =>
+const approveAll = (runtime: Runtime['Service']) =>
   Effect.gen(function* () {
     const log = yield* SessionLog
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
         Predicate.isTagged(event, 'tool/requested')
-          ? inference.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
+          ? runtime.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
       Effect.forkScoped,
@@ -210,7 +210,7 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
           harnessRegistryPlugin(),
           echoToolPlugin,
           harnessPiPlugin(harness),
-          inferencePlugin,
+          runtimePlugin,
         ])
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
@@ -220,14 +220,14 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
 
-        const inference = yield* host.service(Inference)
+        const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(cwd)
 
-        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
-        yield* approveAll(inference)
-        yield* inference.send(thread, PROMPT)
-        yield* inference.whenIdle(thread)
+        yield* runtime.configure(thread, { harness: 'pi', model: MODEL })
+        yield* approveAll(runtime)
+        yield* runtime.send(thread, PROMPT)
+        yield* runtime.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
         process.stdout.write(`${events.map((event) => event._tag).join(' ')}\n`)

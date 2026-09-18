@@ -1,6 +1,13 @@
-import { Option, Predicate, Schema } from 'effect'
-import * as Items from '@effect-uai/core/Items'
-import { serializeValue } from '@effect-uai/core/ToolResult'
+import { Option, Schema } from 'effect'
+import {
+  assistantText,
+  isToolCall,
+  isToolCallOutput,
+  isUserMessage,
+  userText,
+  type HistoryItem,
+  type TurnUsage,
+} from '@oru/harness'
 import {
   PiAgentMessage,
   PiCompactionData,
@@ -38,7 +45,13 @@ const textOfContent = (content: readonly PiContentBlock[] | undefined): string =
  */
 export const toolResultText = (result: typeof Schema.Unknown.Type): string =>
   Option.match(decodeOption(PiToolResultBody)(result), {
-    onNone: () => serializeValue(result),
+    onNone: () => {
+      try {
+        return JSON.stringify(result) ?? String(result)
+      } catch {
+        return String(result)
+      }
+    },
     onSome: (body) => textOfContent(body.content),
   })
 
@@ -56,19 +69,19 @@ const jsonArguments = (call: PiToolCallBlock): string => {
 }
 
 export interface PiTurnContent {
-  readonly items: readonly Items.HistoryItem[]
+  readonly items: readonly HistoryItem[]
   readonly compactions: readonly PiCompactionData[]
   /** Entries whose shape this bridge revision does not understand. */
   readonly unreadable: number
 }
 
-const itemsOfEntry = (entry: PiEntry, into: Items.HistoryItem[]): boolean => {
+const itemsOfEntry = (entry: PiEntry, into: HistoryItem[]): boolean => {
   if (entry.type !== 'message') return true
   const message = messageOfEntry(entry)
   if (message === undefined) return false
   if (message.role === 'user') {
     const text = textOfContent(message.content)
-    if (text !== '') into.push(Items.userText(text))
+    if (text !== '') into.push(userText(text))
     return true
   }
   if (message.role === 'assistant') {
@@ -79,9 +92,9 @@ const itemsOfEntry = (entry: PiEntry, into: Items.HistoryItem[]): boolean => {
     // it is what closes the turn. pi ends every run with one, so a run whose
     // last assistant message had no text would otherwise leave the runtime
     // waiting for a response that already happened.
-    if (text !== '' || calls.length === 0) into.push(Items.assistantText(text))
+    if (text !== '' || calls.length === 0) into.push(assistantText(text))
     for (const block of content) {
-      if (block.type === 'thinking') into.push({ type: 'reasoning', summary: block.thinking })
+      if (block.type === 'thinking') into.push({ type: 'reasoning', text: block.thinking })
       if (block.type === 'toolCall') {
         into.push({
           type: 'function_call',
@@ -96,7 +109,7 @@ const itemsOfEntry = (entry: PiEntry, into: Items.HistoryItem[]): boolean => {
   if (message.role === 'toolResult') {
     const callId = message.toolCallId
     if (callId === undefined) return false
-    into.push(Items.toolCallOutput(callId, textOfContent(message.content)))
+    into.push({ type: 'tool_result', call_id: callId, output: textOfContent(message.content) })
     return true
   }
   // bashExecution, custom, compaction and branch summaries: real entries, but
@@ -105,7 +118,7 @@ const itemsOfEntry = (entry: PiEntry, into: Items.HistoryItem[]): boolean => {
 }
 
 export const turnContentOf = (entries: readonly PiEntry[]): PiTurnContent => {
-  const items: Items.HistoryItem[] = []
+  const items: HistoryItem[] = []
   const compactions: PiCompactionData[] = []
   let unreadable = 0
   for (const entry of entries) {
@@ -122,11 +135,9 @@ const ZERO_USAGE: PiUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, 
  * per-message usage and one run is one model turn per message plus every model
  * turn a tool call caused, so the turn's cost is their sum.
  */
-export const usageOfEntries = (entries: readonly PiEntry[]): Items.Usage => {
+export const usageOfEntries = (entries: readonly PiEntry[]): TurnUsage => {
   let input = 0
   let output = 0
-  let cacheRead = 0
-  let cacheWrite = 0
   let total = 0
   let cost = 0
   let seen = false
@@ -138,8 +149,6 @@ export const usageOfEntries = (entries: readonly PiEntry[]): Items.Usage => {
     seen = true
     input += usage.input
     output += usage.output
-    cacheRead += usage.cacheRead ?? 0
-    cacheWrite += usage.cacheWrite ?? 0
     total += usage.totalTokens ?? usage.input + usage.output
     if (usage.cost !== undefined) {
       seenCost = true
@@ -147,17 +156,18 @@ export const usageOfEntries = (entries: readonly PiEntry[]): Items.Usage => {
     }
   }
   if (!seen) return {}
-  const usage: Items.Usage = {
+  const usage: TurnUsage = {
     input_tokens: input,
     output_tokens: output,
     total_tokens: total,
-    input_tokens_details: { cached_tokens: cacheRead, cache_write_tokens: cacheWrite },
   }
-  if (seenCost) Object.assign(usage, { cost })
+  if (seenCost) return { ...usage, cost }
   return usage
 }
 
-export const stopReasonOfEntries = (entries: readonly PiEntry[]): Items.StopReason => {
+export type StopReason = 'stop' | 'tool_calls' | 'max_tokens'
+
+export const stopReasonOfEntries = (entries: readonly PiEntry[]): StopReason => {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]
     if (entry === undefined) continue
@@ -206,51 +216,37 @@ export const compactionOfEntry = (entry: PiEntry): PiCompactionData | undefined 
  * would duplicate a turn in pi's session, which is why this returns nothing and
  * the bridge fails the turn instead.
  */
-const lastUserMessage = (history: readonly Items.HistoryItem[]): Items.Message | undefined => {
+const lastUserMessage = (history: readonly HistoryItem[]): HistoryItem | undefined => {
   const item = history.at(-1)
-  if (item === undefined || !Items.isMessage(item) || item.role !== 'user') return undefined
+  if (item === undefined || !isUserMessage(item)) return undefined
   return item
 }
 
-export const promptTextOf = (history: readonly Items.HistoryItem[]): string | undefined => {
+export const promptTextOf = (history: readonly HistoryItem[]): string | undefined => {
   const message = lastUserMessage(history)
-  if (message === undefined) return undefined
-  const text = message.content
-    .map((block) => (block.type === 'input_text' ? block.text : ''))
-    .join('')
-  return text === '' ? undefined : text
+  if (message === undefined || !isUserMessage(message)) return undefined
+  return message.text === '' ? undefined : message.text
 }
 
 /** The images pi needs alongside that text, in its own content shape. */
-export const promptImagesOf = (history: readonly Items.HistoryItem[]): readonly PiImageBlock[] => {
+export const promptImagesOf = (history: readonly HistoryItem[]): readonly PiImageBlock[] => {
   const message = lastUserMessage(history)
-  if (message === undefined) return []
+  if (message === undefined || !isUserMessage(message)) return []
   const images: PiImageBlock[] = []
-  for (const block of message.content) {
-    if (block.type === 'input_image' && Predicate.isTagged(block.source, 'base64')) {
-      images.push({
-        type: 'image',
-        data: block.source.base64,
-        mimeType: block.source.mimeType,
-      })
-    }
+  for (const image of message.images ?? []) {
+    images.push({ type: 'image', data: image.data, mimeType: image.mimeType })
   }
   return images
 }
 
-const piContentOf = (item: Items.Message): PiContentBlock[] => {
+const piContentOfUser = (
+  text: string,
+  images?: readonly { data: string; mimeType: string }[],
+): PiContentBlock[] => {
   const content: PiContentBlock[] = []
-  for (const block of item.content) {
-    if (block.type === 'input_text' || block.type === 'output_text') {
-      content.push({ type: 'text', text: block.text })
-    }
-    if (block.type === 'input_image' && Predicate.isTagged(block.source, 'base64')) {
-      content.push({
-        type: 'image',
-        data: block.source.base64,
-        mimeType: block.source.mimeType,
-      })
-    }
+  if (text !== '') content.push({ type: 'text', text })
+  for (const image of images ?? []) {
+    content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
   }
   return content
 }
@@ -304,12 +300,10 @@ const parseArguments = (argumentsJson: string): typeof PiToolArguments.Type => {
  * rejects a call with no result, and the trailing user message is left out
  * because it is the prompt the bridge is about to send.
  */
-export const piMessagesOfHistory = (
-  history: readonly Items.HistoryItem[],
-): readonly PiAgentMessage[] => {
+export const piMessagesOfHistory = (history: readonly HistoryItem[]): readonly PiAgentMessage[] => {
   const answered = new Set<string>()
   for (const item of history) {
-    if (Items.isToolCallOutput(item)) answered.add(item.call_id)
+    if (isToolCallOutput(item)) answered.add(item.call_id)
   }
 
   const messages: PiAgentMessage[] = []
@@ -323,22 +317,23 @@ export const piMessagesOfHistory = (
   }
 
   for (const item of history) {
-    if (Items.isMessage(item)) {
-      if (item.role === 'user') {
-        const content = piContentOf(item)
-        if (content.length > 0) messages.push({ role: 'user', content, timestamp: 0 })
-        current = undefined
-        continue
-      }
-      if (item.role === 'assistant') {
-        const opened = seedAssistant(piContentOf(item))
-        messages.push(opened.message)
-        current = opened.content.length > 0 ? opened : undefined
-        continue
-      }
+    if (isUserMessage(item)) {
+      const content = piContentOfUser(item.text, item.images)
+      if (content.length > 0) messages.push({ role: 'user', content, timestamp: 0 })
+      current = undefined
       continue
     }
-    if (Items.isToolCall(item)) {
+    if (item.type === 'assistant_message') {
+      const content: PiContentBlock[] = item.text === '' ? [] : [{ type: 'text', text: item.text }]
+      const opened = seedAssistant(content)
+      messages.push(opened.message)
+      current = opened.content.length > 0 ? opened : undefined
+      continue
+    }
+    if (item.type === 'reasoning') {
+      continue
+    }
+    if (isToolCall(item)) {
       if (!answered.has(item.call_id)) continue
       openAssistant().content.push({
         type: 'toolCall',
@@ -348,7 +343,7 @@ export const piMessagesOfHistory = (
       })
       continue
     }
-    if (Items.isToolCallOutput(item)) {
+    if (isToolCallOutput(item)) {
       messages.push({
         role: 'toolResult',
         toolCallId: item.call_id,

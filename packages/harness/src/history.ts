@@ -1,22 +1,25 @@
 import { Effect, Match } from 'effect'
 import { modelVisiblePath, type SessionEvent } from '@oru/kernel'
-import * as Items from '@effect-uai/core/Items'
-import * as Tool from '@effect-uai/core/Tool'
-import * as Toolkit from '@effect-uai/core/Toolkit'
+import {
+  assistantText,
+  userText,
+  type HistoryItem,
+  type ToolContribution,
+  type ToolOutcome,
+} from '@oru/harness'
 import type { PendingCall } from './session-fold.ts'
-import type { ToolContribution, ToolOutcome } from './tool-kind.ts'
 
 export const historyOf = (
   events: readonly SessionEvent[],
   thread: string,
-): readonly Items.HistoryItem[] => {
-  const history: Items.HistoryItem[] = []
+): readonly HistoryItem[] => {
+  const history: HistoryItem[] = []
   for (const event of modelVisiblePath(events, thread)) {
     Match.value(event).pipe(
       Match.tagsExhaustive({
         'message/appended': (event) => {
-          if (event.role === 'user') history.push(Items.userText(event.body))
-          if (event.role === 'assistant') history.push(Items.assistantText(event.body))
+          if (event.role === 'user') history.push(userText(event.body))
+          if (event.role === 'assistant') history.push(assistantText(event.body))
         },
         'tool/requested': (event) => {
           history.push({
@@ -27,14 +30,14 @@ export const historyOf = (
           })
         },
         'tool/completed': (event) => {
-          history.push(Items.toolCallOutput(event.call, event.result))
+          history.push({ type: 'tool_result', call_id: event.call, output: event.result })
         },
         'approval/decided': () => {},
         'thread/compacted': (event) => {
-          history.push(Items.userText(event.summary))
+          history.push(userText(event.summary))
         },
         'thread/branched': (event) => {
-          if (event.summary !== undefined) history.push(Items.userText(event.summary))
+          if (event.summary !== undefined) history.push(userText(event.summary))
         },
         'plugin/activated': () => {},
         'plugin/deactivated': () => {},
@@ -54,25 +57,6 @@ export const historyOf = (
   return history
 }
 
-export const toolkitOf = (tools: readonly ToolContribution[]) =>
-  Toolkit.fromArray(
-    tools.map((tool) =>
-      Tool.make({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: Tool.fromEffectSchema(tool.parameters),
-        run: (input) =>
-          tool
-            .runJson(JSON.stringify(input))
-            .pipe(
-              Effect.flatMap((outcome) =>
-                outcome.ok ? Effect.succeed(outcome.result) : Effect.fail(outcome.result),
-              ),
-            ),
-      }),
-    ),
-  )
-
 export const failureReason = (cause: unknown): string => {
   if (cause instanceof Error && cause.message !== '') return cause.message
   return String(cause)
@@ -87,4 +71,16 @@ export const runTool = (
     return Effect.succeed({ ok: false, result: `unknown tool ${pending.name}` })
   }
   return tool.runJson(pending.arguments)
+}
+
+export const runToolByName = (
+  tools: readonly ToolContribution[],
+  name: string,
+  argumentsJson: string,
+): Promise<{ readonly ok: boolean; readonly result: string }> => {
+  const tool = tools.find((candidate) => candidate.name === name)
+  if (tool === undefined) {
+    return Promise.resolve({ ok: false, result: `unknown tool ${name}` })
+  }
+  return Effect.runPromise(tool.runJson(argumentsJson))
 }

@@ -2,13 +2,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { dirname } from 'node:path'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import { Match, Option, Predicate, Schema } from 'effect'
-import * as Items from '@effect-uai/core/Items'
-import * as Turn from '@effect-uai/core/Turn'
 import {
+  HarnessEvent,
   HarnessLifecycle,
   type HarnessCompaction,
-  type HarnessEvent,
   type HarnessForkRequest,
+  type HistoryItem,
   type Mutable,
 } from '@oru/harness'
 import {
@@ -80,7 +79,7 @@ export class PiBridgeError extends Schema.TaggedError<PiBridgeError>()('PiBridge
 
 export interface PiRunInput {
   readonly cwd: string
-  readonly history: readonly Items.HistoryItem[]
+  readonly history: readonly HistoryItem[]
   readonly bridge: PiToolBridge
   readonly model: string | undefined
   readonly reasoning: string | undefined
@@ -319,7 +318,7 @@ export class PiSession {
       }
       await this.emitContextWindow(child, emit)
       emit(
-        Turn.TurnEvent.TurnComplete({
+        HarnessEvent.TurnComplete({
           turn: {
             items: content.items,
             usage: usageOfEntries(entries),
@@ -680,11 +679,11 @@ export class PiSession {
         message_update: (event) => {
           const delta = event.assistantMessageEvent
           if (delta.type === 'text_delta' && delta.delta !== undefined) {
-            emit(Turn.TurnEvent.TextDelta({ text: delta.delta }))
+            emit(HarnessEvent.TextDelta({ text: delta.delta }))
             return
           }
           if (delta.type === 'thinking_delta' && delta.delta !== undefined) {
-            emit(Turn.TurnEvent.ReasoningDelta({ text: delta.delta, kind: 'trace' }))
+            emit(HarnessEvent.ReasoningDelta({ text: delta.delta }))
             return
           }
           if (delta.type === 'toolcall_start' || delta.type === 'toolcall_delta') {
@@ -694,9 +693,9 @@ export class PiSession {
               return
             }
             if (delta.type === 'toolcall_start') {
-              emit(Turn.TurnEvent.ToolCallStart({ call_id: call.id, name: call.name }))
+              emit(HarnessEvent.ToolCallStart({ call_id: call.id, name: call.name }))
             } else if (delta.delta !== undefined) {
-              emit(Turn.TurnEvent.ToolCallArgsDelta({ call_id: call.id, delta: delta.delta }))
+              emit(HarnessEvent.ToolCallArgsDelta({ call_id: call.id, delta: delta.delta }))
             }
             return
           }
@@ -704,7 +703,7 @@ export class PiSession {
         },
         tool_execution_start: (event) =>
           emit(
-            Turn.TurnEvent.ToolCallStart({
+            HarnessEvent.ToolCallStart({
               call_id: event.toolCallId,
               name: event.toolName,
             }),
@@ -814,9 +813,7 @@ export class PiSession {
         return
       }
     }
-    const outcome = await bridge.run(name, argumentsJson, (callId, delta) => {
-      this.emit?.(Turn.TurnEvent.ToolCallArgsDelta({ call_id: callId, delta }))
-    })
+    const outcome = await bridge.run(name, argumentsJson)
     child?.sendChannel({
       kind: 'tool-result',
       id,

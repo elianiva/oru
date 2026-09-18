@@ -3,7 +3,7 @@ import { Effect, Fiber, Option, Stream, type Scope } from 'effect'
 import { definePlugin } from '@oru/kernel'
 import { HarnessKind, Harnesses, defineHarness } from '@oru/harness'
 import { GraphRpc, ProjectClient, ThreadClient, clientsFor, type Panel } from '@oru/rpc'
-import { Inference } from '@oru/inference'
+import { Runtime } from '@oru/harness'
 import { corePlugins, echoToolPlugin, loggingPlugin, serveHost } from '../src/index.ts'
 
 const idsOf = (panels: readonly Panel[]): readonly string[] =>
@@ -48,7 +48,7 @@ describe('the RPC transport', () => {
     expect(panels.map((panel) => panel.title).sort()).toEqual(['Greet', 'Log'])
     // A plugin that carries no panel is live in the kernel and absent here.
     expect(idsOf(panels)).not.toContain(echoToolPlugin.id)
-    expect([...Option.getOrThrow(first).tokens]).toContain(Inference.key)
+    expect([...Option.getOrThrow(first).tokens]).toContain(Runtime.key)
     expect([...Option.getOrThrow(first).tokens]).toContain(Harnesses.key)
     expect(Option.getOrThrow(first).agent).toBe(true)
   })

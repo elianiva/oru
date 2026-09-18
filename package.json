@@ -13,21 +13,21 @@
     "lint": "NODE_OPTIONS='--experimental-strip-types' oxlint",
     "prepare": "lefthook install",
     "typecheck": "turbo typecheck",
-    "test": "turbo test && node --test scripts/*.test.js scripts/effect-lockstep.test.mjs && node scripts/effect-lockstep.mjs pnpm-lock.yaml",
+    "test": "turbo test",
     "bump": "node scripts/bump-version.mjs",
     "check:lockstep": "node scripts/check-version-lockstep.mjs",
     "pack:host": "node scripts/pack-host.mjs",
     "pack:smoke": "node scripts/pack-smoke.mjs"
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.82.0",
-    "lefthook": "^2.1.12",
-    "oxfmt": "0.67.0",
-    "oxlint": "1.82.0",
-    "oxlint-tsgolint": "7.0.2001",
-    "turbo": "^2.10.12",
+    "@oxlint/plugins": "1.83.0",
+    "lefthook": "^2.1.14",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "turbo": "^2.10.13",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=26"

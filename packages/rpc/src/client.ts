@@ -45,19 +45,19 @@ export interface ProjectClientContract {
   readonly create: (
     name: string,
     cwd: string,
-    icon?: string | undefined,
+    icon?: string,
   ) => Effect.Effect<Project, RelativeCwd | HostUnreachable>
   readonly list: () => Effect.Effect<readonly Project[], HostUnreachable>
   readonly get: (project: ProjectId) => Effect.Effect<Project, UnknownProject | HostUnreachable>
   readonly update: (
     project: ProjectId,
-    change: { readonly name: string; readonly cwd: string; readonly icon?: string | undefined },
+    change: { readonly name: string; readonly cwd: string; readonly icon?: string },
   ) => Effect.Effect<Project, RelativeCwd | UnknownProject | HostUnreachable>
   readonly remove: (
     project: ProjectId,
   ) => Effect.Effect<{ readonly project: ProjectId }, UnknownProject | HostUnreachable>
   readonly listDirectory: (
-    path?: string | undefined,
+    path?: string,
   ) => Effect.Effect<DirectoryListing, DirectoryMissing | NotDirectory | HostUnreachable>
   readonly detail: (
     project: ProjectId,

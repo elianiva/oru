@@ -2,11 +2,18 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Predicate, Effect, Result, Schema, Stream } from 'effect'
-import * as Items from '@effect-uai/core/Items'
-import * as Tool from '@effect-uai/core/Tool'
-import * as Toolkit from '@effect-uai/core/Toolkit'
-import * as Turn from '@effect-uai/core/Turn'
-import { HarnessError, type HarnessEvent, type HarnessTurnRequest } from '@oru/harness'
+import {
+  HarnessError,
+  assistantText,
+  defineTool,
+  runToolByName,
+  toolCallOutput,
+  userText,
+  type AssembledTurn,
+  type HarnessEvent,
+  type HarnessTurnRequest,
+  type ToolContribution,
+} from '@oru/harness'
 import { makePiHarness, type PiHarness } from '../src/index.ts'
 import {
   SCRIPTED_MINI,
@@ -107,7 +114,7 @@ const request = (
   extra: Partial<HarnessTurnRequest> = {},
 ): HarnessTurnRequest => ({
   threadId,
-  history: [Items.userText(text)],
+  history: [userText(text)],
   model: MODEL,
   ...extra,
 })
@@ -115,19 +122,28 @@ const request = (
 const events = (entry: Bridge, turn: HarnessTurnRequest): Promise<readonly HarnessEvent[]> =>
   Effect.runPromise(Stream.runCollect(entry.pi.service.streamTurn(turn)))
 
-const echoToolkit = () =>
-  Toolkit.fromArray([
-    Tool.make({
-      name: 'echo',
-      description: 'Return the text that was passed in.',
-      inputSchema: Tool.fromEffectSchema(ECHO_ARGS),
-      run: (input) => Effect.succeed({ echoed: input.text }),
-    }),
-  ])
+const echoTools = (): readonly ToolContribution[] => [
+  defineTool({
+    name: 'echo',
+    description: 'Return the text that was passed in.',
+    parameters: ECHO_ARGS,
+    execute: (input: { readonly text: string }) =>
+      Effect.succeed(JSON.stringify({ echoed: input.text })),
+  }),
+]
+
+/** Run the request's tools the way the host runtime does: through the callback. */
+const executeEcho =
+  (tools: readonly ToolContribution[]) =>
+  (input: {
+    readonly name: string
+    readonly argumentsJson: string
+  }): Promise<{ readonly ok: boolean; readonly result: string }> =>
+    runToolByName(tools, input.name, input.argumentsJson)
 
 const tagOf = (event: HarnessEvent): string => event._tag
 
-const turnOf = (collected: readonly HarnessEvent[]): Turn.Turn => {
+const turnOf = (collected: readonly HarnessEvent[]): AssembledTurn => {
   for (const event of collected) {
     if (Predicate.isTagged(event, 'TurnComplete')) return event.turn
   }
@@ -180,10 +196,10 @@ describe('pi turns', () => {
     expect(collected.map(tagOf)).toContain('ContextWindow')
 
     const turn = turnOf(collected)
-    expect(turn.items).toEqual([Items.assistantText('Response to: hi')])
+    expect(turn.items).toEqual([assistantText('Response to: hi')])
     expect(turn.stop_reason).toBe('stop')
-    expect(turn.usage.input_tokens).toBe(12)
-    expect(turn.usage.output_tokens).toBe(5)
+    expect(turn.usage?.input_tokens).toBe(12)
+    expect(turn.usage?.output_tokens).toBe(5)
 
     // The prompt is pi's entry, not a fact the bridge repeats: the runtime
     // already recorded the user message it sent.
@@ -194,11 +210,7 @@ describe('pi turns', () => {
 
   it('seeds pi with the history the thread already had', async () => {
     const entry = await bridge()
-    const history = [
-      Items.userText('earlier question'),
-      Items.assistantText('earlier answer'),
-      Items.userText('hi'),
-    ]
+    const history = [userText('earlier question'), assistantText('earlier answer'), userText('hi')]
     await events(entry, { threadId: 'seeded', history, model: MODEL })
     const written = readFileSync(sessionFile(entry, 'seeded'), 'utf8')
     expect(written).toContain('earlier question')
@@ -207,9 +219,10 @@ describe('pi turns', () => {
 
   it('runs a tool oru contributed, through the extension pi loaded', async () => {
     const entry = await bridge()
+    const tools = echoTools()
     const collected = await events(
       entry,
-      request('tools', '/tool echo {"text":"hi"}', { tools: echoToolkit() }),
+      request('tools', '/tool echo {"text":"hi"}', { tools, executeTool: executeEcho(tools) }),
     )
     expect(collected.map(tagOf)).toContain('ToolCallStart')
     // pi ran the call itself and said how it went: the runtime records the
@@ -230,8 +243,8 @@ describe('pi turns', () => {
         name: 'echo',
         arguments: '{"text":"hi"}',
       },
-      Items.toolCallOutput('call-1', '{"echoed":"hi"}'),
-      Items.assistantText('Tool said: {"echoed":"hi"}'),
+      toolCallOutput('call-1', '{"echoed":"hi"}'),
+      assistantText('Tool said: {"echoed":"hi"}'),
     ])
 
     // What pi's model sees: oru's JSON Schema, converted.
@@ -285,7 +298,7 @@ describe('pi turns', () => {
         entry.pi.service
           .streamTurn({
             threadId: 'settled',
-            history: [Items.userText('hi'), Items.assistantText('Response to: hi')],
+            history: [userText('hi'), assistantText('Response to: hi')],
             model: MODEL,
           })
           .pipe(Stream.runDrain),
@@ -309,12 +322,12 @@ describe('pi turns', () => {
     await entry.scripted.waitForRequests(1)
     await Effect.runPromise(entry.pi.service.steer!('steered', 'go left'))
     expect(turnOf(await held).items).toEqual([
-      Items.assistantText('Slow answer streaming.'),
-      Items.userText('go left'),
-      Items.assistantText('Response to: go left'),
+      assistantText('Slow answer streaming.'),
+      userText('go left'),
+      assistantText('Response to: go left'),
     ])
 
-    // An aborted run has no assistant answer to record, and effect-uai has no
+    // An aborted run has no assistant answer to record, and oru's vocabulary has no
     // "cancelled" stop reason, so the turn fails with the reason instead.
     const stopped = Effect.runPromise(
       Effect.result(entry.pi.service.streamTurn(request('aborted', '/hold')).pipe(Stream.runDrain)),
@@ -388,7 +401,7 @@ describe('pi turns', () => {
 
   it("turns pi's built-in tools off when the opt-out asks for it, and not otherwise", async () => {
     const ordinary = await bridge()
-    await events(ordinary, request('builtins', 'hi', { tools: echoToolkit() }))
+    await events(ordinary, request('builtins', 'hi', { tools: echoTools() }))
     // pi's own coding tools reach the model alongside oru's.
     const offered = ordinary.scripted.toolsOfLastRequest().map((tool) => tool.name)
     expect(offered).toContain('read')
@@ -398,7 +411,7 @@ describe('pi turns', () => {
     // The opt-out keeps the injected extension loaded: it is pi's own coding
     // tools the flag removes, not oru's.
     const opted = await bridge({ ORU_PI_NO_BUILTIN_TOOLS: '1' })
-    await events(opted, request('opted', 'hi', { tools: echoToolkit() }))
+    await events(opted, request('opted', 'hi', { tools: echoTools() }))
     expect(opted.scripted.toolsOfLastRequest().map((tool) => tool.name)).toEqual(['echo'])
   })
 })

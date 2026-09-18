@@ -9,6 +9,7 @@ import {
   Option,
   Result,
   Schema,
+  SchemaGetter,
   type ConfigProvider as ConfigProviderNs,
 } from 'effect'
 
@@ -133,7 +134,28 @@ const parseOptions = { onExcessProperty: 'error' as const }
 const decodeJsonValue = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
 const decodeFileResult = Schema.decodeUnknownResult(FileDocument, parseOptions)
 const decodeListenPort = Schema.decodeUnknownResult(ListenPort)
-const decodeBoolean = Schema.decodeUnknownResult(Config.Boolean)
+const BooleanFromConfigString = Schema.Literals([
+  'true',
+  'yes',
+  'on',
+  '1',
+  'y',
+  'false',
+  'no',
+  'off',
+  '0',
+  'n',
+]).pipe(
+  Schema.decodeTo(Schema.Boolean, {
+    decode: SchemaGetter.transform(
+      (value) =>
+        value === 'true' || value === 'yes' || value === 'on' || value === '1' || value === 'y',
+    ),
+    encode: SchemaGetter.transform((value) => (value ? 'true' : 'false')),
+  }),
+)
+const decodeBoolean = Schema.decodeUnknownResult(BooleanFromConfigString)
+
 const decodeStringList = Schema.decodeUnknownResult(Schema.fromJsonString(StringList))
 
 export class ConfigError extends Schema.TaggedError<ConfigError>()('ConfigError', {
@@ -185,23 +207,23 @@ const settingsConfig = (defaults: {
   readonly defaultHarness: string
 }) =>
   Config.all({
-    home: Config.string('home').pipe(Config.withDefault(defaults.home)),
-    hostname: Config.string('host').pipe(Config.withDefault(defaultHost)),
+    home: Config.String('home').pipe(Config.withDefault(defaults.home)),
+    hostname: Config.String('host').pipe(Config.withDefault(defaultHost)),
     port: Config.schema(ListenPort, 'port').pipe(Config.withDefault(defaultPort)),
-    journal: Config.string('journal').pipe(Config.withDefault(defaults.journal)),
-    defaultHarness: Config.string('defaultHarness').pipe(
+    journal: Config.String('journal').pipe(Config.withDefault(defaults.journal)),
+    defaultHarness: Config.String('defaultHarness').pipe(
       Config.withDefault(defaults.defaultHarness),
     ),
-    defaultModel: Config.string('defaultModel').pipe(
+    defaultModel: Config.String('defaultModel').pipe(
       Config.option,
       Config.map(Option.getOrUndefined),
     ),
-    piHome: Config.string('home').pipe(Config.nested('pi'), Config.withDefault(defaults.piHome)),
-    piSessionDir: Config.string('sessionDir').pipe(
+    piHome: Config.String('home').pipe(Config.nested('pi'), Config.withDefault(defaults.piHome)),
+    piSessionDir: Config.String('sessionDir').pipe(
       Config.nested('pi'),
       Config.withDefault(defaults.piSessionDir),
     ),
-    piCommand: Config.string('command').pipe(
+    piCommand: Config.String('command').pipe(
       Config.nested('pi'),
       Config.option,
       Config.map(Option.getOrUndefined),
@@ -216,7 +238,7 @@ const settingsConfig = (defaults: {
       Config.option,
       Config.map(Option.getOrUndefined),
     ),
-    piNoBuiltinTools: Config.boolean('noBuiltinTools').pipe(
+    piNoBuiltinTools: Config.Boolean('noBuiltinTools').pipe(
       Config.nested('pi'),
       Config.withDefault(false),
     ),
@@ -382,7 +404,7 @@ export const resolveHome = (
     ConfigProvider.orElse(ConfigProvider.fromUnknown(treeFromEnv(env))),
     ConfigProvider.orElse(ConfigProvider.fromUnknown({ home: defaultHome(osHome) })),
   )
-  const value = runConfig(Config.string('home'), provider)
+  const value = runConfig(Config.String('home'), provider)
   return { value, source: sourceAt(['home'], flags, env, {}) }
 }
 

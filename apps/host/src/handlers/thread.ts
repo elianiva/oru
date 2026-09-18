@@ -23,7 +23,7 @@ import {
   type SessionLogError,
   type ThreadId,
 } from '@oru/kernel'
-import { Inference } from '@oru/inference'
+import { Runtime } from '@oru/harness'
 import {
   HarnessChoice,
   ThreadOptions,
@@ -144,8 +144,8 @@ const createThread = (
     // The configuration lands on the created thread's own lane, before any
     // turn, so there is no window where the thread runs unconfigured.
     if (hasConfiguration(configuration)) {
-      const inference = yield* host.service(Inference)
-      yield* inference.configure(threadId, {
+      const runtime = yield* host.service(Runtime)
+      yield* runtime.configure(threadId, {
         harness: configuration.harness,
         model: configuration.model,
         reasoning: configuration.reasoning,
@@ -170,8 +170,8 @@ export const threadRpcHandlers = (host: Host) => ({
       }),
     ),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
-    host.service(Inference).pipe(
-      Effect.flatMap((inference) => inference.send(payload.threadId, payload.text)),
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) => runtime.send(payload.threadId, payload.text)),
       Effect.orDie,
     ),
   WatchThread: (payload: { readonly threadId: ThreadId }) =>
@@ -206,8 +206,8 @@ export const threadRpcHandlers = (host: Host) => ({
     readonly reasoning: string | undefined
   }) =>
     Effect.gen(function* () {
-      const inference = yield* host.service(Inference)
-      yield* inference.configure(payload.threadId, {
+      const runtime = yield* host.service(Runtime)
+      yield* runtime.configure(payload.threadId, {
         harness: payload.harness,
         model: payload.model,
         reasoning: payload.reasoning,
@@ -217,8 +217,8 @@ export const threadRpcHandlers = (host: Host) => ({
   WatchSignals: (payload: { readonly threadId: ThreadId }) =>
     Stream.unwrap(
       Effect.gen(function* () {
-        const inference = yield* host.service(Inference)
-        const signals: Stream.Stream<ThreadSignal> = inference.signals.pipe(
+        const runtime = yield* host.service(Runtime)
+        const signals: Stream.Stream<ThreadSignal> = runtime.signals.pipe(
           Stream.filter((signal) => signal.thread === payload.threadId),
           Stream.filterMap((signal) => {
             const line = signalOf(signal.event)
@@ -230,13 +230,13 @@ export const threadRpcHandlers = (host: Host) => ({
       }).pipe(Effect.orDie),
     ),
   StopThread: (payload: { readonly threadId: ThreadId }) =>
-    host.service(Inference).pipe(
-      Effect.flatMap((inference) => inference.stop(payload.threadId)),
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) => runtime.stop(payload.threadId)),
       Effect.orDie,
     ),
   DiscardThread: (payload: { readonly threadId: ThreadId }) =>
-    host.service(Inference).pipe(
-      Effect.flatMap((inference) => inference.discard(payload.threadId)),
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) => runtime.discard(payload.threadId)),
       Effect.andThen(host.closeThread(payload.threadId)),
       Effect.orDie,
     ),
@@ -244,14 +244,14 @@ export const threadRpcHandlers = (host: Host) => ({
     readonly threadId: ThreadId
     readonly instructions: string | undefined
   }) =>
-    host.service(Inference).pipe(
-      Effect.flatMap((inference) => inference.compact(payload.threadId, payload.instructions)),
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) => runtime.compact(payload.threadId, payload.instructions)),
       Effect.orDie,
     ),
   ForkThread: (payload: { readonly sourceThreadId: ThreadId; readonly cwd: string | undefined }) =>
     keepThreadError(
       Effect.gen(function* () {
-        const inference = yield* host.service(Inference)
+        const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const entries = yield* log.entries
         let project: ProjectId | undefined
@@ -264,7 +264,7 @@ export const threadRpcHandlers = (host: Host) => ({
           return yield* new UnknownThread({ thread: payload.sourceThreadId })
         }
         const created = yield* createThread(host, project, {})
-        yield* inference.fork(
+        yield* runtime.fork(
           payload.cwd === undefined
             ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }
             : {
@@ -281,9 +281,9 @@ export const threadRpcHandlers = (host: Host) => ({
     readonly request: string
     readonly decision: 'approve' | 'deny'
   }) =>
-    host.service(Inference).pipe(
-      Effect.flatMap((inference) =>
-        inference.decide(payload.threadId, payload.request, payload.decision),
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) =>
+        runtime.decide(payload.threadId, payload.request, payload.decision),
       ),
       Effect.orDie,
     ),

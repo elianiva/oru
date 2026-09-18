@@ -13,18 +13,16 @@
     "e2e": "vitest run test/e2e.test.ts"
   },
   "dependencies": {
-    "@effect-uai/core": "0.15.0",
     "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@oru/harness-registry": "workspace:*",
-    "@oru/inference": "workspace:*",
-    "@types/node": "^22.20.2",
-    "typebox": "1.3.7",
+    "@types/node": "^26.6.1",
+    "typebox": "1.3.33",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }

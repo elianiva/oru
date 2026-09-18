@@ -12,11 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@effect/sql-sqlite-node": "4.0.0-rc.112",
-    "effect": "4.0.0-rc.112"
+    "@effect/sql-sqlite-node": "4.0.0-rc.115",
+    "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
     "@oru/plugin-build": "workspace:*",
-    "@types/node": "^22.20.2"
+    "@types/node": "^26.6.1"
   }
 }

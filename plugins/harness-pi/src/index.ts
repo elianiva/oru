@@ -10,6 +10,7 @@ import {
   type HarnessService,
   type HarnessTurnRequest,
   type Mutable,
+  type ToolContribution,
 } from '@oru/harness'
 import { ORU_PI_EXTENSION_SOURCE } from './pi/extension.ts'
 import { resolvePiPaths, type PiPaths } from './pi/paths.ts'
@@ -105,10 +106,20 @@ export const makePiHarness = (options: PiHarnessOptions = {}): PiHarness => {
   }
 
   const inputOf = (request: HarnessTurnRequest): PiRunInput => {
+    const execute =
+      request.executeTool ??
+      (async () => ({ ok: false as const, result: 'no tool executor was bound' }))
     const input: Mutable<PiRunInput> = {
       cwd: request.cwd ?? process.cwd(),
       history: request.history,
-      bridge: request.tools === undefined ? NO_TOOLS : toolBridgeOf(request.tools),
+      bridge:
+        request.tools === undefined
+          ? NO_TOOLS
+          : toolBridgeOf(
+              // SAFETY: ToolContribution carries exactly the name, description, and parameters the bridge reads, so narrowing to it recovers the runner without re-checking the shape.
+              request.tools as ToolContribution[],
+              execute,
+            ),
       model: request.model,
       reasoning: request.reasoning,
       instructions: request.instructions,

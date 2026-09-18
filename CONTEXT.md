@@ -1,6 +1,6 @@
 # oru
 
-oru is an agent control plane: a kernel of composable plugins that runs on effect-uai for the model-facing agent loop, and owns its own tools, sessions, and UI. Everything is a plugin. For the view, everything is a submodel.
+oru is an agent control plane: a kernel of composable plugins that owns its tools, sessions, and UI, and reaches models through harness bridges. Everything is a plugin. For the view, everything is a submodel.
 
 ## Language
 
@@ -53,23 +53,23 @@ The host's Effect Config stack and `config.json` under `--home` / `ORU_HOME` / `
 _Avoid_: settings service, preferences
 
 **Runtime**:
-The agent execution layer: effect-uai's model and tool primitives, used by a built-in inference plugin that folds the session log. Distinct from the Kernel, which composes plugins.
-_Avoid_: engine; calling the Runtime itself a harness — a harness is what reaches it
+The host's turn driver: it folds the session log, derives turn work, asks the active harness for deltas, and records the facts. Host code, not a plugin. Distinct from the Kernel, which composes plugins.
+_Avoid_: engine; calling the Runtime itself a harness
 
 **Harness**:
-The seam through which the agent loop reaches a model or another agent. The runtime is one harness; a bridge to a foreign agent is another. A host registers many, and a thread picks one.
+The contract through which the runtime reaches a model or another agent. `@oru/harness` owns the vocabulary: history items, the delta grammar, tool descriptors, and the assembler that turns deltas into facts. A host registers many harnesses, and a thread picks one.
 _Avoid_: provider, adapter
 
 **Bridge**:
-A harness that drives something outside the runtime — a foreign agent's process and protocol — and translates its events into oru's vocabulary. A bridge may own its conversation, in which case the session log is its trace rather than its memory.
+A harness that drives something outside the host — a foreign agent's process and protocol — and translates its events into oru's delta grammar. A bridge may own its conversation, in which case the session log is its trace rather than its memory.
 _Avoid_: integration, connector
 
 **Agent**:
-A running agent loop scoped to one session. It streams model turns, runs tool calls, and holds live state by folding the session log. Continuation is that fold, not effect-uai's `Loop`.
+A running agent loop scoped to one session. It streams model turns, runs tool calls, and holds live state by folding the session log. Continuation is that fold.
 _Avoid_: worker, actor, bot
 
 **Tool**:
-A model-facing capability registered as a contribution and exposed to the agent loop as an effect-uai `Tool`.
+A model-facing capability registered as a contribution: a name, a description, an Effect Schema, and a `runJson` that takes arguments JSON and returns result text. The runtime hands its JSON Schema to the harness; the harness renders it into its provider's own tool shape.
 _Avoid_: action, function, command
 
 **Session**:

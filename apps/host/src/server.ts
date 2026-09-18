@@ -66,15 +66,17 @@ export const serveHost = (
     yield* server.serve(httpEffect).pipe(Effect.forkScoped)
 
     const address = server.address
-    if (!Predicate.isTagged(address, 'TcpAddress')) {
+    if (Predicate.isTagged(address, 'UnixPathAddress')) {
       return yield* Effect.fail(
         new ServeError({ cause: new NotTcpAddress({ address: address._tag }) }),
       )
     }
+    const hostname = address.address.toString()
+    const hostPart = Predicate.isTagged(address, 'InetAddressV6') ? `[${hostname}]` : hostname
     return {
       host,
-      url: `http://${address.hostname}:${address.port}`,
-      hostname: address.hostname,
+      url: `http://${hostPart}:${address.port}`,
+      hostname,
       port: address.port,
     }
   })

@@ -1,9 +1,8 @@
 import { Context, Effect, Schema } from 'effect'
 import { definePlugin, defineService, type AnyPlugin } from '@oru/kernel'
-import type { HarnessDefaults } from '@oru/harness'
+import { defineTool, runtimePlugin, ToolKind, type HarnessDefaults } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
 import { harnessPiPlugin, makePiHarness } from '@oru/harness-pi'
-import { defineTool, inferencePlugin, ToolKind } from '@oru/inference'
 import { PanelUi } from './panel.ts'
 
 interface LoggerService {
@@ -77,7 +76,7 @@ export const corePluginsWith = (defaults: HarnessDefaults = {}): readonly AnyPlu
   ...fixturePlugins,
   harnessRegistryPlugin(defaults),
   echoToolPlugin,
-  inferencePlugin,
+  runtimePlugin,
 ]
 
 export const corePlugins = corePluginsWith()

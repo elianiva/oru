@@ -1,7 +1,4 @@
 import { Context, Data, Effect, Match, Option, Ref, Schema, Stream } from 'effect'
-import type * as Items from '@effect-uai/core/Items'
-import type * as Toolkit from '@effect-uai/core/Toolkit'
-import * as Turn from '@effect-uai/core/Turn'
 import { defineContributionKind, type ContributionKind } from '@oru/kernel'
 
 export class HarnessError extends Data.TaggedError('HarnessError')<{
@@ -122,44 +119,117 @@ export const ModelInfo = Schema.Struct({
 })
 export type ModelInfo = typeof ModelInfo.Type
 
-/**
- * One turn, in the vocabulary every harness can carry.
- *
- * The members are the ones a harness actually forwards to its provider. Thread
- * identity and the thread's working directory are carried in the same request
- * but are not provider-facing. A field no harness can honor does not belong
- * here: a bridge that cannot forward it would have to drop it silently.
- */
-export interface HarnessTurnRequest {
-  readonly threadId: string
-  readonly history: readonly Items.HistoryItem[]
-  readonly model: string
-  readonly tools?: Toolkit.Toolkit
-  readonly temperature?: number
-  readonly maxOutputTokens?: number
-  /** The thread's working directory. An agent-run harness is cwd-bound. */
-  readonly cwd?: string
-  /** Thread instructions, prepended to the harness's own system prompt. */
-  readonly instructions?: string
-  /** Reasoning level for this turn, one of the chosen model's levels. */
-  readonly reasoning?: string
-  /**
-   * Block a harness-run tool until the session log has a decision for this
-   * provider request id. Native tools wait in the runtime drain instead.
-   */
-  readonly awaitToolApproval?: (input: {
-    readonly request: string
-    readonly call: string
-    readonly name: string
-    readonly arguments: string
-  }) => Promise<'approve' | 'deny'>
+// ---------------------------------------------------------------------------
+// History: oru's own turn vocabulary. No provider SDK types cross this seam.
+// ---------------------------------------------------------------------------
+
+/** An image block carried inside a user message. */
+export interface HistoryImage {
+  readonly data: string
+  readonly mimeType: string
+}
+
+export interface UserMessage {
+  readonly type: 'user_message'
+  readonly text: string
+  readonly images?: readonly HistoryImage[]
+}
+
+export interface AssistantMessage {
+  readonly type: 'assistant_message'
+  readonly text: string
+}
+
+export interface ReasoningItem {
+  readonly type: 'reasoning'
+  readonly text: string
+}
+
+export interface ToolCallItem {
+  readonly type: 'function_call'
+  readonly call_id: string
+  readonly name: string
+  /** Canonical JSON text of the call arguments. */
+  readonly arguments: string
+}
+
+export interface ToolResultItem {
+  readonly type: 'tool_result'
+  readonly call_id: string
+  readonly output: string
 }
 
 /**
- * Session-level facts a turn-scoped event union cannot express (ADR-0006).
- * The harness reports; the runtime records what has a home in the log.
+ * One history unit a harness forwards to its provider. Thread identity and
+ * the working directory ride the request beside this, never inside it.
  */
-export type HarnessLifecycle = Data.TaggedEnum<{
+export type HistoryItem =
+  | UserMessage
+  | AssistantMessage
+  | ReasoningItem
+  | ToolCallItem
+  | ToolResultItem
+
+export const userText = (text: string, images?: readonly HistoryImage[]): HistoryItem =>
+  images === undefined || images.length === 0
+    ? { type: 'user_message', text }
+    : { type: 'user_message', text, images }
+
+export const assistantText = (text: string): HistoryItem => ({ type: 'assistant_message', text })
+
+export const reasoningText = (text: string): HistoryItem => ({ type: 'reasoning', text })
+
+export const toolCallOutput = (call_id: string, output: string): HistoryItem => ({
+  type: 'tool_result',
+  call_id,
+  output,
+})
+
+export const isUserMessage = (item: HistoryItem): item is UserMessage =>
+  item.type === 'user_message'
+
+export const isAssistantMessage = (item: HistoryItem): item is AssistantMessage =>
+  item.type === 'assistant_message'
+
+export const isToolCall = (item: HistoryItem): item is ToolCallItem => item.type === 'function_call'
+
+export const isToolCallOutput = (item: HistoryItem): item is ToolResultItem =>
+  item.type === 'tool_result'
+
+/** The usage bag a completed turn reports. Extra provider fields are dropped. */
+export interface TurnUsage {
+  readonly input_tokens?: number
+  readonly output_tokens?: number
+  readonly total_tokens?: number
+  readonly cost?: number
+}
+
+/** A turn the assembler finished: the items in presentation order plus usage. */
+export interface AssembledTurn {
+  readonly items: readonly HistoryItem[]
+  readonly usage?: TurnUsage
+  readonly stop_reason?: string
+}
+
+// ---------------------------------------------------------------------------
+// Deltas: the narrow grammar a bridge speaks. The assembler owns the timeline.
+// ---------------------------------------------------------------------------
+
+/**
+ * Session-level facts a turn-scoped delta cannot express. The harness reports;
+ * the runtime records what has a home in the log.
+ */
+export type HarnessEvent = Data.TaggedEnum<{
+  /** Streamed assistant text. Assembler accumulates per turn. */
+  TextDelta: { readonly text: string }
+  /** Streamed reasoning text. */
+  ReasoningDelta: { readonly text: string }
+  /** A tool call started. */
+  ToolCallStart: { readonly call_id: string; readonly name: string }
+  /** Partial arguments for a call. Assembler concatenates per call id. */
+  ToolCallArgsDelta: { readonly call_id: string; readonly delta: string }
+  /** The turn finished. Carries the full item list in presentation order. */
+  TurnComplete: { readonly turn: AssembledTurn }
   CompactionStarted: { readonly automatic: boolean }
   /** Carries enough to write an honest `thread/compacted` fact. */
   CompactionEnded: {
@@ -188,9 +258,11 @@ export type HarnessLifecycle = Data.TaggedEnum<{
   RawUnhandled: { readonly type: string; readonly payload: string }
 }>
 
-export const HarnessLifecycle = Data.taggedEnum<HarnessLifecycle>()
+export const HarnessEvent = Data.taggedEnum<HarnessEvent>()
 
-export type HarnessEvent = Turn.TurnEvent | HarnessLifecycle
+/** Back-compat alias: lifecycle is now the whole vocabulary, not half of it. */
+export const HarnessLifecycle = HarnessEvent
+export type HarnessLifecycle = HarnessEvent
 
 export const HarnessStatus = Schema.Literals([
   'ready',
@@ -237,6 +309,60 @@ export interface HarnessCompaction {
   readonly tokensBefore: number
   readonly readFiles: readonly string[]
   readonly modifiedFiles: readonly string[]
+}
+
+/**
+ * One turn, in the vocabulary every harness can carry.
+ *
+ * The members are the ones a harness actually forwards to its provider. Thread
+ * identity and the thread's working directory are carried in the same request
+ * but are not provider-facing. A field no harness can honor does not belong
+ * here: a bridge that cannot forward it would have to drop it silently.
+ */
+export interface HarnessTurnRequest {
+  readonly threadId: string
+  readonly history: readonly HistoryItem[]
+  readonly model: string | undefined
+  readonly tools?: readonly ToolContributionLike[]
+  readonly temperature?: number
+  readonly maxOutputTokens?: number
+  /** The thread's working directory. An agent-run harness is cwd-bound. */
+  readonly cwd?: string
+  /** Thread instructions, prepended to the harness's own system prompt. */
+  readonly instructions?: string
+  /** Reasoning level for this turn, one of the chosen model's levels. */
+  readonly reasoning?: string
+  /**
+   * Run one of the thread's tools by name. A bridge executes oru tools only
+   * through this callback, never through a provider SDK. The runtime pairs a
+   * call the harness ran (reported as `ToolResult`) with its output and
+   * records both; a call without an output stays the runtime's own work.
+   */
+  readonly executeTool?: (input: {
+    readonly name: string
+    readonly argumentsJson: string
+  }) => Promise<{ readonly ok: boolean; readonly result: string }>
+  /**
+   * Block a harness-run tool until the session log has a decision for this
+   * provider request id. Native tools wait in the runtime drain instead.
+   */
+  readonly awaitToolApproval?: (input: {
+    readonly request: string
+    readonly call: string
+    readonly name: string
+    readonly arguments: string
+  }) => Promise<'approve' | 'deny'>
+}
+
+/**
+ * A tool the thread can run, as the harness sees it. `parameters` is a JSON
+ * Schema draft-2020-12 document; the bridge renders it into its provider's
+ * own tool shape at the boundary.
+ */
+export interface ToolContributionLike {
+  readonly name: string
+  readonly description: string
+  readonly parameters: unknown
 }
 
 /** A harness as a contribution, with the plugin that put it there. */
@@ -297,7 +423,7 @@ export interface HarnessService {
    */
   readonly providers?: () => Effect.Effect<readonly ProviderInfo[], HarnessError>
   readonly streamTurn: (request: HarnessTurnRequest) => Stream.Stream<HarnessEvent, HarnessError>
-  readonly turn: (request: HarnessTurnRequest) => Effect.Effect<Turn.Turn, HarnessError>
+  readonly turn: (request: HarnessTurnRequest) => Effect.Effect<AssembledTurn, HarnessError>
   readonly steer?: (threadId: string, text: string) => Effect.Effect<void, HarnessError>
   readonly abort?: (threadId: string) => Effect.Effect<void, HarnessError>
   /** Release a thread's session without discarding it. Resuming is implicit. */
@@ -325,12 +451,12 @@ export interface HarnessService {
  */
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
-/** Collect a `streamTurn` into a single `Turn`. */
+/** Collect a `streamTurn` into a single assembled turn. */
 export const turnFromStream = (
   stream: Stream.Stream<HarnessEvent, HarnessError>,
-): Effect.Effect<Turn.Turn, HarnessError> =>
+): Effect.Effect<AssembledTurn, HarnessError> =>
   Effect.gen(function* () {
-    const complete = yield* Ref.make(Option.none<Turn.Turn>())
+    const complete = yield* Ref.make(Option.none<AssembledTurn>())
     yield* stream.pipe(
       Stream.runForEach((event) =>
         Match.value(event).pipe(
@@ -361,7 +487,7 @@ export const defineHarness = (spec: {
   readonly listModels?: () => Effect.Effect<readonly ModelInfo[], HarnessError>
   readonly providers?: () => Effect.Effect<readonly ProviderInfo[], HarnessError>
   readonly streamTurn: (request: HarnessTurnRequest) => Stream.Stream<HarnessEvent, HarnessError>
-  readonly turn?: (request: HarnessTurnRequest) => Effect.Effect<Turn.Turn, HarnessError>
+  readonly turn?: (request: HarnessTurnRequest) => Effect.Effect<AssembledTurn, HarnessError>
   readonly steer?: (threadId: string, text: string) => Effect.Effect<void, HarnessError>
   readonly abort?: (threadId: string) => Effect.Effect<void, HarnessError>
   readonly stop?: (threadId: string) => Effect.Effect<void, HarnessError>

@@ -8,11 +8,11 @@ import {
   defineTool,
   foldThread,
   Idle,
-  Inference,
-  inferencePlugin,
+  Runtime,
+  runtimePlugin,
   ToolKind,
   workOf,
-} from '@oru/inference'
+} from '@oru/harness'
 import {
   definePlugin,
   makeHost,
@@ -79,14 +79,14 @@ const bridge = async (): Promise<PiHarness> => {
   return harness
 }
 
-const approveAll = (inference: Inference['Service']) =>
+const approveAll = (runtime: Runtime['Service']) =>
   Effect.gen(function* () {
     const log = yield* SessionLog
     const live = yield* log.subscribe
     yield* live.pipe(
       Stream.runForEach((event) =>
         Predicate.isTagged(event, 'tool/requested')
-          ? inference.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
+          ? runtime.decide(event.thread, event.call, 'approve').pipe(Effect.orDie)
           : Effect.void,
       ),
       Effect.forkScoped,
@@ -154,7 +154,7 @@ const hostsOf = (harness: PiHarness) => [
   harnessRegistryPlugin(),
   echoToolPlugin,
   harnessPiPlugin(harness),
-  inferencePlugin,
+  runtimePlugin,
 ]
 
 describe('harness-pi in a host', () => {
@@ -166,9 +166,9 @@ describe('harness-pi in a host', () => {
         const host = yield* makeHost(hostsOf(harness))
         const graph = yield* host.graph
         expect(graph.active.has('oru/harness-pi')).toBe(true)
-        expect(graph.active.has('oru/inference')).toBe(true)
+        expect(graph.active.has('oru/runtime')).toBe(true)
 
-        const inference = yield* host.service(Inference)
+        const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(tmpdir())
 
@@ -179,10 +179,10 @@ describe('harness-pi in a host', () => {
         const entry = Option.getOrThrow(yield* registry.get('pi'))
         expect((yield* entry.harness.listModels()).map((model) => model.id)).toContain(MODEL)
 
-        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
-        yield* approveAll(inference)
-        yield* inference.send(thread, '/tool echo {"text":"hi"}')
-        yield* inference.whenIdle(thread)
+        yield* runtime.configure(thread, { harness: 'pi', model: MODEL })
+        yield* approveAll(runtime)
+        yield* runtime.send(thread, '/tool echo {"text":"hi"}')
+        yield* runtime.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
         expect(events.map((event) => event._tag)).toEqual([
@@ -214,16 +214,16 @@ describe('harness-pi in a host', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost(hostsOf(harness))
-        const inference = yield* host.service(Inference)
+        const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(tmpdir())
 
-        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
-        yield* approveAll(inference)
+        yield* runtime.configure(thread, { harness: 'pi', model: MODEL })
+        yield* approveAll(runtime)
         // `missing` is not in the toolkit, so the extension cannot run it and pi
         // reports the call as an error.
-        yield* inference.send(thread, '/tool missing {}')
-        yield* inference.whenIdle(thread)
+        yield* runtime.send(thread, '/tool missing {}')
+        yield* runtime.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
         const completed = events.find((event) => Predicate.isTagged(event, 'tool/completed'))
@@ -244,13 +244,13 @@ describe('harness-pi in a host', () => {
     await run(
       Effect.gen(function* () {
         const host = yield* makeHost(hostsOf(harness))
-        const inference = yield* host.service(Inference)
+        const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(tmpdir())
 
-        yield* inference.configure(thread, { harness: 'pi', model: MODEL })
-        yield* inference.send(thread, '/fail')
-        yield* inference.whenIdle(thread)
+        yield* runtime.configure(thread, { harness: 'pi', model: MODEL })
+        yield* runtime.send(thread, '/fail')
+        yield* runtime.whenIdle(thread)
 
         const events = threadFacts(yield* log.entries, thread)
         const failed = events.find((event) => Predicate.isTagged(event, 'turn/failed'))
@@ -275,7 +275,7 @@ describe('harness-pi in a host', () => {
         if (entry.harness.health === undefined) return
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
-        expect(health.installedVersion).toBe('0.84.0')
+        expect(health.installedVersion).toBe('0.85.1')
       }),
     )
   })

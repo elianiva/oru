@@ -1,5 +1,4 @@
 import {
-  Context,
   Deferred,
   Effect,
   Match,
@@ -40,22 +39,26 @@ import {
   type SessionLogError,
   type ThreadConfig,
 } from '@oru/kernel'
-import * as Items from '@effect-uai/core/Items'
-import * as Turn from '@effect-uai/core/Turn'
 import {
   HarnessError,
   HarnessHealth,
   explanationOfHealth,
+  isAssistantMessage,
+  isToolCall,
+  isToolCallOutput,
+  isUserMessage,
+  type AssembledTurn,
   type HarnessEvent,
-  type HarnessForkRequest,
   type HarnessService,
   type HarnessTurnRequest,
   type HarnessesContract,
+  type HistoryItem,
   type ModelInfo,
   type Mutable,
-} from '@oru/harness'
-import { decodeReportedUsage, recordedUsageOf } from './reported-usage.ts'
-import { failureReason, historyOf, runTool, toolkitOf } from './seam.ts'
+} from './harness.ts'
+import { type RuntimeContract } from './runtime-token.ts'
+import type { ToolContribution } from './tools.ts'
+import { failureReason, historyOf, runTool, runToolByName } from './history.ts'
 import {
   AwaitApproval,
   decisionOf,
@@ -66,7 +69,6 @@ import {
   RunTool,
   workOf,
 } from './session-fold.ts'
-import type { ToolContribution } from './tool-kind.ts'
 
 /** One live harness event, tagged with the thread it belongs to. */
 export interface ThreadSignal {
@@ -81,67 +83,10 @@ export interface ThreadConfigurationInput {
   readonly reasoning?: string | undefined
 }
 
-export interface InferenceContract {
-  readonly send: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
-  readonly whenIdle: (thread: string) => Effect.Effect<void, SessionLogError>
-  /**
-   * Continue every lane the log names with work left. Idempotent, and meant to
-   * run once the graph is whole, so a restarted host finishes the turns it
-   * inherited rather than leaving them parked (ADR-0010).
-   */
-  readonly resume: () => Effect.Effect<void>
-  /**
-   * Unified model query. Delegates to the active harness, so a failure is the
-   * harness's, not the session log's.
-   */
-  readonly listModels: () => Effect.Effect<readonly ModelInfo[], HarnessError>
-  /**
-   * Steering: inject a follow-up prompt.
-   * - queue-mode harnesses (oru): appends to history, drains on next loop.
-   * - inject-mode harnesses (pi/claude/codex): forwards to `harness.steer`
-   *   for mid-turn injection when supported, otherwise falls back to queue.
-   */
-  readonly steer: (thread: string, text: string) => Effect.Effect<void, SessionLogError>
-  /** Interrupt the active turn on a thread, if the harness supports it. */
-  readonly abort: (thread: string) => Effect.Effect<void, SessionLogError>
-  /** Record which harness, model and reasoning level a thread runs (ADR-0006). */
-  readonly configure: (
-    thread: string,
-    configuration: ThreadConfigurationInput,
-  ) => Effect.Effect<void, SessionLogError>
-  /** Release a thread's harness session without discarding it. */
-  readonly stop: (thread: string) => Effect.Effect<void, SessionLogError | HarnessError>
-  /** Release a thread's harness session and delete what it kept. */
-  readonly discard: (thread: string) => Effect.Effect<void, SessionLogError | HarnessError>
-  /**
-   * Fork a thread's conversation into a new thread. The new lane records the
-   * entry it continues from, so its memory is reprojected from the log; the
-   * active harness is asked to copy its own session only when it can.
-   */
-  readonly fork: (
-    request: HarnessForkRequest,
-  ) => Effect.Effect<void, SessionLogError | HarnessError>
-  /** Compact a thread's harness session and record the view the log keeps. */
-  readonly compact: (
-    thread: string,
-    instructions?: string,
-  ) => Effect.Effect<void, SessionLogError | HarnessError>
-  /** Record approve or deny for a provider request id on this thread. */
-  readonly decide: (
-    thread: string,
-    request: string,
-    decision: ApprovalVerdict,
-  ) => Effect.Effect<void, SessionLogError>
-  /** Live harness events, for a view that wants to watch a turn happen. */
-  readonly signals: Stream.Stream<ThreadSignal>
-}
-
-export class Inference extends Context.Service<Inference, InferenceContract>()('oru/inference') {}
-
 const deniedResult = 'the user denied this tool call'
 
 interface CollectedTurn {
-  readonly turn: Option.Option<Turn.Turn>
+  readonly turn: Option.Option<AssembledTurn>
   readonly compactions: readonly {
     readonly automatic: boolean
     readonly summary: string
@@ -164,7 +109,7 @@ const collectTurn = (
   stream: Stream.Stream<HarnessEvent, HarnessError>,
 ): Effect.Effect<CollectedTurn, HarnessError> =>
   Effect.gen(function* () {
-    const turn = yield* Ref.make(Option.none<Turn.Turn>())
+    const turn = yield* Ref.make(Option.none<AssembledTurn>())
     const compactions = yield* Ref.make<CollectedTurn['compactions']>([])
     const toolResults = yield* Ref.make(new Map<string, { ok: boolean; result: string }>())
     const contextWindow = yield* Ref.make(
@@ -209,10 +154,10 @@ const collectTurn = (
     }
   })
 
-const toolResultsOf = (turn: Turn.Turn): ReadonlyMap<string, string> => {
+const toolResultsOf = (turn: AssembledTurn): ReadonlyMap<string, string> => {
   const outputs = new Map<string, string>()
   for (const item of turn.items) {
-    if (Items.isToolCallOutput(item)) outputs.set(item.call_id, item.output)
+    if (isToolCallOutput(item)) outputs.set(item.call_id, item.output)
   }
   return outputs
 }
@@ -221,7 +166,7 @@ const persistTurn = (
   log: SessionLogContract,
   thread: string,
   turn: string,
-  assembled: Turn.Turn,
+  assembled: AssembledTurn,
   harnessToolResults: ReadonlyMap<string, { readonly ok: boolean; readonly result: string }>,
   prompt: string | undefined,
 ): Effect.Effect<void, SessionLogError> =>
@@ -244,31 +189,28 @@ const persistTurn = (
     })
     const outputs = toolResultsOf(assembled)
     for (const item of assembled.items) {
-      if (Items.isMessage(item) && item.role === 'user') {
+      if (isUserMessage(item)) {
         yield* flush()
-        const body = item.content
-          .map((block) => (block.type === 'input_text' ? block.text : ''))
-          .join('')
         // The prompt is already in the log; this user message is one the
         // harness injected mid-turn, and only the harness knows about it.
-        if (!promptWritten && body === prompt) {
+        if (!promptWritten && item.text === prompt) {
           promptWritten = true
           continue
         }
-        if (body !== '') {
+        if (item.text !== '') {
           yield* log.write(
             MessageAppended.make({
               ...unsignedTree,
               id: yield* newId(),
               thread,
               role: 'user',
-              body,
+              body: item.text,
             }),
           )
         }
         continue
       }
-      if (Items.isToolCall(item)) {
+      if (isToolCall(item)) {
         yield* flush()
         const recorded = yield* log.entries
         const alreadyRequested = recorded.some(
@@ -316,36 +258,42 @@ const persistTurn = (
         )
         continue
       }
-      if (Items.isMessage(item) && item.role === 'assistant') {
-        for (const block of item.content) {
-          if (Items.isOutputText(block)) text += block.text
-        }
+      if (isAssistantMessage(item)) {
+        text += item.text
       }
     }
     yield* flush()
-    const parsed = decodeReportedUsage(assembled.usage)
-    if (Option.isNone(parsed)) return
-    const usage = recordedUsageOf(parsed.value)
+    const usage = assembled.usage
     if (usage === undefined) return
+    const inputTokens = usage.input_tokens ?? 0
+    const outputTokens = usage.output_tokens ?? 0
+    const cost = usage.cost
+    if (
+      usage.input_tokens === undefined &&
+      usage.output_tokens === undefined &&
+      cost === undefined
+    ) {
+      return
+    }
     yield* log.write(
       TurnUsage.make({
         ...unsignedTree,
         id: yield* newId(),
         thread,
         turn,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cost: usage.cost,
+        inputTokens,
+        outputTokens,
+        cost,
       }),
     )
   })
 
-export const openInference = (
+export const openRuntime = (
   log: SessionLogContract,
   harnesses: HarnessesContract,
   loadTools: Effect.Effect<readonly ToolContribution[]>,
   scope: Scope.Scope,
-): Effect.Effect<InferenceContract> =>
+): Effect.Effect<RuntimeContract> =>
   Effect.gen(function* () {
     const lock = Semaphore.makeUnsafe(1)
     const idle = new Map<string, Deferred.Deferred<void>>()
@@ -551,7 +499,6 @@ export const openInference = (
 
         const history = historyOf(events, thread)
         const tools = yield* loadTools
-        const toolkit = tools.length === 0 ? undefined : toolkitOf(tools)
         const models = yield* harness.listModels().pipe(Effect.orElseSucceed(() => []))
         // A thread that names no model runs the host's default when there is
         // one, and otherwise the harness's own default (ADR-0012).
@@ -560,9 +507,18 @@ export const openInference = (
         // Absent is not the same as undefined for the harness contract, so each
         // member is added only when the thread actually carries it.
         const request: Mutable<HarnessTurnRequest> = { threadId: thread, history, model }
-        if (toolkit !== undefined) request.tools = toolkit
+        if (tools.length > 0) request.tools = tools
         if (cwd !== undefined) request.cwd = cwd
         if (configuration.reasoning !== undefined) request.reasoning = configuration.reasoning
+        request.executeTool = (input) =>
+          Effect.runPromise(
+            Effect.gen(function* () {
+              const all = yield* loadTools
+              return yield* Effect.promise(() =>
+                runToolByName(all, input.name, input.argumentsJson),
+              )
+            }),
+          )
         request.awaitToolApproval = (input) =>
           Effect.runPromise(Effect.scoped(requestApproval(thread, turn, input)))
         const collected = yield* harness.streamTurn(request).pipe(
@@ -847,15 +803,12 @@ const defaultModelOf = (models: readonly ModelInfo[]): string => {
   return preferred?.id ?? models[0]?.id ?? ''
 }
 
-const lastUserText = (history: readonly Items.HistoryItem[]): string | undefined => {
+const lastUserText = (history: readonly HistoryItem[]): string | undefined => {
   for (let index = history.length - 1; index >= 0; index--) {
     const item = history[index]
     if (item === undefined) continue
-    if (!Items.isMessage(item) || item.role !== 'user') continue
-    const text = item.content
-      .map((block) => (block.type === 'input_text' ? block.text : ''))
-      .join('')
-    if (text !== '') return text
+    if (!isUserMessage(item)) continue
+    if (item.text !== '') return item.text
   }
   return undefined
 }
