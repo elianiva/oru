@@ -12,7 +12,7 @@
     "./cli": "./src/cli.ts"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-facets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "vitest run test/e2e.test.ts",

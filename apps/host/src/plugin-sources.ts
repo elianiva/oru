@@ -1,5 +1,6 @@
 import { Effect, Option, Schema } from 'effect'
 import type { AnyPlugin } from '@oru/kernel'
+import { defaultFacetsRoot, loadPrebuiltRecord, readPrebuiltManifest } from './prebuilt-facets.ts'
 
 /**
  * An external plugin the host loads the way it loads any third-party plugin:
@@ -32,8 +33,20 @@ const defaultLog = (message: string): void => {
 export const loadPluginSource = (
   source: PluginSource,
   log: (message: string) => void = defaultLog,
+  facetsRoot: string = defaultFacetsRoot(),
 ): Effect.Effect<readonly AnyPlugin[]> =>
   Effect.gen(function* () {
+    // A prebuilt server facet on disk wins over the source import: a packed
+    // host ships no plugin sources, so the built record is the only one.
+    // A manifest with no readable record falls through to the source import
+    // below, the way a missing manifest does, with a note naming the cause.
+    const prebuilt = yield* Effect.promise(() => loadPrebuiltRecord(source.specifier, facetsRoot))
+    if (prebuilt !== undefined) return [prebuilt]
+    if (readPrebuiltManifest(source.specifier, facetsRoot) !== undefined) {
+      yield* Effect.sync(() =>
+        log(`plugin ${source.specifier} prebuilt facet unreadable, loading from source`),
+      )
+    }
     // The specifier is a runtime plugin address, not a static dependency: the
     // kernel's facet loader imports generation bundles the same way.
     // A source that fails to load, for any reason, resolves to no plugins:
@@ -69,11 +82,12 @@ export const loadPluginSource = (
 export const loadExternalPlugins = (
   sources: readonly PluginSource[],
   log: (message: string) => void = defaultLog,
+  facetsRoot: string = defaultFacetsRoot(),
 ): Effect.Effect<readonly AnyPlugin[]> =>
   Effect.gen(function* () {
     const loaded: AnyPlugin[] = []
     for (const source of sources) {
-      loaded.push(...(yield* loadPluginSource(source, log)))
+      loaded.push(...(yield* loadPluginSource(source, log, facetsRoot)))
     }
     return loaded
   })

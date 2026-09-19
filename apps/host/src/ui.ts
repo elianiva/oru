@@ -15,6 +15,12 @@ import {
 } from '@oru/ui'
 import type { AnyPlugin, Host, PluginId } from '@oru/kernel'
 import type { PluginSource } from './plugin-sources.ts'
+import {
+  defaultFacetsRoot,
+  loadPrebuiltRecord,
+  readPrebuiltUi,
+  type PrebuiltUi,
+} from './prebuilt-facets.ts'
 
 export interface UiOverrides {
   readonly composer?: string | undefined
@@ -133,14 +139,44 @@ const defsOf = (record: AnyPlugin): readonly UiDef[] => {
  * load or build is skipped with a note, the way the plugin-source loader
  * runs without a source it cannot load. The returned map is keyed by
  * plugin id, so the snapshot joins live claims to built code by identity.
+ *
+ * A source with prebuilt UI bytes under the host facets root serves them
+ * from disk; without them the host bundles the `ui` facet from source,
+ * exactly as before.
  */
 export const buildUiBundles = (
   sources: readonly PluginSource[],
   log: (message: string) => void = defaultLog,
+  facetsRoot: string = defaultFacetsRoot(),
 ): Effect.Effect<UiBundles> =>
   Effect.gen(function* () {
     const built = new Map<PluginId, BuiltUi>()
     for (const source of sources) {
+      const prebuilt: PrebuiltUi | undefined = readPrebuiltUi(source.specifier, facetsRoot)
+      if (prebuilt !== undefined) {
+        const record =
+          (yield* Effect.promise(() => loadPrebuiltRecord(source.specifier, facetsRoot))) ??
+          (yield* Effect.promise(() => readRecord(source.specifier)))
+        if (record === undefined) {
+          log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
+          continue
+        }
+        const wanted = new Set(
+          prebuilt.entry.defIds.flatMap((defId, index) => {
+            const slot = prebuilt.entry.slots[index]
+            return slot === undefined ? [] : [`${slot}/${defId}`]
+          }),
+        )
+        const defs = defsOf(record).filter((def) => wanted.has(`${def.slot}/${def.defId}`))
+        if (defs.length === 0) continue
+        built.set(record.id, {
+          plugin: record.id,
+          defs,
+          address: prebuilt.entry.address,
+          js: prebuilt.js,
+        })
+        continue
+      }
       const manifest = readManifest(source.specifier)
       if (manifest?.ui === undefined) continue
       const record = yield* Effect.promise(() => readRecord(source.specifier))

@@ -35,6 +35,14 @@ export {
   loadPluginSource,
   type PluginSource,
 } from './plugin-sources.ts'
+export {
+  defaultFacetsRoot,
+  loadPrebuiltRecord,
+  prebuiltServerUrl,
+  readPrebuiltManifest,
+  readPrebuiltUi,
+  type PrebuiltUi,
+} from './prebuilt-facets.ts'
 export { hostRpcHandlers } from './handlers/host.ts'
 export { projectRpcHandlers } from './handlers/project.ts'
 export { threadRpcHandlers } from './handlers/thread.ts'
