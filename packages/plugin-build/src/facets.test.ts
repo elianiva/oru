@@ -22,8 +22,7 @@ describe('buildPluginFacets', () => {
     const ui = built.manifest.ui[0]
     if (ui === undefined) expect.fail('expected a ui facet entry')
     expect(ui.address).toMatch(/^[0-9a-f]{64}$/)
-    expect(ui.defIds).toEqual(['composer', 'conversation'])
-    expect(ui.slots).toEqual(['composer', 'conversation'])
+    expect(Object.keys(ui).sort()).toEqual(['address', 'file'])
     for (const file of [built.manifest.server?.file, ui.file]) {
       const path = join(fixturePlugin, 'dist', file ?? '')
       expect(existsSync(path)).toBe(true)

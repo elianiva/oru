@@ -161,13 +161,7 @@ export const buildUiBundles = (
           log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
           continue
         }
-        const wanted = new Set(
-          prebuilt.entry.defIds.flatMap((defId, index) => {
-            const slot = prebuilt.entry.slots[index]
-            return slot === undefined ? [] : [`${slot}/${defId}`]
-          }),
-        )
-        const defs = defsOf(record).filter((def) => wanted.has(`${def.slot}/${def.defId}`))
+        const defs = defsOf(record)
         if (defs.length === 0) continue
         built.set(record.id, {
           plugin: record.id,
