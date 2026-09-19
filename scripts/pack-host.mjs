@@ -23,8 +23,13 @@ export const publishManifest = (hostPkg) => ({
 })
 
 export const pack = () => {
-  const build = spawnSync('pnpm', ['run', 'build'], {
-    cwd: hostRoot,
+  // Build the host closure, not just the host: plugins build before the
+  // host so dist/facets carries their facets when the host copies them.
+  // The path filter names apps/host by path because the web app's package
+  // name (oru) collides with the root package name, so a bare name filter
+  // would match the wrong package.
+  const build = spawnSync('pnpm', ['exec', 'turbo', 'run', 'build', '--filter=./apps/host...'], {
+    cwd: repoRoot,
     stdio: 'inherit',
   })
   if (build.status !== 0) process.exit(build.status ?? 1)

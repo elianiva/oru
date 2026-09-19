@@ -8,6 +8,7 @@
     "./ui": "./src/ui.ts"
   },
   "scripts": {
+    "build": "oru-build-plugin",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
@@ -23,6 +24,7 @@
     "lucide": "^1.47.0"
   },
   "devDependencies": {
+    "@oru/plugin-build": "workspace:*",
     "@types/node": "^26.6.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"

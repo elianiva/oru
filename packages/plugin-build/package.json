@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "bin": {
-    "oru-build-facet": "./src/cli.ts"
+    "oru-build-facet": "./src/cli.ts",
+    "oru-build-plugin": "./src/plugin-cli.ts"
   },
   "type": "module",
   "exports": {

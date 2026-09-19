@@ -71,6 +71,26 @@ if (!entries.some((entry) => entry.endsWith('/dist/index.js')))
 if (!entries.some((entry) => entry.endsWith('/dist/oru-pi-extension.mjs')))
   fail('packed tarball is missing dist/oru-pi-extension.mjs')
 
+// The packed host serves its UI from prebuilt facets, so the tarball must
+// carry each facet manifest plus every artifact the manifest names. A
+// manifest without its bytes is the stale-dist failure this graph exists
+// to prevent.
+const facetManifestEntry = entries.find((entry) =>
+  entry.endsWith('/dist/facets/oru/chat-ui/facets.json'),
+)
+if (facetManifestEntry === undefined)
+  fail('packed tarball is missing dist/facets/oru/chat-ui/facets.json')
+const facetManifest = JSON.parse(run('tar', ['-xOzf', tarball, facetManifestEntry]).stdout)
+const facetFiles = [
+  ...(facetManifest.server === null ? [] : [facetManifest.server.file]),
+  ...facetManifest.ui.map((entry) => entry.file),
+]
+if (facetFiles.length === 0) fail('packed chat-ui facets.json lists no artifacts')
+for (const file of facetFiles) {
+  if (!entries.some((entry) => entry.endsWith(`/dist/facets/oru/chat-ui/${file}`)))
+    fail(`packed tarball is missing dist/facets/oru/chat-ui/${file}`)
+}
+
 const prefix = mkdtempSync(join(tmpdir(), 'oru-host-smoke-'))
 try {
   run('npm', ['init', '-y'], { cwd: prefix })

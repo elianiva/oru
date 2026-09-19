@@ -31,6 +31,12 @@ export interface HostOptions {
   readonly ui?: {
     readonly sources: readonly { readonly specifier: string }[]
     readonly overrides?: UiOverrides
+    /**
+     * The prebuilt facet store to read UI bytes from. Absent resolves
+     * `dist/facets` beside the host package, which is what a built or
+     * packed host wants; a test stages its own packed layout here.
+     */
+    readonly facetsDir?: string
   }
 }
 
@@ -66,7 +72,9 @@ export const serveHost = (
     )
     const host = yield* makeHost(options.plugins).pipe(Effect.provideContext(provided))
     const built: UiBundles =
-      options.ui === undefined ? new Map() : yield* buildUiBundles(options.ui.sources)
+      options.ui === undefined
+        ? new Map()
+        : yield* buildUiBundles(options.ui.sources, undefined, options.ui.facetsDir)
     const httpEffect = yield* HttpRouter.toHttpEffect(
       rpcRoutes(host, options.plugins, {
         built,

@@ -372,6 +372,9 @@ importers:
         specifier: ^1.47.0
         version: 1.47.0
     devDependencies:
+      '@oru/plugin-build':
+        specifier: workspace:*
+        version: link:../../packages/plugin-build
       '@types/node':
         specifier: ^26.6.1
         version: 26.6.1
@@ -400,6 +403,9 @@ importers:
       '@oru/harness-registry':
         specifier: workspace:*
         version: link:../harness-registry
+      '@oru/plugin-build':
+        specifier: workspace:*
+        version: link:../../packages/plugin-build
       '@types/node':
         specifier: ^26.6.1
         version: 26.6.1
@@ -428,6 +434,9 @@ importers:
       '@oru/harness-registry':
         specifier: workspace:*
         version: link:../harness-registry
+      '@oru/plugin-build':
+        specifier: workspace:*
+        version: link:../../packages/plugin-build
       '@types/node':
         specifier: ^26.6.1
         version: 26.6.1
