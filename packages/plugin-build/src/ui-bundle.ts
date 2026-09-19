@@ -12,8 +12,8 @@ export class UiBundleError extends Schema.TaggedError<UiBundleError>()('UiBundle
 
 /**
  * The entry's enclosing package. tsdown annotates bundled modules with
- * paths relative to its working directory, so pinning it here keeps a
- * bundle built at plugin build time byte-identical to one the host builds
+ * paths relative to its working directory, so pinning it here keeps
+ * a bundle built at plugin build time byte-identical to one the host builds
  * from source at startup, whatever either caller's cwd is.
  */
 const packageDirOf = (entry: string): string => {
