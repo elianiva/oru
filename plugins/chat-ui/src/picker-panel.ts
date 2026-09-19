@@ -9,9 +9,9 @@ import { Option } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import type { IconNode } from 'lucide'
 import { ChevronDown } from 'lucide'
-import { button } from '@/components/ui/button.ts'
-import { icon } from '@/lib/icons.ts'
-import { cn } from '@/lib/utils.ts'
+import { button } from './ui/button.ts'
+import { icon } from './lib/icons.ts'
+import { cn } from './lib/utils.ts'
 
 export type PickerTriggerConfig<M> = Readonly<{
   label: string

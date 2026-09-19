@@ -8,19 +8,29 @@ export {
   ProjectThreadDefaults,
 } from './project-rpc.ts'
 export { ThreadRpc } from './thread-rpc.ts'
-export { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
+export { UiRpc } from './ui-rpc.ts'
+export {
+  hostRpcPath,
+  projectRpcPath,
+  rpcSerializationLayer,
+  threadRpcPath,
+  uiRpcPath,
+} from './transport.ts'
 export {
   clientsFor,
   graphRpcOf,
   projectClientOf,
   threadClientOf,
+  uiClientOf,
   GraphRpc,
   HostUnreachable,
   ProjectClient,
   ThreadClient,
+  UiClient,
   type GraphRpcContract,
   type ProjectClientContract,
   type ThreadClientContract,
+  type UiClientContract,
 } from './client.ts'
 export { Project } from './project.ts'
 export { Panel, ViewGraph } from './view-graph.ts'

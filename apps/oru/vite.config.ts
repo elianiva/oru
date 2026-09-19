@@ -21,6 +21,9 @@ export default defineConfig({
     // its own dev server at the host it started.
     proxy: {
       '/rpc': process.env.ORU_PROXY_TARGET ?? `http://127.0.0.1:${String(defaultPort)}`,
+      // UI bundles are served by the host beside the RPC boundary, so the
+      // same origin forwards them in development.
+      '/ui': process.env.ORU_PROXY_TARGET ?? `http://127.0.0.1:${String(defaultPort)}`,
     },
   },
 })

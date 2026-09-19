@@ -7,6 +7,7 @@ import * as NodeHttpServer from '@effect/platform-node/NodeHttpServer'
 import { makeHost, sessionLogLayer, type AnyPlugin, type BootError, type Host } from '@oru/kernel'
 import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
 import { rpcRoutes } from './routes.ts'
+import { buildUiBundles, type UiBundles, type UiOverrides } from './ui.ts'
 
 class NotTcpAddress extends Schema.TaggedError<NotTcpAddress>()('NotTcpAddress', {
   address: Schema.String,
@@ -23,6 +24,14 @@ export interface HostOptions {
    * wants.
    */
   readonly journal?: string
+  /**
+   * The presentation facets to bundle and serve. Absent serves an empty UI
+   * snapshot, which is what a test that never touches the view wants.
+   */
+  readonly ui?: {
+    readonly sources: readonly { readonly specifier: string }[]
+    readonly overrides?: UiOverrides
+  }
 }
 
 /** A host that is serving. Releasing the scope stops it. */
@@ -56,9 +65,14 @@ export const serveHost = (
       scope,
     )
     const host = yield* makeHost(options.plugins).pipe(Effect.provideContext(provided))
-    const httpEffect = yield* HttpRouter.toHttpEffect(rpcRoutes(host, options.plugins)).pipe(
-      Effect.provideContext(provided),
-    )
+    const built: UiBundles =
+      options.ui === undefined ? new Map() : yield* buildUiBundles(options.ui.sources)
+    const httpEffect = yield* HttpRouter.toHttpEffect(
+      rpcRoutes(host, options.plugins, {
+        built,
+        overrides: options.ui?.overrides ?? {},
+      }),
+    ).pipe(Effect.provideContext(provided))
     const server = yield* NodeHttpServer.make(() => createServer(), {
       host: options.hostname,
       port: options.port,

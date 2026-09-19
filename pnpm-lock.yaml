@@ -143,6 +143,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1)
+      '@oru/chat-ui':
+        specifier: workspace:*
+        version: link:../../plugins/chat-ui
       '@oru/harness':
         specifier: workspace:*
         version: link:../../packages/harness
@@ -158,9 +161,15 @@ importers:
       '@oru/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@oru/plugin-build':
+        specifier: workspace:*
+        version: link:../../packages/plugin-build
       '@oru/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -195,6 +204,9 @@ importers:
       '@oru/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
@@ -275,6 +287,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      tsdown:
+        specifier: ^0.23.0
+        version: 0.23.0(typescript@7.0.2)
     devDependencies:
       '@types/node':
         specifier: ^26.6.1
@@ -294,6 +309,9 @@ importers:
       '@oru/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../ui
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -304,6 +322,65 @@ importers:
       vitest:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@22.20.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/ui:
+    dependencies:
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  plugins/chat-ui:
+    dependencies:
+      '@foldkit/ui':
+        specifier: 0.161.0
+        version: 0.161.0(effect@4.0.0-rc.115)(foldkit@0.161.0(@effect/platform-browser@4.0.0-rc.115(effect@4.0.0-rc.115))(effect@4.0.0-rc.115))
+      '@oru/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/rpc':
+        specifier: workspace:*
+        version: link:../../packages/rpc
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      cn:
+        specifier: ^0.3.0
+        version: 0.3.0
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+      foldkit:
+        specifier: 0.161.0
+        version: 0.161.0(@effect/platform-browser@4.0.0-rc.115(effect@4.0.0-rc.115))(effect@4.0.0-rc.115)
+      lucide:
+        specifier: ^1.47.0
+        version: 1.47.0
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
   plugins/harness-claude-code:
     dependencies:

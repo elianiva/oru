@@ -95,3 +95,7 @@ _Avoid_: child process, worker
 **Submodel**:
 The unit of UI composition: a Foldkit Model, Messages, update, and OutMessages. A plugin's presentation facet contributes one or more submodels.
 _Avoid_: component, widget, view
+
+**Slot**:
+A named UI surface the host owns that plugin submodels mount into, such as the composer or the conversation. Exclusive slots hold one submodel, additive slots hold many in deterministic order.
+_Avoid_: outlet, mount point, placeholder

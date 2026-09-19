@@ -16,6 +16,7 @@
     "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
     "@oru/rpc": "workspace:*",
+    "@oru/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "cn": "^0.3.0",
     "effect": "4.0.0-rc.115",

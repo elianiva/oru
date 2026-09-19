@@ -20,6 +20,11 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-claude-code'])
   })
 
+  it('loads chat-ui through the generic loader, not a static import', async () => {
+    const plugins = await run(loadPluginSource({ specifier: '@oru/chat-ui' }))
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/chat-ui'])
+  })
+
   it('resolves a missing source to no plugins without throwing', async () => {
     const messages: string[] = []
     const plugins = await run(
@@ -38,6 +43,7 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual([
       'oru/harness-pi',
       'oru/harness-claude-code',
+      'oru/chat-ui',
     ])
   })
 })

@@ -1,12 +1,11 @@
-import { Option, Predicate } from 'effect'
+import { Effect, Option, Predicate } from 'effect'
 import { Navigation, Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HarnessHealth } from '@oru/harness'
 import type { Project, ThreadOptions } from '@oru/rpc'
 import * as Resizable from '../src/components/ui/resizable.ts'
-import * as Composer from '../src/composer.ts'
-import * as ModelPicker from '../src/model-picker.ts'
+import { resetDefsForTest } from '../src/ui-defs.ts'
 import {
   CreateProject,
   CreateThreadAndSend,
@@ -16,6 +15,7 @@ import {
   Message,
   Model,
   NavigateInternal,
+  PersistPrefs,
   PreloadDirectory,
   UpdateProject,
   init,
@@ -101,8 +101,20 @@ const withStorage = (entries: Readonly<Record<string, string>>): (() => void) =>
   }
 }
 
+import * as StubComposer from './stub-composer.ts'
+import { mountStubs, stubSnapshot } from './stub-composer.ts'
+
+/** Mount the stub defs and reconcile them, so scenes render a composer. */
+const withStubs = (model: Model): Model =>
+  update(model, Message.UiSnapshotArrived({ snapshot: stubSnapshot() })).model
+
+beforeEach(() => {
+  mountStubs()
+})
+
 afterEach(() => {
   Reflect.deleteProperty(globalThis, 'localStorage')
+  resetDefsForTest()
 })
 
 const fixtureRow = (
@@ -493,7 +505,7 @@ describe('thread list', () => {
   it('draws the selected thread from the route, in both columns', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init(urlForPath('/thread/thread-1')).model),
+      Scene.given(withStubs(init(urlForPath('/thread/thread-1')).model)),
       Scene.expect(Scene.selector('[data-detail]')).toContainText('No thread selected'),
       Scene.expect(Scene.selector('[data-conversation]')).toContainText('thread-1'),
     )
@@ -547,34 +559,26 @@ describe('composer', () => {
   const listOne = (): Model =>
     withProjects([{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }])
 
-  it('renders centered with headline, input, and one submodel per slot', () => {
+  it('renders centered with headline, input, and the stub composer', () => {
     Scene.scene(
       { update, view },
-      Scene.given(init(homeUrl).model),
+      Scene.given(withStubs(init(homeUrl).model)),
       Scene.expect(Scene.selector('[data-composer]')).toExist(),
       Scene.expect(Scene.text('What should we build in oru?')).toExist(),
       Scene.expect(Scene.selector('[data-composer-input]')).toExist(),
       Scene.expect(Scene.selector('[data-composer-submit]')).toExist(),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Model'),
-      // A cold load has no host answer, so the picker names no project; the
+      // A cold load has no host answer, so the stub names no project; the
       // shell header renders the brand 'oru' all the same, which is why this is
       // asserted against the picker rather than against the literal.
       Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('Project'),
       Scene.expect(Scene.selector('[data-project-picker-trigger]')).not.toContainText('oru'),
-      Scene.expect(Scene.selector('[data-worktree-picker-trigger]')).toContainText(
-        'Current worktree',
-      ),
-      Scene.expect(Scene.selector('[data-branch-picker-trigger]')).toContainText(
-        'Branch from: origin/master',
-      ),
-      Scene.expect(Scene.selector('[data-access-picker-trigger]')).toContainText('Full Access'),
     )
   })
 
-  it('names the composer’s project from the host’s answer', () => {
+  it("names the composer's project from the host's answer", () => {
     Scene.scene(
       { update, view },
-      Scene.given(listOne()),
+      Scene.given(withStubs(listOne())),
       Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
       Scene.expect(Scene.selector('[data-project-picker-panel]')).not.toExist(),
     )
@@ -606,7 +610,7 @@ describe('composer', () => {
   it('opens the shared dialog from the composer chip: dirs only, breadcrumb, suggested name', () => {
     Scene.scene(
       { update, view },
-      Scene.given(listOne()),
+      Scene.given(withStubs(listOne())),
       Scene.click(Scene.selector('[data-project-picker-trigger]')),
       Scene.expect(Scene.selector('[data-project-picker-option="p1"]')).toContainText('oru'),
       Scene.expect(Scene.selector('[data-project-picker-option="new-project"]')).toExist(),
@@ -639,7 +643,7 @@ describe('composer', () => {
   it('creates from the shared dialog, and the host’s own row names the chip', () => {
     Scene.scene(
       { update, view },
-      Scene.given(listOne()),
+      Scene.given(withStubs(listOne())),
       Scene.click(Scene.selector('[data-project-picker-trigger]')),
       Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
       Scene.Command.resolve(ListDirectory, arrivedHome),
@@ -667,7 +671,7 @@ describe('composer', () => {
   it('shows the host’s refusal inline on the dialog that asked for it', () => {
     Scene.scene(
       { update, view },
-      Scene.given(listOne()),
+      Scene.given(withStubs(listOne())),
       Scene.click(Scene.selector('[data-project-picker-trigger]')),
       Scene.click(Scene.selector('[data-project-picker-option="new-project"]')),
       Scene.Command.resolve(ListDirectory, arrivedHome),
@@ -692,9 +696,9 @@ describe('composer', () => {
 
   it('keeps the draft and names the reason when no project is selected', () => {
     const typed = update(
-      init(homeUrl).model,
-      Message.GotComposer({
-        message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
+      withStubs(init(homeUrl).model),
+      Message.GotComposerUi({
+        message: StubComposer.StubMessage.ChangedDraft({ value: 'hello composer' }),
       }),
     )
     Scene.scene(
@@ -711,40 +715,13 @@ describe('composer', () => {
     )
   })
 
-  it('creates the thread with the pickers\u2019 configuration and navigates to it', () => {
-    const options: ThreadOptions = {
-      config: { harness: 'pi', model: undefined, reasoning: undefined },
-      harness: 'pi',
-      harnesses: [{ id: 'pi', label: 'pi', icon: 'terminal', health: { status: 'ready' } }],
-      providers: [],
-      models: [
-        {
-          id: 'muse/claude-1.3-contributor',
-          label: 'Contributor',
-          provider: 'muse',
-          reasoningLevels: ['low', 'high'],
-        },
-      ],
-    }
-    const ready = [
-      Message.GotProjects({
-        message: Projects.Message.ProjectsArrived({
-          projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
-        }),
-      }),
-      Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
-      Message.GotPicker({
-        message: ModelPicker.Message.ChosenModel({ model: 'muse/claude-1.3-contributor' }),
-      }),
-      Message.GotPicker({ message: ModelPicker.Message.ChosenReasoning({ level: 'high' }) }),
-      Message.GotComposer({
-        message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
-      }),
-    ].reduce((current, message) => update(current, message).model, init(homeUrl).model)
+  it('creates the thread with the def configuration and navigates to it', () => {
+    const ready = withStubs(listOne())
 
     Scene.scene(
       { update, view },
       Scene.given(ready),
+      Scene.type(Scene.selector('[data-composer-input]'), 'hello composer'),
       Scene.click(Scene.selector('[data-composer-submit]')),
       Scene.Command.expectHas(CreateThreadAndSend),
       Scene.expect(Scene.selector('[data-composer-submit][data-disabled]')).toExist(),
@@ -754,9 +731,15 @@ describe('composer', () => {
       Scene.expect(Scene.selector('[data-submit-error]')).not.toExist(),
     )
 
-    const submitted = update(
+    const drafted = update(
       ready,
-      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+      Message.GotComposerUi({
+        message: StubComposer.StubMessage.ChangedDraft({ value: 'hello composer' }),
+      }),
+    )
+    const submitted = update(
+      drafted.model,
+      Message.GotComposerUi({ message: StubComposer.StubMessage.ClickedSubmit() }),
     )
     expect(submitted.commands?.[0]?.name).toBe('CreateThreadAndSend')
     expect(submitted.commands?.[0]?.args).toEqual({
@@ -774,12 +757,12 @@ describe('composer', () => {
   it('restores the draft when the host refuses the creation', () => {
     const submitted = update(
       update(
-        listOne(),
-        Message.GotComposer({
-          message: Composer.Message.ChangedDraft({ value: 'hello composer' }),
+        withStubs(listOne()),
+        Message.GotComposerUi({
+          message: StubComposer.StubMessage.ChangedDraft({ value: 'hello composer' }),
         }),
       ).model,
-      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+      Message.GotComposerUi({ message: StubComposer.StubMessage.ClickedSubmit() }),
     )
     expect(submitted.commands?.[0]?.name).toBe('CreateThreadAndSend')
     const failed = update(
@@ -787,19 +770,23 @@ describe('composer', () => {
       Message.ThreadCreateFailed({ reason: 'SendMessage: boom', text: 'hello composer' }),
     )
     expect(failed.model.submit).toEqual({ pending: false, error: 'SendMessage: boom' })
-    expect(failed.model.composer.draft).toBe('hello composer')
+    Scene.scene(
+      { update, view },
+      Scene.given(failed.model),
+      Scene.expect(Scene.selector('[data-composer-input]')).toHaveValue('hello composer'),
+    )
   })
 
   it('sends a follow-up straight to the thread the route selected', () => {
     const typed = update(
-      init(urlForPath('/thread/thread-1')).model,
-      Message.GotComposer({
-        message: Composer.Message.ChangedDraft({ value: 'follow up' }),
+      withStubs(init(urlForPath('/thread/thread-1')).model),
+      Message.GotComposerUi({
+        message: StubComposer.StubMessage.ChangedDraft({ value: 'follow up' }),
       }),
     )
     const submitted = update(
       typed.model,
-      Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+      Message.GotComposerUi({ message: StubComposer.StubMessage.ClickedSubmit() }),
     )
     expect(submitted.commands?.[0]?.name).toBe('SendThreadMessage')
     expect(submitted.commands?.[0]?.args).toEqual({ threadId: 'thread-1', text: 'follow up' })
@@ -811,23 +798,32 @@ describe('composer', () => {
       Message.ThreadMessageFailed({ reason: 'SendMessage: boom', text: 'follow up' }),
     )
     expect(failed.model.submit).toEqual({ pending: false, error: 'SendMessage: boom' })
-    expect(failed.model.composer.draft).toBe('follow up')
-  })
-
-  it('emits Submitted with the draft text and clears it', () => {
-    const typed = Composer.update(Composer.init(), Composer.Message.ChangedDraft({ value: 'hi' }))
-    expect(typed.model.draft).toBe('hi')
-    const sent = Composer.update(typed.model, Composer.Message.ClickedSubmit())
-    expect(sent.model.draft).toBe('')
-    expect('outMessage' in sent ? sent.outMessage : undefined).toEqual(
-      Composer.OutMessage.Submitted({ text: 'hi' }),
+    Scene.scene(
+      { update, view },
+      Scene.given(failed.model),
+      Scene.expect(Scene.selector('[data-composer-input]')).toHaveValue('follow up'),
     )
   })
 
-  it('does nothing on submit with a blank draft', () => {
-    const sent = Composer.update(Composer.init(), Composer.Message.ClickedSubmit())
-    expect(sent.model.draft).toBe('')
-    expect('outMessage' in sent ? sent.outMessage : undefined).toBeUndefined()
+  it('mounts the assigned defs through the outlets, and empties them when the assignment vanishes', () => {
+    const mounted = withStubs(init(homeUrl).model)
+    Scene.scene(
+      { update, view },
+      Scene.given(mounted),
+      Scene.expect(Scene.selector('[data-composer]')).toExist(),
+    )
+    const emptied = update(
+      mounted,
+      Message.UiSnapshotArrived({
+        snapshot: { bundles: [], assignments: [] },
+      }),
+    )
+    expect(emptied.commands ?? []).toEqual([])
+    Scene.scene(
+      { update, view },
+      Scene.given(emptied.model),
+      Scene.expect(Scene.selector('[data-composer]')).not.toExist(),
+    )
   })
 })
 
@@ -838,12 +834,6 @@ describe('model picker', () => {
   ]
 
   const ready: HarnessHealth = { status: 'ready' }
-
-  const notInstalled: HarnessHealth = {
-    status: 'not_installed',
-    message: 'pi is not on PATH',
-    installCommand: 'pi update self',
-  }
 
   const optionsFor = (health: HarnessHealth, model: string | undefined): ThreadOptions => ({
     config: { harness: 'pi', model, reasoning: undefined },
@@ -857,12 +847,8 @@ describe('model picker', () => {
   })
 
   const loaded = (url: Url.Url, health: HarnessHealth, model: string | undefined) =>
-    update(
-      init(url).model,
-      Message.GotPicker({
-        message: ModelPicker.Message.OptionsArrived({ options: optionsFor(health, model) }),
-      }),
-    ).model
+    update(init(url).model, Message.HostOptionsArrived({ options: optionsFor(health, model) }))
+      .model
 
   it('asks the host for the options of the route it loaded', () => {
     expect(init(urlForPath('/thread/thread-1')).commands?.map((command) => command.name)).toEqual([
@@ -891,7 +877,7 @@ describe('model picker', () => {
     const atThread = update(loadedHome, Message.ChangedUrl({ url: urlForPath('/thread/thread-1') }))
     expect(atThread.commands?.map((command) => command.name)).toEqual(['LoadThreadOptions'])
     expect(atThread.commands?.[0]?.args).toEqual({ threadId: 'thread-1', refresh: false })
-    expect(Predicate.isTagged(atThread.model.picker.options, 'Loading')).toBe(true)
+    expect(Predicate.isTagged(atThread.model.options, 'Loading')).toBe(true)
 
     const atHome = update(atThread.model, Message.ChangedUrl({ url: urlForPath('/') }))
     expect(atHome.commands?.[0]?.args).toEqual({ threadId: undefined, refresh: false })
@@ -903,88 +889,35 @@ describe('model picker', () => {
     expect(atSettings.commands).toEqual([])
   })
 
-  it('names the configured model in the composer, and opens its panel from there', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(loaded(homeUrl, ready, 'deepseek/deepseek-flash')),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('DeepSeek Flash'),
-      Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
-      Scene.click(Scene.selector('[data-model-picker-trigger]')),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toHaveAttr(
-        'aria-expanded',
-        'true',
-      ),
-      Scene.expect(Scene.selector('[data-model-panel]')).toExist(),
-      Scene.expect(Scene.selector('[data-model-search]')).toExist(),
-      Scene.click(Scene.selector('[data-model-row="github-copilot/gpt-5"]')),
-      Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Copilot Five'),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).not.toHaveAttr(
-        'aria-expanded',
-        'true',
-      ),
-    )
-  })
-
-  it('names the stored choice on a cold home load, without opening the picker', () => {
-    // A refresh restores the choice from storage while the host names no
-    // thread choice; the cold load fetches the catalogue, so the trigger
-    // names it without the picker ever opening.
-    const restore = withStorage({
-      [ModelPicker.PICKER_STORAGE_KEY]: JSON.stringify({
-        version: ModelPicker.PICKER_STORAGE_VERSION,
-        model: 'deepseek/deepseek-flash',
-        reasoning: 'low',
-      }),
-    })
+  it('persists the pick when the def configures', async () => {
+    const restore = withStorage({})
     try {
-      const refreshed = update(
+      const one = update(
         init(homeUrl).model,
-        Message.GotPicker({
-          message: ModelPicker.Message.OptionsArrived({ options: optionsFor(ready, undefined) }),
+        Message.GotProjects({
+          message: Projects.Message.ProjectsArrived({
+            projects: [{ id: 'p1', name: 'oru', cwd: '/tmp/oru', icon: undefined }],
+          }),
         }),
       ).model
-      Scene.scene(
-        { update, view },
-        Scene.given(refreshed),
-        Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('DeepSeek Flash'),
-        Scene.expect(Scene.selector('[data-model-panel]')).not.toExist(),
+      const configured = update(
+        withStubs(one),
+        Message.GotComposerUi({ message: StubComposer.StubMessage.TestConfigure() }),
+      )
+      expect(configured.commands?.[0]?.name).toBe('PersistPrefs')
+      await Effect.runPromise(
+        PersistPrefs({ model: 'deepseek/deepseek-flash', reasoning: 'low' }).effect,
+      )
+      expect(globalThis.localStorage?.getItem('oru.model-picker')).toBe(
+        JSON.stringify({
+          version: 1,
+          model: 'deepseek/deepseek-flash',
+          reasoning: 'low',
+        }),
       )
     } finally {
       restore()
     }
-  })
-
-  it('renders a harness that is not ready with the command that fixes it', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(loaded(homeUrl, notInstalled, undefined)),
-      Scene.expect(Scene.selector('[data-main]')).toExist(),
-      Scene.expect(Scene.selector('[data-harness-status]')).toContainText('not_installed'),
-      Scene.expect(Scene.selector('[data-harness-message]')).toContainText('pi is not on PATH'),
-      Scene.expect(Scene.selector('[data-harness-install]')).toContainText('pi update self'),
-      Scene.expect(Scene.selector('[data-harness-copy]')).toExist(),
-      Scene.expect(Scene.selector('[data-harness-refresh]')).toExist(),
-    )
-  })
-
-  it('shows a thread’s own harness health above its composer', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(loaded(urlForPath('/thread/thread-1'), notInstalled, undefined)),
-      Scene.expect(Scene.selector('[data-conversation]')).toExist(),
-      Scene.expect(Scene.selector('[data-harness-install]')).toContainText('pi update self'),
-    )
-  })
-
-  it('renders no install command while the harness is ready', () => {
-    Scene.scene(
-      { update, view },
-      Scene.given(loaded(homeUrl, ready, undefined)),
-      Scene.expect(Scene.selector('[data-harness-install]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-model-picker]')).not.toExist(),
-      Scene.expect(Scene.selector('[data-model-picker-trigger]')).toContainText('Model'),
-    )
   })
 })
 
@@ -1160,7 +1093,7 @@ describe('settings', () => {
       Message.GotProjects({
         message: Projects.Message.DetailArrived({ detail: detailFixture }),
       }),
-    ].reduce(
+    ].reduce<Model>(
       (current, message) => update(current, message).model,
       init(urlForPath('/settings/projects/p1')).model,
     )
@@ -1276,7 +1209,7 @@ describe('settings', () => {
       Message.GotProjects({
         message: Projects.Message.DetailArrived({ detail: detailFixture }),
       }),
-    ].reduce(
+    ].reduce<Model>(
       (current, message) => update(current, message).model,
       init(urlForPath('/settings/projects/p1')).model,
     )

@@ -13,6 +13,7 @@ import { RpcSerialization } from 'effect/unstable/rpc'
 export const hostRpcPath = '/rpc/host'
 export const threadRpcPath = '/rpc/thread'
 export const projectRpcPath = '/rpc/project'
+export const uiRpcPath = '/rpc/ui'
 
 export const rpcSerializationLayer: Layer.Layer<RpcSerialization.RpcSerialization> =
   RpcSerialization.layerNdjson

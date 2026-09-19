@@ -52,6 +52,15 @@ interface EnvPiDraft {
   noBuiltinTools?: string | undefined
 }
 
+interface FileUiSlots {
+  composer?: string | undefined
+  conversation?: string | undefined
+}
+
+interface FileUi {
+  slots?: FileUiSlots | undefined
+}
+
 interface FileDraft {
   host?: string | undefined
   port?: number | undefined
@@ -59,6 +68,7 @@ interface FileDraft {
   defaultHarness?: string | undefined
   defaultModel?: string | undefined
   pi?: FilePi | undefined
+  ui?: FileUi | undefined
 }
 
 export interface CatalogKey {
@@ -84,6 +94,8 @@ export const catalog = [
   { name: 'pi.args', path: ['pi', 'args'], lifetime: 'startup' },
   { name: 'pi.skills', path: ['pi', 'skills'], lifetime: 'startup' },
   { name: 'pi.noBuiltinTools', path: ['pi', 'noBuiltinTools'], lifetime: 'startup' },
+  { name: 'ui.slots.composer', path: ['ui', 'slots', 'composer'], lifetime: 'startup' },
+  { name: 'ui.slots.conversation', path: ['ui', 'slots', 'conversation'], lifetime: 'startup' },
 ] as const satisfies readonly CatalogKey[]
 
 export type ConfigKeyName = (typeof catalog)[number]['name']
@@ -118,6 +130,15 @@ const FilePiDocument = Schema.Struct({
   noBuiltinTools: Schema.optional(Schema.Boolean),
 })
 
+const FileUiSlotsDocument = Schema.Struct({
+  composer: Schema.optional(Schema.String),
+  conversation: Schema.optional(Schema.String),
+})
+
+const FileUiDocument = Schema.Struct({
+  slots: Schema.optional(FileUiSlotsDocument),
+})
+
 const FileDocument = Schema.Struct({
   host: Schema.optional(Schema.String),
   port: Schema.optional(ListenPort),
@@ -125,6 +146,7 @@ const FileDocument = Schema.Struct({
   defaultHarness: Schema.optional(Schema.String),
   defaultModel: Schema.optional(Schema.String),
   pi: Schema.optional(FilePiDocument),
+  ui: Schema.optional(FileUiDocument),
 })
 export type FilePi = typeof FilePiDocument.Type
 export type FileConfig = typeof FileDocument.Type
@@ -242,6 +264,18 @@ const settingsConfig = (defaults: {
       Config.nested('pi'),
       Config.withDefault(false),
     ),
+    uiSlotsComposer: Config.String('composer').pipe(
+      Config.nested('slots'),
+      Config.nested('ui'),
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
+    uiSlotsConversation: Config.String('conversation').pipe(
+      Config.nested('slots'),
+      Config.nested('ui'),
+      Config.option,
+      Config.map(Option.getOrUndefined),
+    ),
   })
 
 interface ProviderTree {
@@ -252,6 +286,7 @@ interface ProviderTree {
   defaultHarness?: string | undefined
   defaultModel?: string | undefined
   pi?: FilePi | EnvPiDraft | undefined
+  ui?: FileUi | undefined
 }
 
 const treeFromFlags = (flags: ServeFlags): ProviderTree => {
@@ -271,6 +306,7 @@ const treeFromFile = (file: FileConfig): ProviderTree => {
   if (file.defaultHarness !== undefined) tree.defaultHarness = file.defaultHarness
   if (file.defaultModel !== undefined) tree.defaultModel = file.defaultModel
   if (file.pi !== undefined) tree.pi = file.pi
+  if (file.ui !== undefined) tree.ui = file.ui
   return tree
 }
 
@@ -314,6 +350,14 @@ const treeFromEnv = (env: NodeJS.ProcessEnv): ProviderTree => {
   if (skills !== undefined) pi.skills = skills
   if (noBuiltin !== undefined) pi.noBuiltinTools = noBuiltin
   if (Object.keys(pi).length > 0) tree.pi = pi
+  const uiComposer = envString(env, 'ORU_UI_SLOTS_COMPOSER')
+  const uiConversation = envString(env, 'ORU_UI_SLOTS_CONVERSATION')
+  if (uiComposer !== undefined || uiConversation !== undefined) {
+    const slots: FileUiSlots = {}
+    if (uiComposer !== undefined) slots.composer = uiComposer
+    if (uiConversation !== undefined) slots.conversation = uiConversation
+    tree.ui = { slots }
+  }
   return tree
 }
 
@@ -392,6 +436,8 @@ export interface Settings {
   readonly piArgs: Chosen<readonly string[] | undefined>
   readonly piSkills: Chosen<readonly string[] | undefined>
   readonly piNoBuiltinTools: Chosen<boolean>
+  readonly uiSlotsComposer: Chosen<string | undefined>
+  readonly uiSlotsConversation: Chosen<string | undefined>
 }
 
 export const resolveHome = (
@@ -444,6 +490,11 @@ export const resolveSettings = (
     piArgs: { value: parsed.piArgs, source: src(['pi', 'args']) },
     piSkills: { value: parsed.piSkills, source: src(['pi', 'skills']) },
     piNoBuiltinTools: { value: parsed.piNoBuiltinTools, source: src(['pi', 'noBuiltinTools']) },
+    uiSlotsComposer: { value: parsed.uiSlotsComposer, source: src(['ui', 'slots', 'composer']) },
+    uiSlotsConversation: {
+      value: parsed.uiSlotsConversation,
+      source: src(['ui', 'slots', 'conversation']),
+    },
   }
 }
 
@@ -500,6 +551,14 @@ const compactPi = (pi: FilePi): FilePi | undefined => {
   return next
 }
 
+const compactUiSlots = (slots: FileUiSlots): FileUiSlots | undefined => {
+  const next: FileUiSlots = {}
+  if (slots.composer !== undefined) next.composer = slots.composer
+  if (slots.conversation !== undefined) next.conversation = slots.conversation
+  if (Object.keys(next).length === 0) return undefined
+  return next
+}
+
 const compactFile = (file: FileConfig): FileConfig => {
   const next: FileDraft = {}
   if (file.host !== undefined) next.host = file.host
@@ -510,6 +569,10 @@ const compactFile = (file: FileConfig): FileConfig => {
   if (file.pi !== undefined) {
     const pi = compactPi(file.pi)
     if (pi !== undefined) next.pi = pi
+  }
+  if (file.ui?.slots !== undefined) {
+    const slots = compactUiSlots(file.ui.slots)
+    if (slots !== undefined) next.ui = { slots }
   }
   return next
 }
@@ -546,6 +609,25 @@ const withPi = (file: FileConfig, patch: FilePi): FileConfig => {
     defaultHarness: file.defaultHarness,
     defaultModel: file.defaultModel,
     pi,
+    ui: file.ui,
+  })
+}
+
+const withUiSlots = (file: FileConfig, patch: FileUiSlots): FileConfig => {
+  const current = file.ui?.slots ?? {}
+  const slots: FileUiSlots = {}
+  const composer = patch.composer ?? current.composer
+  const conversation = patch.conversation ?? current.conversation
+  if (composer !== undefined) slots.composer = composer
+  if (conversation !== undefined) slots.conversation = conversation
+  return compactFile({
+    host: file.host,
+    port: file.port,
+    journal: file.journal,
+    defaultHarness: file.defaultHarness,
+    defaultModel: file.defaultModel,
+    pi: file.pi,
+    ui: { slots },
   })
 }
 
@@ -585,6 +667,10 @@ export const setFileKey = (file: FileConfig, key: WritableKey, value: string): F
           `pi.noBuiltinTools takes 1, 0, true, or false, got ${value}`,
         ),
       })
+    case 'ui.slots.composer':
+      return withUiSlots(file, { composer: value })
+    case 'ui.slots.conversation':
+      return withUiSlots(file, { conversation: value })
     default: {
       const _exhaustive: never = key
       return _exhaustive
@@ -621,19 +707,29 @@ export const unsetFileKey = (file: FileConfig, key: WritableKey): FileConfig => 
     if (omit !== 'noBuiltinTools' && pi.noBuiltinTools !== undefined) {
       next.noBuiltinTools = pi.noBuiltinTools
     }
-    return compactFile({ ...keepScalars(undefined), pi: next })
+    return compactFile({ ...keepScalars(undefined), pi: next, ui: file.ui })
+  }
+  const dropUiSlots = (omit: keyof FileUiSlots): FileConfig => {
+    const slots = file.ui?.slots
+    if (slots === undefined) return compactFile(file)
+    const next: FileUiSlots = {}
+    if (omit !== 'composer' && slots.composer !== undefined) next.composer = slots.composer
+    if (omit !== 'conversation' && slots.conversation !== undefined) {
+      next.conversation = slots.conversation
+    }
+    return compactFile({ ...keepScalars(undefined), pi: file.pi, ui: { slots: next } })
   }
   switch (key) {
     case 'host':
-      return compactFile({ ...keepScalars('host'), pi: file.pi })
+      return compactFile({ ...keepScalars('host'), pi: file.pi, ui: file.ui })
     case 'port':
-      return compactFile({ ...keepScalars('port'), pi: file.pi })
+      return compactFile({ ...keepScalars('port'), pi: file.pi, ui: file.ui })
     case 'journal':
-      return compactFile({ ...keepScalars('journal'), pi: file.pi })
+      return compactFile({ ...keepScalars('journal'), pi: file.pi, ui: file.ui })
     case 'defaultHarness':
-      return compactFile({ ...keepScalars('defaultHarness'), pi: file.pi })
+      return compactFile({ ...keepScalars('defaultHarness'), pi: file.pi, ui: file.ui })
     case 'defaultModel':
-      return compactFile({ ...keepScalars('defaultModel'), pi: file.pi })
+      return compactFile({ ...keepScalars('defaultModel'), pi: file.pi, ui: file.ui })
     case 'pi.home':
       return dropPi('home')
     case 'pi.sessionDir':
@@ -646,6 +742,10 @@ export const unsetFileKey = (file: FileConfig, key: WritableKey): FileConfig => 
       return dropPi('skills')
     case 'pi.noBuiltinTools':
       return dropPi('noBuiltinTools')
+    case 'ui.slots.composer':
+      return dropUiSlots('composer')
+    case 'ui.slots.conversation':
+      return dropUiSlots('conversation')
     default: {
       const _exhaustive: never = key
       return _exhaustive
@@ -690,6 +790,10 @@ const chosenOf = (
       return settings.piSkills
     case 'pi.noBuiltinTools':
       return settings.piNoBuiltinTools
+    case 'ui.slots.composer':
+      return settings.uiSlotsComposer
+    case 'ui.slots.conversation':
+      return settings.uiSlotsConversation
     default: {
       const _exhaustive: never = name
       return _exhaustive
