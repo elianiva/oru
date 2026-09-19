@@ -75,20 +75,22 @@ if (!entries.some((entry) => entry.endsWith('/dist/oru-pi-extension.mjs')))
 // carry each facet manifest plus every artifact the manifest names. A
 // manifest without its bytes is the stale-dist failure this graph exists
 // to prevent.
-const facetManifestEntry = entries.find((entry) =>
-  entry.endsWith('/dist/facets/oru/chat-ui/facets.json'),
-)
-if (facetManifestEntry === undefined)
-  fail('packed tarball is missing dist/facets/oru/chat-ui/facets.json')
-const facetManifest = JSON.parse(run('tar', ['-xOzf', tarball, facetManifestEntry]).stdout)
-const facetFiles = [
-  ...(facetManifest.server === null ? [] : [facetManifest.server.file]),
-  ...facetManifest.ui.map((entry) => entry.file),
-]
-if (facetFiles.length === 0) fail('packed chat-ui facets.json lists no artifacts')
-for (const file of facetFiles) {
-  if (!entries.some((entry) => entry.endsWith(`/dist/facets/oru/chat-ui/${file}`)))
-    fail(`packed tarball is missing dist/facets/oru/chat-ui/${file}`)
+for (const id of ['oru/chat-ui', 'oru/harness-pi', 'oru/harness-claude-code']) {
+  const facetManifestEntry = entries.find((entry) =>
+    entry.endsWith(`/dist/facets/${id}/facets.json`),
+  )
+  if (facetManifestEntry === undefined)
+    fail(`packed tarball is missing dist/facets/${id}/facets.json`)
+  const facetManifest = JSON.parse(run('tar', ['-xOzf', tarball, facetManifestEntry]).stdout)
+  const facetFiles = [
+    ...(facetManifest.server === null ? [] : [facetManifest.server.file]),
+    ...facetManifest.ui.map((entry) => entry.file),
+  ]
+  if (facetFiles.length === 0) fail(`packed ${id} facets.json lists no artifacts`)
+  for (const file of facetFiles) {
+    if (!entries.some((entry) => entry.endsWith(`/dist/facets/${id}/${file}`)))
+      fail(`packed tarball is missing dist/facets/${id}/${file}`)
+  }
 }
 
 const prefix = mkdtempSync(join(tmpdir(), 'oru-host-smoke-'))
