@@ -1,0 +1,12 @@
+{
+  "name": "fixture-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "oru": {
+    "facets": {
+      "server": "./server.ts",
+      "ui": "./ui.ts"
+    }
+  }
+}
