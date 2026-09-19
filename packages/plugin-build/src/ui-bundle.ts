@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Schema } from 'effect'
 import { build } from 'tsdown'
 import { addressOf } from './address.ts'
@@ -8,6 +9,23 @@ import { addressOf } from './address.ts'
 export class UiBundleError extends Schema.TaggedError<UiBundleError>()('UiBundleError', {
   message: Schema.String,
 }) {}
+
+/**
+ * The entry's enclosing package. tsdown annotates bundled modules with
+ * paths relative to its working directory, so pinning it here keeps a
+ * paths relative to its working directory, so pinning it here keeps a
+ * bundle built at plugin build time byte-identical to one the host builds
+ * from source at startup, whatever either caller's cwd is.
+ */
+const packageDirOf = (entry: string): string => {
+  let dir = dirname(resolve(entry))
+  for (;;) {
+    if (existsSync(join(dir, 'package.json'))) return dir
+    const parent = dirname(dir)
+    if (parent === dir) return dirname(resolve(entry))
+    dir = parent
+  }
+}
 
 export interface BuiltUiBundle {
   readonly address: string
@@ -26,10 +44,16 @@ export interface BuiltUiBundle {
  * (ADR-0020). A shared-runtime optimization is the recorded follow-up.
  */
 export const buildUiBundle = async (entry: string): Promise<BuiltUiBundle> => {
+  const absolute = resolve(entry)
   const outDir = await mkdtemp(join(tmpdir(), 'oru-ui-'))
   try {
     await build({
-      entry,
+      // Inline options only: never a config file from the caller's
+      // directory, so a bundle built at plugin build time is byte-identical
+      // to one the host builds from source at startup.
+      config: false,
+      cwd: packageDirOf(absolute),
+      entry: absolute,
       outDir,
       format: 'esm',
       platform: 'browser',
@@ -44,7 +68,10 @@ export const buildUiBundle = async (entry: string): Promise<BuiltUiBundle> => {
       deps: { alwaysBundle: [/.*/], onlyBundle: false },
     })
     const names = await readdir(outDir)
-    const file = names.find((name) => name.endsWith('.js'))
+    // The emitted extension follows the entry package's module type
+    // (.js for type: module, .mjs without one); the served bytes and the
+    // address never depend on it.
+    const file = names.find((name) => name.endsWith('.js') || name.endsWith('.mjs'))
     if (file === undefined) {
       throw new UiBundleError({ message: `tsdown emitted no file for ${entry}` })
     }
