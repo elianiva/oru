@@ -12,10 +12,18 @@ import type {
   UnknownProject,
   UnknownThread,
 } from '@oru/kernel'
+import { UiSnapshot } from '@oru/ui'
 import { HostRpc } from './host-rpc.ts'
 import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
-import { hostRpcPath, projectRpcPath, rpcSerializationLayer, threadRpcPath } from './transport.ts'
+import { UiRpc } from './ui-rpc.ts'
+import {
+  hostRpcPath,
+  projectRpcPath,
+  rpcSerializationLayer,
+  threadRpcPath,
+  uiRpcPath,
+} from './transport.ts'
 import type { DirectoryListing, ProjectDetail } from './project-rpc.ts'
 import type { Project } from './project.ts'
 import type { ThreadConfig, ThreadConfiguration, ThreadOptions } from './thread-options.ts'
@@ -40,6 +48,14 @@ export interface GraphRpcContract {
 }
 
 export class GraphRpc extends Context.Service<GraphRpc, GraphRpcContract>()('oru/GraphRpc') {}
+
+/** What a presentation facet needs to reconcile UI generations: facts, not code. */
+export interface UiClientContract {
+  readonly snapshot: () => Effect.Effect<UiSnapshot, HostUnreachable>
+  readonly watch: Stream.Stream<UiSnapshot, HostUnreachable>
+}
+
+export class UiClient extends Context.Service<UiClient, UiClientContract>()('oru/UiClient') {}
 
 export interface ProjectClientContract {
   readonly create: (
@@ -197,6 +213,14 @@ const reachableDirectory = <A>(
     ),
   )
 
+export const uiClientOf = (
+  client: RpcClient.FromGroup<typeof UiRpc, RpcClientError.RpcClientError>,
+): Layer.Layer<UiClient> =>
+  Layer.succeed(UiClient, {
+    snapshot: () => reachable('GetUi', client.GetUi()),
+    watch: reachableStream('WatchUi', client.WatchUi()),
+  })
+
 export const projectClientOf = (
   client: RpcClient.FromGroup<typeof ProjectRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ProjectClient> =>
@@ -264,7 +288,7 @@ export const threadClientOf = (
   })
 
 /**
- * The three facades, wired to a host over the real transport.
+ * The four facades, wired to a host over the real transport.
  *
  * The view asks for `GraphRpc`, `ProjectClient`, and `ThreadClient` and never
  * sees the URLs, the framing, or the RPC groups. It is a layer because that is
@@ -273,7 +297,9 @@ export const threadClientOf = (
  * `hostUrl` is a prefix, so `''` targets whatever origin served the app and an
  * absolute URL targets a host somewhere else.
  */
-export const clientsFor = (hostUrl: string): Layer.Layer<GraphRpc | ProjectClient | ThreadClient> =>
+export const clientsFor = (
+  hostUrl: string,
+): Layer.Layer<GraphRpc | ProjectClient | ThreadClient | UiClient> =>
   Layer.unwrap(
     Effect.gen(function* () {
       const host = yield* RpcClient.make(HostRpc).pipe(
@@ -285,6 +311,14 @@ export const clientsFor = (hostUrl: string): Layer.Layer<GraphRpc | ProjectClien
       const thread = yield* RpcClient.make(ThreadRpc).pipe(
         Effect.provide(protocolFor(`${hostUrl}${threadRpcPath}`)),
       )
-      return Layer.mergeAll(graphRpcOf(host), projectClientOf(projects), threadClientOf(thread))
+      const ui = yield* RpcClient.make(UiRpc).pipe(
+        Effect.provide(protocolFor(`${hostUrl}${uiRpcPath}`)),
+      )
+      return Layer.mergeAll(
+        graphRpcOf(host),
+        projectClientOf(projects),
+        threadClientOf(thread),
+        uiClientOf(ui),
+      )
     }),
   )

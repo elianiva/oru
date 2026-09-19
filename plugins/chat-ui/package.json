@@ -1,23 +1,36 @@
 {
-  "name": "@oru/rpc",
+  "name": "@oru/chat-ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/plugin.ts",
+    "./ui": "./src/ui.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@foldkit/ui": "0.161.0",
     "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
+    "@oru/rpc": "workspace:*",
     "@oru/ui": "workspace:*",
-    "effect": "4.0.0-rc.115"
+    "cn": "^0.3.0",
+    "effect": "4.0.0-rc.115",
+    "foldkit": "0.161.0",
+    "lucide": "^1.47.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
+  },
+  "oru": {
+    "facets": {
+      "server": "./src/plugin.ts",
+      "ui": "./src/ui.ts"
+    }
   }
 }

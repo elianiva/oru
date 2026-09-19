@@ -8,21 +8,20 @@
  * When a harness is not ready its diagnosis and install command are rendered
  * to copy; oru reports that command and never runs it (ADR-0007).
  */
-import { Effect, Option, Predicate, Schema, Stream } from 'effect'
+import { Option, Predicate, Schema } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import { evo } from 'foldkit/struct'
-import * as Subscription from 'foldkit/subscription'
 import { defineView } from 'foldkit/submodel'
 import type * as Update from 'foldkit/update'
 import { Check, Terminal } from 'lucide'
 import type { ModelInfo } from '@oru/harness'
 import { HarnessChoice, ThreadOptions } from '@oru/rpc'
-import { badge } from '@/components/ui/badge.ts'
-import { button } from '@/components/ui/button.ts'
-import { Command } from '@/components/ui/command.ts'
-import { icon, resolveIcon } from '@/lib/icons.ts'
-import { providerDisplayOf } from '@/lib/provider-icons.ts'
+import { badge } from './ui/badge.ts'
+import { button } from './ui/button.ts'
+import { Command } from './ui/command.ts'
+import { icon, resolveIcon } from './lib/icons.ts'
+import { providerDisplayOf } from './lib/provider-icons.ts'
 import { pickerAnchor, pickerPanel, pickerTrigger } from './picker-panel.ts'
 
 export const Loading = Schema.TaggedStruct('Loading', {})
@@ -105,11 +104,7 @@ const StoredDocument = Schema.Struct({
   reasoning: Schema.optionalKey(Schema.String),
 })
 
-/** A newer writer's document reads only as a version, never as preferences. */
-const VersionProbe = Schema.Struct({ version: Schema.Number })
-
 const decodeStored = Schema.decodeUnknownOption(Schema.fromJsonString(StoredDocument))
-const decodeVersion = Schema.decodeUnknownOption(Schema.fromJsonString(VersionProbe))
 
 const nonEmpty = (value: string | undefined): string | undefined =>
   value === undefined || value.trim() === '' ? undefined : value
@@ -125,61 +120,6 @@ export const readStoredPreferences = (): StoredPickerPreferences | null => {
     reasoning: nonEmpty(decoded.value.reasoning),
   }
 }
-
-const writeStoredPreferences = (prefs: StoredPickerPreferences): Effect.Effect<void> =>
-  Effect.sync(() => {
-    if (typeof localStorage === 'undefined') return
-    const raw = localStorage.getItem(PICKER_STORAGE_KEY)
-    const probed = raw === null ? Option.none() : decodeVersion(raw)
-    // A document from a newer writer keeps its shape; overwriting it would
-    // drop preferences this version does not know.
-    if (Option.isSome(probed) && probed.value.version > PICKER_STORAGE_VERSION) return
-    localStorage.setItem(
-      PICKER_STORAGE_KEY,
-      JSON.stringify({
-        version: PICKER_STORAGE_VERSION,
-        model: prefs.model,
-        reasoning: prefs.reasoning,
-      }),
-    )
-    // A denied or full storage throws; the catcher below turns it into a
-    // no-op so persistence never breaks the picker.
-  }).pipe(Effect.catchDefect(() => Effect.void))
-
-/**
- * The picker state worth keeping, or `None` while nothing is set so an
- * untouched picker writes nothing over a document it never read.
- */
-export const storablePreferences = (model: Model): Option.Option<StoredPickerPreferences> => {
-  const prefs: StoredPickerPreferences = {
-    model: model.selection.model,
-    reasoning: model.selection.reasoning,
-  }
-  return prefs.model === undefined && prefs.reasoning === undefined
-    ? Option.none()
-    : Option.some(prefs)
-}
-
-const StoredPreferencesSchema = Schema.Struct({
-  model: Schema.UndefinedOr(Schema.String),
-  reasoning: Schema.UndefinedOr(Schema.String),
-})
-
-export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
-  preferencesMirror: entry(
-    { storable: Schema.Option(StoredPreferencesSchema) },
-    {
-      modelToDependencies: (model) => ({ storable: storablePreferences(model) }),
-      dependenciesToStream: ({ storable }) =>
-        Stream.callback<Message>(() =>
-          Option.match(storable, {
-            onNone: () => Effect.void,
-            onSome: (prefs) => writeStoredPreferences(prefs),
-          }).pipe(Effect.flatMap(() => Effect.never)),
-        ),
-    },
-  ),
-}))
 
 export const init = (): Model => {
   const stored = readStoredPreferences()

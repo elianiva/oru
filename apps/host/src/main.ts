@@ -140,6 +140,13 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             hostname: settings.hostname.value,
             port: settings.port.value,
             journal: settings.journal.value,
+            ui: {
+              sources: defaultPluginSources,
+              overrides: {
+                composer: settings.uiSlotsComposer.value,
+                conversation: settings.uiSlotsConversation.value,
+              },
+            },
           }).pipe(
             // Configuration reaches plugins as services: the resolved settings
             // provide the registry defaults and the bridge environment, and

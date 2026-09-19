@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { Option } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import * as Scene from 'foldkit/scene'
 import type { HarnessHealth, ModelInfo } from '@oru/harness'
@@ -356,8 +355,19 @@ describe('stored preferences', () => {
     })
   })
 
-  it('offers nothing storable while no choice is set', () => {
-    expect(Option.isNone(ModelPicker.storablePreferences(ModelPicker.init()))).toBe(true)
-    expect(Option.isNone(ModelPicker.storablePreferences(loaded(ready, flash)))).toBe(false)
+  it('announces the pick for persistence when the choice changes', () => {
+    // The subscription mirror cannot cross the slot boundary, so root
+    // persists from ConfigureRequested, which carries the same picks.
+    const changed = ModelPicker.update(
+      loaded(ready, flash),
+      ModelPicker.Message.ChosenModel({ model: 'github-copilot/gpt-5' }),
+    )
+    expect(changed.outMessage).toEqual(
+      ModelPicker.OutMessage.ConfigureRequested({
+        harness: 'pi',
+        model: 'github-copilot/gpt-5',
+        reasoning: 'low',
+      }),
+    )
   })
 })

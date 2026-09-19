@@ -15,9 +15,12 @@ import { fileURLToPath } from 'node:url'
 import { Effect, Option, Predicate, Schema } from 'effect'
 import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProjectClient, ThreadClient, clientsFor } from '@oru/rpc'
 import * as Projects from '../src/projects.ts'
+import { resetDefsForTest } from '../src/ui-defs.ts'
+import { mountStubs, stubSnapshot } from './stub-composer.ts'
+import type { Model } from '../src/root.ts'
 import {
   ListProjects,
   LoadThreadOptions,
@@ -32,6 +35,18 @@ import {
 } from '../src/root.ts'
 
 const hostMain = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'host', 'src', 'main.ts')
+
+beforeEach(() => {
+  mountStubs()
+})
+
+afterEach(() => {
+  resetDefsForTest()
+})
+
+/** Mount the stub defs and reconcile them, so scenes render a composer. */
+const withStubs = (model: Model): Model =>
+  update(model, Message.UiSnapshotArrived({ snapshot: stubSnapshot() })).model
 
 const homeUrl: Url.Url = {
   protocol: 'http:',
@@ -119,7 +134,7 @@ describe('the app’s seam to a running host', () => {
         }),
       )
 
-      const model = update(init(homeUrl).model, message).model
+      const model = withStubs(update(init(homeUrl).model, message).model)
       Scene.scene(
         { update, view },
         Scene.given(model),
@@ -151,7 +166,7 @@ describe('the app’s seam to a running host', () => {
         }),
       )
 
-      const model = update(init(homeUrl).model, message).model
+      const model = withStubs(update(init(homeUrl).model, message).model)
       Scene.scene(
         { update, view },
         Scene.given(model),
@@ -180,10 +195,11 @@ describe('the app’s seam to a running host', () => {
       const message = await runEffect(hostUrl, command.effect)
       const model = update(init(homeUrl).model, message).model
 
-      expect(model.picker.selection).toEqual({
-        harness: 'pi',
-        model: 'test-model',
-        reasoning: undefined,
+      expect(model.options).toMatchObject({
+        options: {
+          harness: 'pi',
+          config: { harness: 'pi', model: 'test-model' },
+        },
       })
     })
   })
@@ -240,7 +256,7 @@ describe('the app’s seam to a running host', () => {
         expect.fail(`the host refused a create it should have accepted: ${created._tag}`)
       }
 
-      const model = update(loaded, message).model
+      const model = withStubs(update(loaded, message).model)
       Scene.scene(
         { update, view },
         Scene.given(model),
@@ -279,9 +295,12 @@ describe('the app’s seam to a running host', () => {
         hostUrl,
         LoadThreadOptions({ threadId: created.threadId, refresh: false }).effect,
       )
-      if (!Predicate.isTagged(options, 'GotPicker')) expect.fail('the options produced no answer')
-      expect(options.message).toMatchObject({
-        options: { harness: 'pi', config: { harness: 'pi' } },
+      if (!Predicate.isTagged(options, 'HostOptionsArrived')) {
+        expect.fail('the options produced no answer')
+      }
+      expect(options.options).toMatchObject({
+        harness: 'pi',
+        config: { harness: 'pi' },
       })
 
       const detail = await runEffect(hostUrl, GetProjectDetail({ project: project.id }).effect)
@@ -314,7 +333,7 @@ describe('the app’s seam to a running host', () => {
         }),
       )
 
-      const model = update(update(init(homeUrl).model, listed).model, updated).model
+      const model = withStubs(update(update(init(homeUrl).model, listed).model, updated).model)
       Scene.scene(
         { update, view },
         Scene.given(model),

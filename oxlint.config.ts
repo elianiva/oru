@@ -19,6 +19,12 @@ export default defineConfig({
     'plugins/harness-pi/src/pi/oru-pi-extension.mjs',
     'tools/oxlint/anti-slop/**',
     'apps/oru/src/components/**',
+    // Presentational mirrors of the ignored wrappers above: exact copies
+    // moved with chat-ui, kept identical for a future ui-kit unification.
+    'plugins/chat-ui/src/ui/**',
+    'plugins/chat-ui/src/lib/icons.ts',
+    'plugins/chat-ui/src/lib/provider-icons.ts',
+    'plugins/chat-ui/src/lib/utils.ts',
     'apps/oru/src/lib/icons.ts',
     'apps/oru/src/lib/utils.ts',
     'apps/oru/e2e/**',

@@ -82,4 +82,5 @@ export const loadExternalPlugins = (
 export const defaultPluginSources: readonly PluginSource[] = [
   { specifier: '@oru/harness-pi' },
   { specifier: '@oru/harness-claude-code' },
+  { specifier: '@oru/chat-ui' },
 ]

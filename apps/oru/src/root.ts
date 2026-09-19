@@ -1,20 +1,31 @@
-import { Effect, Match, Option, Predicate, Schema } from 'effect'
+import { Effect, Match, Option, Predicate, Schema, Stream } from 'effect'
 import { Command, Navigation, Url } from 'foldkit'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
+import type { View as SubmodelView } from 'foldkit/submodel'
 import { defineMessageUnion } from 'foldkit/message'
 import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { ProjectClient, ThreadClient, type HostUnreachable } from '@oru/rpc'
-import * as AccessPicker from './access-picker.ts'
-import * as BranchPicker from './branch-picker.ts'
-import * as Composer from './composer.ts'
+import { ProjectClient, ThreadClient, UiClient, type HostUnreachable } from '@oru/rpc'
+import {
+  ComposerOptions,
+  ComposerOptionsLoaded,
+  ComposerOptionsLoading,
+  ComposerOptionsUnreachable,
+  ThreadOptions,
+  UI_SDK_MAJOR,
+  UiSnapshot,
+  decodeUiDefRecord,
+  decodeUiOutMessage,
+  type ComposerProps,
+  type ConversationProps,
+  type UiSignal,
+} from '@oru/ui'
+import { PluginId } from '@oru/kernel'
 import * as LeftPanel from './left-panel.ts'
-import * as ModelPicker from './model-picker.ts'
-import * as ProjectPicker from './project-picker.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
-import * as WorktreePicker from './worktree-picker.ts'
+import { getDef, registerDef } from './ui-defs.ts'
 import * as General from './settings/general.ts'
 import * as SettingsLayout from './settings/layout.ts'
 import * as SettingsPages from './settings/pages.ts'
@@ -35,17 +46,38 @@ export const Submit = Schema.Struct({
 })
 export type Submit = typeof Submit.Type
 
+export const OutletEmpty = Schema.TaggedStruct('Empty', {})
+export const OutletLoading = Schema.TaggedStruct('Loading', {
+  plugin: PluginId,
+  defId: Schema.String,
+  slot: Schema.String,
+  jsUrl: Schema.String,
+  address: Schema.String,
+})
+export const OutletReady = Schema.TaggedStruct('Ready', {
+  plugin: PluginId,
+  defId: Schema.String,
+  slot: Schema.String,
+  address: Schema.String,
+  childModel: Schema.Any,
+})
+export const OutletFailed = Schema.TaggedStruct('Failed', {
+  plugin: PluginId,
+  defId: Schema.String,
+  slot: Schema.String,
+  reason: Schema.String,
+})
+export const OutletState = Schema.Union([OutletEmpty, OutletLoading, OutletReady, OutletFailed])
+export type OutletState = typeof OutletState.Type
+
 export const Model = Schema.Struct({
   route: AppRoute,
   shell: Shell.Model,
   threads: LeftPanel.Model,
   projects: Projects.Model,
-  picker: ModelPicker.Model,
-  projectPicker: ProjectPicker.Model,
-  worktree: WorktreePicker.Model,
-  branch: BranchPicker.Model,
-  access: AccessPicker.Model,
-  composer: Composer.Model,
+  composerUi: OutletState,
+  conversationUi: OutletState,
+  options: ComposerOptions,
   settings: General.Model,
   submit: Submit,
 })
@@ -59,13 +91,26 @@ export const Message = defineMessageUnion({
   GotShell: { message: Shell.Message },
   GotThreads: { message: LeftPanel.Message },
   GotProjects: { message: Projects.Message },
-  GotPicker: { message: ModelPicker.Message },
-  GotProjectPicker: { message: ProjectPicker.Message },
-  GotWorktree: { message: WorktreePicker.Message },
-  GotBranch: { message: BranchPicker.Message },
-  GotAccess: { message: AccessPicker.Message },
-  GotComposer: { message: Composer.Message },
+  GotComposerUi: { message: Schema.Any },
+  GotConversationUi: { message: Schema.Any },
+  HostOptionsArrived: { options: ThreadOptions },
+  HostOptionsFailed: { reason: Schema.String },
+  UiSnapshotArrived: { snapshot: UiSnapshot },
+  BundleReady: {
+    plugin: PluginId,
+    defId: Schema.String,
+    slot: Schema.String,
+    address: Schema.String,
+  },
+  BundleFailed: {
+    plugin: PluginId,
+    defId: Schema.String,
+    slot: Schema.String,
+    reason: Schema.String,
+  },
   GotSettings: { message: General.Message },
+  CopyCompleted: {},
+  PrefsPersisted: {},
   ThreadCreated: { threadId: Schema.String },
   ThreadCreateFailed: { reason: Schema.String, text: Schema.String },
   ThreadMessageSent: {},
@@ -314,19 +359,15 @@ export const ListDirectory = Command.define('ListDirectory', {
  */
 export const LoadThreadOptions = Command.define('LoadThreadOptions', {
   args: { threadId: Schema.UndefinedOr(Schema.String), refresh: Schema.Boolean },
-  messages: [Message.GotPicker],
+  messages: [Message.HostOptionsArrived, Message.HostOptionsFailed],
   execute: ({ threadId, refresh }) =>
     ThreadClient.pipe(
       Effect.flatMap((client) => client.options(threadId, refresh ? { refresh: true } : undefined)),
-      Effect.map((options) =>
-        Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
-      ),
+      Effect.map((options) => Message.HostOptionsArrived({ options })),
       Effect.catch((error) =>
         Effect.succeed(
-          Message.GotPicker({
-            message: ModelPicker.Message.OptionsFailed({
-              reason: `${error.operation}: ${error.reason}`,
-            }),
+          Message.HostOptionsFailed({
+            reason: `${error.operation}: ${error.reason}`,
           }),
         ),
       ),
@@ -340,23 +381,112 @@ export const ConfigureThread = Command.define('ConfigureThread', {
     model: Schema.UndefinedOr(Schema.String),
     reasoning: Schema.UndefinedOr(Schema.String),
   },
-  messages: [Message.GotPicker],
+  messages: [Message.HostOptionsArrived, Message.HostOptionsFailed],
   execute: ({ threadId, harness, model, reasoning }) =>
     ThreadClient.pipe(
       Effect.flatMap((client) => client.configure(threadId, { harness, model, reasoning })),
-      Effect.map((options) =>
-        Message.GotPicker({ message: ModelPicker.Message.OptionsArrived({ options }) }),
-      ),
+      Effect.map((options) => Message.HostOptionsArrived({ options })),
       Effect.catch((error) =>
         Effect.succeed(
-          Message.GotPicker({
-            message: ModelPicker.Message.OptionsFailed({
-              reason: `${error.operation}: ${error.reason}`,
-            }),
+          Message.HostOptionsFailed({
+            reason: `${error.operation}: ${error.reason}`,
           }),
         ),
       ),
     ),
+})
+
+/**
+ * The picker's stored preferences, written the way the picker wrote them
+ * before extraction: one versioned JSON document, decoded through a
+ * schema, never overwriting a newer writer, never breaking on denied
+ * storage. Duplicated from chat-ui's reader side; a future ui-kit
+ * extraction unifies them.
+ */
+const PICKER_STORAGE_KEY = 'oru.model-picker'
+const PICKER_STORAGE_VERSION = 1
+
+/** A newer writer's document reads only as a version, never as preferences. */
+const StorageProbe = Schema.Struct({ version: Schema.Number })
+const decodeStorageProbe = Schema.decodeUnknownOption(Schema.fromJsonString(StorageProbe))
+
+export const PersistPrefs = Command.define('PersistPrefs', {
+  args: {
+    model: Schema.UndefinedOr(Schema.String),
+    reasoning: Schema.UndefinedOr(Schema.String),
+  },
+  messages: [Message.PrefsPersisted],
+  execute: ({ model, reasoning }) =>
+    Effect.sync(() => {
+      if (typeof localStorage === 'undefined') return Message.PrefsPersisted()
+      const raw = localStorage.getItem(PICKER_STORAGE_KEY)
+      const probed = raw === null ? Option.none() : decodeStorageProbe(raw)
+      // A document from a newer writer keeps its shape; overwriting it
+      // would drop preferences this version does not know. An unparseable
+      // document is replaced with a fresh one, the way the picker always did.
+      if (Option.isSome(probed) && probed.value.version > PICKER_STORAGE_VERSION) {
+        return Message.PrefsPersisted()
+      }
+      localStorage.setItem(
+        PICKER_STORAGE_KEY,
+        JSON.stringify({ version: PICKER_STORAGE_VERSION, model, reasoning }),
+      )
+      return Message.PrefsPersisted()
+    }).pipe(Effect.catchDefect(() => Effect.succeed(Message.PrefsPersisted()))),
+})
+
+const BundleModuleSchema = Schema.Struct({ defs: Schema.optional(Schema.Unknown) })
+const decodeBundleModule = Schema.decodeUnknownOption(BundleModuleSchema)
+
+/**
+ * Import one assigned bundle and register its defs. The snapshot names
+ * the plugin, definition, and slot; the module's record is decoded by
+ * schema, so a mismatch is a failed outlet, never a broken app.
+ */
+export const LoadBundle = Command.define('LoadBundle', {
+  args: {
+    plugin: PluginId,
+    defId: Schema.String,
+    slot: Schema.String,
+    jsUrl: Schema.String,
+    address: Schema.String,
+    sdkMajor: Schema.Number,
+  },
+  messages: [Message.BundleReady, Message.BundleFailed],
+  execute: ({ plugin, defId, slot, jsUrl, address, sdkMajor }) =>
+    Effect.gen(function* () {
+      const fail = (reason: string) => Message.BundleFailed({ plugin, defId, slot, reason })
+      if (sdkMajor !== UI_SDK_MAJOR) {
+        return fail(
+          `bundle for ${plugin}/${defId} targets UI SDK ${sdkMajor}, this app speaks ${UI_SDK_MAJOR}`,
+        )
+      }
+      const loaded: unknown = yield* Effect.promise(() => import(/* @vite-ignore */ jsUrl)).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      const decodedModule = decodeBundleModule(loaded)
+      const defs = Option.isSome(decodedModule) ? decodedModule.value.defs : undefined
+      if (defs === undefined || !Array.isArray(defs)) {
+        return fail(`bundle for ${plugin}/${defId} exports no defs array`)
+      }
+      const records = defs.flatMap((def) => {
+        const decoded = decodeUiDefRecord(def)
+        return Option.isSome(decoded) ? [decoded.value] : []
+      })
+      const match = records.find((record) => record.slot === slot && record.defId === defId)
+      if (match === undefined) {
+        return fail(`bundle for ${plugin}/${defId} carries no usable ${slot} definition`)
+      }
+      const record = match
+      registerDef(plugin, defId, {
+        init: record.init,
+        update: record.update,
+        view: record.view,
+        absorb: record.absorb,
+        signal: record.signal,
+      })
+      return Message.BundleReady({ plugin, defId, slot, address })
+    }),
 })
 
 /**
@@ -421,16 +551,14 @@ export const SendThreadMessage = Command.define('SendThreadMessage', {
 
 export const CopyText = Command.define('CopyText', {
   args: { text: Schema.String },
-  messages: [Message.GotPicker],
+  messages: [Message.CopyCompleted],
   execute: ({ text }) =>
     Effect.tryPromise({
       try: () => navigator.clipboard.writeText(text),
       catch: () => undefined,
     }).pipe(
-      Effect.as(Message.GotPicker({ message: ModelPicker.Message.CopiedCommand() })),
-      Effect.catch(() =>
-        Effect.succeed(Message.GotPicker({ message: ModelPicker.Message.CopyFailed() })),
-      ),
+      Effect.as(Message.CopyCompleted()),
+      Effect.catch(() => Effect.succeed(Message.CopyCompleted())),
     ),
 })
 
@@ -488,12 +616,9 @@ export const init = (url: Url.Url) => {
       shell: Shell.init(),
       threads: LeftPanel.init(),
       projects,
-      picker: ModelPicker.init(),
-      projectPicker: ProjectPicker.init(),
-      worktree: WorktreePicker.init(),
-      branch: BranchPicker.init(),
-      access: AccessPicker.init(),
-      composer: Composer.init(),
+      composerUi: OutletEmpty.make({}),
+      conversationUi: OutletEmpty.make({}),
+      options: ComposerOptionsLoading.make({}),
       settings: General.init(),
       submit: Submit.make({ pending: false, error: undefined }),
     },
@@ -578,149 +703,310 @@ const foldProjects = Update.foldChild({
  * The composer's project picker. Its New row opens the shared create dialog;
  * the created project arrives through `GotProjects` and selects itself.
  */
-const foldProjectPicker = Update.foldChild({
-  update: ProjectPicker.update,
-  read: (model: Model) => Option.some(model.projectPicker),
-  write: (model, nextChild) => evo(model, { projectPicker: () => nextChild }),
-  toParentMessage: (message: ProjectPicker.Message) => Message.GotProjectPicker({ message }),
-  foldOutMessage: (
-    outMessage: ProjectPicker.OutMessage,
-  ): Update.Step<Model, Message, ProjectClient> =>
-    ProjectPicker.OutMessage.match<Update.Step<Model, Message, ProjectClient>>(outMessage, {
-      RequestedCreateDialog: () => (model) =>
-        Update.combine(model, [(next) => foldProjects(next, Projects.Message.ClickedCreate())]),
-    }),
-})
+/** The composer's props, derived from root state on every absorb. */
+const composerPropsOf = (model: Model): ComposerProps => {
+  const placeholder = 'Ask anything. @ to mention files, folders, or sections'
+  const projects = [...Projects.projectsOf(model.projects)]
+  const projectsLoading = Projects.isLoading(model.projects)
+  const options = model.options
+  const threadId = Option.getOrUndefined(selectedThread(model))
+  if (threadId === undefined) {
+    return {
+      placeholder,
+      projects,
+      projectsLoading,
+      options,
+      headline: 'What should we build in oru?',
+    }
+  }
+  return { placeholder, projects, projectsLoading, options, threadId }
+}
 
-const foldWorktree = Update.foldChild({
-  update: WorktreePicker.update,
-  read: (model: Model) => Option.some(model.worktree),
-  write: (model, nextChild) => evo(model, { worktree: () => nextChild }),
-  toParentMessage: (message: WorktreePicker.Message) => Message.GotWorktree({ message }),
-})
+const readyComposer = (
+  model: Model,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: the child model is the def's own state, stored and forwarded without parsing; absorb and update consume only what they built
+  childModel: unknown,
+): Model => {
+  const outlet = model.composerUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return model
+  return evo(model, {
+    composerUi: () =>
+      OutletReady.make({
+        plugin: outlet.plugin,
+        defId: outlet.defId,
+        slot: outlet.slot,
+        address: outlet.address,
+        childModel,
+      }),
+  })
+}
 
-const foldBranch = Update.foldChild({
-  update: BranchPicker.update,
-  read: (model: Model) => Option.some(model.branch),
-  write: (model, nextChild) => evo(model, { branch: () => nextChild }),
-  toParentMessage: (message: BranchPicker.Message) => Message.GotBranch({ message }),
-})
+/** Fold absorbed props into the composer def, if it absorbs them. */
+const syncComposer = (model: Model): Model => {
+  const outlet = model.composerUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return model
+  const absorb = getDef(outlet.plugin, outlet.defId)?.absorb
+  if (absorb === undefined) return model
+  const childModel = absorb(outlet.childModel, composerPropsOf(model))
+  if (childModel === outlet.childModel) return model
+  return readyComposer(model, childModel)
+}
 
-const foldAccess = Update.foldChild({
-  update: AccessPicker.update,
-  read: (model: Model) => Option.some(model.access),
-  write: (model, nextChild) => evo(model, { access: () => nextChild }),
-  toParentMessage: (message: AccessPicker.Message) => Message.GotAccess({ message }),
-})
-
-const foldPicker = Update.foldChild({
-  update: ModelPicker.update,
-  read: (model: Model) => Option.some(model.picker),
-  write: (model, nextChild) => evo(model, { picker: () => nextChild }),
-  toParentMessage: (message: ModelPicker.Message) => Message.GotPicker({ message }),
-  foldOutMessage: (outMessage: ModelPicker.OutMessage): Update.Step<Model, Message, ThreadClient> =>
-    ModelPicker.OutMessage.match<Update.Step<Model, Message, ThreadClient>>(outMessage, {
-      OptionsRequested:
-        ({ refresh }) =>
-        (model) => ({
-          model,
-          commands: [
-            LoadThreadOptions({ threadId: Option.getOrUndefined(selectedThread(model)), refresh }),
-          ],
-        }),
-      // A picker on home has no thread to configure yet: the selection it
-      // stored is the choice that thread is created with.
-      ConfigureRequested:
-        ({ harness, model: chosen, reasoning }) =>
-        (model) =>
-          Option.match(selectedThread(model), {
-            onNone: () => ({ model }),
-            onSome: (threadId) => ({
-              model,
-              commands: [ConfigureThread({ threadId, harness, model: chosen, reasoning })],
-            }),
-          }),
-      CopyRequested:
-        ({ command }) =>
-        (model) => ({
-          model,
-          commands: [CopyText({ text: command })],
-        }),
-    }),
-})
+/** Deliver a one-shot signal into the composer def, if it takes signals. */
+const signalComposer = (model: Model, signal: UiSignal): Model => {
+  const outlet = model.composerUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return model
+  const send = getDef(outlet.plugin, outlet.defId)?.signal
+  if (send === undefined) return model
+  return readyComposer(model, send(outlet.childModel, signal))
+}
 
 const submitting = (model: Model): Model =>
   evo(model, { submit: () => ({ pending: true, error: undefined }) })
 
 const submitFailed = (model: Model, reason: string, text: string): Model =>
-  evo(submitting(model), {
+  evo(signalComposer(submitting(model), { type: 'restore-draft', text }), {
     submit: () => ({ pending: false, error: reason }),
-    composer: () =>
-      Composer.update(model.composer, Composer.Message.ChangedDraft({ value: text })).model,
   })
 
+/**
+ * The intent chat-ui owns, executed here. The picks travel with the text;
+ * the project id resolves against the host list the way the picker's
+ * fallback did (picked-while-listed, otherwise the host's first).
+ */
 const submitIntent = (
   model: Model,
-  text: string,
-): Update.Return<Model, Message, ProjectClient | ThreadClient> => {
+  intent: {
+    readonly project?: string | undefined
+    readonly harness?: string | undefined
+    readonly model?: string | undefined
+    readonly reasoning?: string | undefined
+    readonly text: string
+  },
+): UpdateReturn => {
   if (model.submit.pending) {
-    return {
-      model: evo(model, {
-        composer: () =>
-          Composer.update(model.composer, Composer.Message.ChangedDraft({ value: text })).model,
-      }),
-    }
+    return { model: signalComposer(model, { type: 'restore-draft', text: intent.text }) }
   }
   const threadId = Option.getOrUndefined(selectedThread(model))
   if (threadId !== undefined) {
     return {
       model: submitting(model),
-      commands: [SendThreadMessage({ threadId, text })],
+      commands: [SendThreadMessage({ threadId, text: intent.text })],
     }
   }
-  const project = ProjectPicker.selectedProject(
-    model.projectPicker,
-    Projects.projectsOf(model.projects),
-  )
+  const projects = Projects.projectsOf(model.projects)
+  const project =
+    (intent.project !== undefined
+      ? projects.find((entry) => entry.id === intent.project)
+      : undefined) ?? projects[0]
   if (project === undefined) {
-    return { model: submitFailed(model, 'Select a project first.', text) }
+    return { model: submitFailed(model, 'Select a project first.', intent.text) }
   }
-  const options = ModelPicker.loadedOptions(model.picker)
-  const harness = model.picker.selection.harness ?? options?.harness
-  const chosen = model.picker.selection.model ?? options?.config.model
-  const reasoning = model.picker.selection.reasoning ?? options?.config.reasoning
   return {
     model: submitting(model),
     commands: [
       CreateThreadAndSend({
         project: project.id,
-        harness,
-        model: chosen,
-        reasoning,
-        text,
+        harness: intent.harness,
+        model: intent.model,
+        reasoning: intent.reasoning,
+        text: intent.text,
       }),
     ],
   }
 }
 
-const foldComposer = Update.foldChild({
-  update: Composer.update,
-  read: (model: Model) => Option.some(model.composer),
-  write: (model, nextChild) => evo(model, { composer: () => nextChild }),
-  toParentMessage: (message: Composer.Message) => Message.GotComposer({ message }),
-  foldOutMessage: (
-    outMessage: Composer.OutMessage,
-  ): Update.Step<Model, Message, ProjectClient | ThreadClient> =>
-    Composer.OutMessage.match<Update.Step<Model, Message, ProjectClient | ThreadClient>>(
-      outMessage,
-      {
-        Submitted:
-          ({ text }) =>
-          (current) =>
-            submitIntent(current, text),
-      },
+/**
+ * Route a def's out-message to the command it announces. The message is
+ * decoded, never cast: an unknown tag fails closed to an ignored no-op,
+ * so a def newer than the app cannot crash the outlet.
+ */
+const foldAreaOutMessage = (
+  model: Model,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: decoded by UiOutMessage below; the annotation names the untrusted input, the schema names the contract
+  outMessage: unknown,
+): UpdateReturn => {
+  const decoded = decodeUiOutMessage(outMessage)
+  if (Option.isNone(decoded)) return { model }
+  switch (decoded.value._tag) {
+    case 'Submitted': {
+      const submitted = decoded.value
+      return submitIntent(model, {
+        project: submitted.project,
+        harness: submitted.harness,
+        model: submitted.model,
+        reasoning: submitted.reasoning,
+        text: submitted.text,
+      })
+    }
+    case 'OptionsRequested': {
+      return {
+        model,
+        commands: [
+          LoadThreadOptions({
+            threadId: Option.getOrUndefined(selectedThread(model)),
+            refresh: decoded.value.refresh,
+          }),
+        ],
+      }
+    }
+    case 'ConfigureRequested': {
+      const configured = decoded.value
+      // The pick persists whatever the thread does: a picker on home has
+      // no thread to configure yet, and its choice still survives reload.
+      const persist = PersistPrefs({ model: configured.model, reasoning: configured.reasoning })
+      return Option.match(selectedThread(model), {
+        onNone: () => ({ model, commands: [persist] }),
+        onSome: (threadId) => ({
+          model,
+          commands: [
+            persist,
+            ConfigureThread({
+              threadId,
+              harness: configured.harness,
+              model: configured.model,
+              reasoning: configured.reasoning,
+            }),
+          ],
+        }),
+      })
+    }
+    case 'CopyRequested': {
+      return { model, commands: [CopyText({ text: decoded.value.command })] }
+    }
+    case 'RequestedCreateDialog':
+      return Update.combine(model, [(next) => foldProjects(next, Projects.Message.ClickedCreate())])
+  }
+}
+
+const foldComposerUi = (
+  model: Model,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: child messages are the def's own dispatches, forwarded into its update untouched
+  childMessage: unknown,
+): UpdateReturn => {
+  const outlet = model.composerUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return { model }
+  const def = getDef(outlet.plugin, outlet.defId)
+  if (def === undefined) return { model }
+  const result = def.update(outlet.childModel, childMessage)
+  const advanced = readyComposer(model, result.model)
+  if (result.outMessage === undefined) return { model: advanced }
+  return foldAreaOutMessage(advanced, result.outMessage)
+}
+
+const foldConversationUi = (
+  model: Model,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: see foldComposerUi
+  childMessage: unknown,
+): UpdateReturn => {
+  const outlet = model.conversationUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return { model }
+  const def = getDef(outlet.plugin, outlet.defId)
+  if (def === undefined) return { model }
+  const result = def.update(outlet.childModel, childMessage)
+  if (result.model === outlet.childModel) return { model }
+  return {
+    model: evo(model, {
+      conversationUi: () =>
+        OutletReady.make({
+          plugin: outlet.plugin,
+          defId: outlet.defId,
+          slot: outlet.slot,
+          address: outlet.address,
+          childModel: result.model,
+        }),
+    }),
+  }
+}
+
+type UiSlot = 'composer' | 'conversation'
+
+interface UiAssignmentLike {
+  readonly plugin: string
+  readonly defId: string
+}
+
+interface UiBundleLike {
+  readonly jsUrl: string
+  readonly address: string
+  readonly sdkMajor: number
+}
+
+const setOutlet = (model: Model, slot: UiSlot, outlet: OutletState): Model =>
+  slot === 'composer'
+    ? evo(model, { composerUi: () => outlet })
+    : evo(model, { conversationUi: () => outlet })
+
+/**
+ * Reconcile one slot against the snapshot: an assignment without code, or
+ * no assignment at all, empties the outlet; a generation this app already
+ * holds mounts without fetching; anything else loads its bundle. Every
+ * branch is idempotent, so a repeated snapshot is a no-op.
+ */
+/** One slot's reconcile verdict: the model plus the bundle fetch it needs, if any. */
+interface ReconciledSlot {
+  readonly model: Model
+  readonly commands: Update.Commands<Message, ProjectClient | ThreadClient>
+}
+
+const reconcileSlot = (
+  model: Model,
+  slot: UiSlot,
+  assignment: UiAssignmentLike | undefined,
+  bundle: UiBundleLike | undefined,
+): ReconciledSlot => {
+  const outlet = slot === 'composer' ? model.composerUi : model.conversationUi
+  if (assignment === undefined || bundle === undefined) {
+    if (Predicate.isTagged(outlet, 'Empty')) return { model, commands: [] }
+    return { model: setOutlet(model, slot, OutletEmpty.make({})), commands: [] }
+  }
+  if (
+    (Predicate.isTagged(outlet, 'Ready') || Predicate.isTagged(outlet, 'Loading')) &&
+    outlet.plugin === assignment.plugin &&
+    outlet.defId === assignment.defId &&
+    outlet.address === bundle.address
+  ) {
+    return { model, commands: [] }
+  }
+  const def = getDef(assignment.plugin, assignment.defId)
+  if (def !== undefined) {
+    const mounted = setOutlet(
+      model,
+      slot,
+      OutletReady.make({
+        plugin: assignment.plugin,
+        defId: assignment.defId,
+        slot,
+        address: bundle.address,
+        childModel: def.init(),
+      }),
+    )
+    return { model: slot === 'composer' ? syncComposer(mounted) : mounted, commands: [] }
+  }
+  return {
+    model: setOutlet(
+      model,
+      slot,
+      OutletLoading.make({
+        plugin: assignment.plugin,
+        defId: assignment.defId,
+        slot,
+        jsUrl: bundle.jsUrl,
+        address: bundle.address,
+      }),
     ),
-})
+    commands: [
+      LoadBundle({
+        plugin: assignment.plugin,
+        defId: assignment.defId,
+        slot,
+        jsUrl: bundle.jsUrl,
+        address: bundle.address,
+        sdkMajor: bundle.sdkMajor,
+      }),
+    ],
+  }
+}
 
 const foldSettings = Update.foldChild({
   update: General.update,
@@ -753,71 +1039,106 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           ).model
         : model.projects
       return {
-        model: evo(model, {
-          route: () => route,
-          picker: () => ModelPicker.init(),
-          projects: () => projects,
-        }),
+        model: syncComposer(
+          evo(model, {
+            route: () => route,
+            options: () => ComposerOptionsLoading.make({}),
+            projects: () => projects,
+          }),
+        ),
         commands: [...pickerLoad(route), ...detailLoad(route)],
       }
     },
-    GotPicker: ({ message: childMessage }) => foldPicker(model, childMessage),
     GotShell: ({ message: childMessage }) => foldShell(model, childMessage),
     GotThreads: ({ message: childMessage }) => foldThreads(model, childMessage),
     GotProjects: ({ message: childMessage }) => {
-      // The picker's UI answers host facts the `Projects` submodel holds, so
-      // the answers that move it arrive here and are folded into both.
-      if (Predicate.isTagged(childMessage, 'ProjectCreated')) {
-        return Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) =>
-            foldProjectPicker(
-              next,
-              ProjectPicker.Message.ProjectCreated({ project: childMessage.project }),
-            ),
-        ])
-      }
-      if (Predicate.isTagged(childMessage, 'ProjectUpdated')) {
-        return Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) =>
-            foldProjectPicker(
-              next,
-              ProjectPicker.Message.ProjectUpdated({ project: childMessage.project }),
-            ),
-        ])
-      }
+      // Host facts the composer absorbs through its props: the project list
+      // moves the picker by diff, so root folds Projects alone and syncs.
       if (Predicate.isTagged(childMessage, 'ProjectDeleted')) {
-        const combined = Update.combine(model, [
-          (next) => foldProjects(next, childMessage),
-          (next) =>
-            foldProjectPicker(
-              next,
-              ProjectPicker.Message.ProjectDeleted({ project: childMessage.project }),
-            ),
-        ])
+        const combined = foldProjects(model, childMessage)
         if (
           AppRoute.guards.SettingsProjectDetail(model.route) &&
           model.route.projectId === childMessage.project
         ) {
           const pending = 'commands' in combined ? combined.commands : undefined
           return {
-            model: combined.model,
+            model: syncComposer(combined.model),
             commands: [...(pending ?? []), NavigateInternal({ url: settingsProjectsRouter() })],
           }
         }
-        return combined
+        return { ...combined, model: syncComposer(combined.model) }
       }
-      // Directory answers belong to the shared dialog alone now; the picker
-      // holds no browser for them to reach.
-      return foldProjects(model, childMessage)
+      const combined = foldProjects(model, childMessage)
+      return { ...combined, model: syncComposer(combined.model) }
     },
-    GotProjectPicker: ({ message: childMessage }) => foldProjectPicker(model, childMessage),
-    GotWorktree: ({ message: childMessage }) => foldWorktree(model, childMessage),
-    GotBranch: ({ message: childMessage }) => foldBranch(model, childMessage),
-    GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
-    GotComposer: ({ message: childMessage }) => foldComposer(model, childMessage),
+    GotComposerUi: ({ message: childMessage }) => foldComposerUi(model, childMessage),
+    GotConversationUi: ({ message: childMessage }) => foldConversationUi(model, childMessage),
+    HostOptionsArrived: ({ options }) => ({
+      model: syncComposer(evo(model, { options: () => ComposerOptionsLoaded.make({ options }) })),
+    }),
+    HostOptionsFailed: ({ reason }) => ({
+      model: syncComposer(
+        evo(model, { options: () => ComposerOptionsUnreachable.make({ reason }) }),
+      ),
+    }),
     GotSettings: ({ message: childMessage }) => foldSettings(model, childMessage),
+    CopyCompleted: () => ({ model }),
+    PrefsPersisted: () => ({ model }),
+    UiSnapshotArrived: ({ snapshot }) => {
+      const composer = snapshot.assignments.find((entry) => entry.slot === 'composer')
+      const composerBundle =
+        composer === undefined
+          ? undefined
+          : snapshot.bundles.find(
+              (entry) => entry.plugin === composer.plugin && entry.defId === composer.defId,
+            )
+      const first = reconcileSlot(model, 'composer', composer, composerBundle)
+      const conversation = snapshot.assignments.find((entry) => entry.slot === 'conversation')
+      const conversationBundle =
+        conversation === undefined
+          ? undefined
+          : snapshot.bundles.find(
+              (entry) => entry.plugin === conversation.plugin && entry.defId === conversation.defId,
+            )
+      const second = reconcileSlot(first.model, 'conversation', conversation, conversationBundle)
+      const commands: Update.Commands<Message, ProjectClient | ThreadClient> = [
+        ...first.commands,
+        ...second.commands,
+      ]
+      return commands.length === 0 ? { model: second.model } : { model: second.model, commands }
+    },
+    BundleReady: ({ plugin, defId, slot, address }) => {
+      if (slot !== 'composer' && slot !== 'conversation') return { model }
+      const outlet = slot === 'composer' ? model.composerUi : model.conversationUi
+      if (
+        !Predicate.isTagged(outlet, 'Loading') ||
+        outlet.plugin !== plugin ||
+        outlet.defId !== defId ||
+        outlet.address !== address
+      ) {
+        return { model }
+      }
+      const def = getDef(plugin, defId)
+      if (def === undefined) return { model }
+      const mounted = setOutlet(
+        model,
+        slot,
+        OutletReady.make({ plugin, defId, slot, address, childModel: def.init() }),
+      )
+      return { model: slot === 'composer' ? syncComposer(mounted) : mounted }
+    },
+    BundleFailed: ({ plugin, defId, slot, reason }) => {
+      if (slot !== 'composer' && slot !== 'conversation') return { model }
+      const outlet = slot === 'composer' ? model.composerUi : model.conversationUi
+      if (
+        !Predicate.isTagged(outlet, 'Loading') ||
+        outlet.plugin !== plugin ||
+        outlet.defId !== defId
+      ) {
+        return { model }
+      }
+      return { model: setOutlet(model, slot, OutletFailed.make({ plugin, defId, slot, reason })) }
+    },
     ThreadCreated: ({ threadId }) => ({
       model: evo(model, { submit: () => ({ pending: false, error: undefined }) }),
       commands:
@@ -849,85 +1170,70 @@ const threadSubs = Subscription.lift(LeftPanel.subscriptions)({
   toParentMessage: (message: LeftPanel.Message): Message => Message.GotThreads({ message }),
 })
 
-const pickerSubs = Subscription.lift(ModelPicker.subscriptions)({
-  toChildModel: (model: Model) => model.picker,
-  toParentMessage: (message: ModelPicker.Message): Message => Message.GotPicker({ message }),
-})
+/**
+ * The UI snapshot stream: the host's bundles and assignments, watched live
+ * so deactivating the plugin behind a slot empties it. Resources flow from
+ * the runtime's layer, the way commands receive their clients.
+ */
+const uiSubs = Subscription.make<Model, Message, UiClient>()((entry) => ({
+  watch: entry(
+    {},
+    {
+      modelToDependencies: () => ({}),
+      dependenciesToStream: (): Stream.Stream<Message, never, UiClient> =>
+        Stream.unwrap(
+          Effect.map(Effect.serviceOption(UiClient), (option) =>
+            Option.match(option, {
+              onNone: (): Stream.Stream<Message, never, UiClient> => Stream.empty,
+              onSome: (client) =>
+                Stream.map(client.watch, (snapshot): Message =>
+                  Message.UiSnapshotArrived({ snapshot }),
+                ).pipe(Stream.catch(() => Stream.empty)),
+            }),
+          ),
+        ),
+    },
+  ),
+}))
 
-export const subscriptions = Subscription.aggregate<Model, Message>()(
-  shellSubs,
-  threadSubs,
-  pickerSubs,
-)
+export const subscriptions = Subscription.aggregate(shellSubs, threadSubs, uiSubs)
 
 /**
- * What each composer slot holds. Every slot is a submodel that owns its own
- * state; adding a picker is one `h.submodel` line here, never a change to
- * the composer. The project list is plain data, so it crosses the
- * `viewInputs` boundary while the picker's selection stays inside it.
+ * One outlet: the assigned def rendering through the app's boundary, or
+ * nothing when the slot is empty, loading, or failed. An empty outlet is
+ * the replaceability proof made visible: no def, no UI, no fallback.
  */
-const composerInputs = (
-  model: Model,
-  headline: string | undefined,
-  h: HtmlBuilder<Message>,
-): Composer.ViewInputs => {
-  const inputs: Composer.ViewInputs = {
-    placeholder: 'Ask anything. @ to mention files, folders, or sections',
-    toLeading: () =>
-      h.submodel({
-        slotId: 'model-picker-trigger',
-        model: model.picker,
-        view: ModelPicker.triggerView,
-        toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
-      }),
-    toChipsLeft: () =>
-      h.div(
-        [h.Class('flex items-center gap-0.5')],
-        [
-          h.submodel({
-            slotId: 'project-picker',
-            model: model.projectPicker,
-            view: ProjectPicker.view,
-            viewInputs: {
-              projects: Projects.projectsOf(model.projects),
-              isLoading: Projects.isLoading(model.projects),
-            },
-            toParentMessage: (childMessage) => Message.GotProjectPicker({ message: childMessage }),
-          }),
-          h.submodel({
-            slotId: 'worktree-picker',
-            model: model.worktree,
-            view: WorktreePicker.view,
-            toParentMessage: (childMessage) => Message.GotWorktree({ message: childMessage }),
-          }),
-          h.submodel({
-            slotId: 'branch-picker',
-            model: model.branch,
-            view: BranchPicker.view,
-            toParentMessage: (childMessage) => Message.GotBranch({ message: childMessage }),
-          }),
-        ],
-      ),
-    toChipsRight: () =>
-      h.submodel({
-        slotId: 'access-picker',
-        model: model.access,
-        view: AccessPicker.view,
-        toParentMessage: (childMessage) => Message.GotAccess({ message: childMessage }),
-      }),
-  }
-  if (headline === undefined) return inputs
-  return { ...inputs, headline }
+const composerOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
+  const outlet = model.composerUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return undefined
+  const def = getDef(outlet.plugin, outlet.defId)
+  if (def === undefined) return undefined
+  // SAFETY: the brand is type-level-only per foldkit's docs, so a def view built by another foldkit copy stays structurally compatible.
+  return h.submodel({
+    slotId: 'composer-outlet',
+    model: outlet.childModel,
+    view: def.view as SubmodelView<unknown, unknown, ComposerProps>,
+    viewInputs: composerPropsOf(model),
+    toParentMessage: (childMessage) => Message.GotComposerUi({ message: childMessage }),
+  })
 }
 
-const composerSlot = (model: Model, headline: string | undefined, h: HtmlBuilder<Message>): Html =>
-  h.submodel({
-    slotId: 'composer',
-    model: model.composer,
-    view: Composer.view,
-    viewInputs: composerInputs(model, headline, h),
-    toParentMessage: (childMessage) => Message.GotComposer({ message: childMessage }),
+const conversationOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
+  const outlet = model.conversationUi
+  if (!Predicate.isTagged(outlet, 'Ready')) return undefined
+  const def = getDef(outlet.plugin, outlet.defId)
+  if (def === undefined) return undefined
+  const threadId = Option.getOrUndefined(selectedThread(model))
+  const props: ConversationProps = threadId === undefined ? {} : { threadId }
+  // SAFETY: see composer-outlet above.
+  return h.submodel({
+    slotId: 'conversation-outlet',
+    model: outlet.childModel,
+    view: def.view as SubmodelView<unknown, unknown, ConversationProps>,
+    viewInputs: props,
+    toParentMessage: (childMessage) => Message.GotConversationUi({ message: childMessage }),
   })
+}
 
 const projectsSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.submodel({
@@ -937,18 +1243,37 @@ const projectsSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
     toParentMessage: (childMessage) => Message.GotProjects({ message: childMessage }),
   })
 
+const homeMain = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const error = submitErrorSlot(model, h)
+  const composer = composerOutlet(model, h)
+  return h.div(
+    [
+      h.Attribute('data-main', ''),
+      h.Class('flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6'),
+    ],
+    [...(error === undefined ? [] : [error]), ...(composer === undefined ? [] : [composer])],
+  )
+}
+
 /**
- * The harness's health, above the composer. The picker's catalogue lives in
- * the composer's `leading` slot; a harness that is not ready still renders
- * here without opening anything.
+ * A thread's conversation: the viewer outlet on top, the composer outlet
+ * below. Both are plugin defs now; root only stacks them.
  */
-const pickerStatusSlot = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.submodel({
-    slotId: 'model-picker-status',
-    model: model.picker,
-    view: ModelPicker.view,
-    toParentMessage: (childMessage) => Message.GotPicker({ message: childMessage }),
-  })
+const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const error = submitErrorSlot(model, h)
+  const conversation = conversationOutlet(model, h)
+  const composer = composerOutlet(model, h)
+  return h.div(
+    [h.Attribute('data-conversation', ''), h.Class('flex min-h-0 flex-1 flex-col')],
+    [
+      ...(conversation === undefined ? [h.div([h.Class('min-h-0 flex-1')], [])] : [conversation]),
+      h.div(
+        [h.Class('flex shrink-0 flex-col items-center gap-2 px-6 pb-6')],
+        [...(error === undefined ? [] : [error]), ...(composer === undefined ? [] : [composer])],
+      ),
+    ],
+  )
+}
 
 const submitErrorSlot = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
   const error = model.submit.error
@@ -974,55 +1299,6 @@ const submitErrorSlot = (model: Model, h: HtmlBuilder<Message>): Html | undefine
     ],
   )
 }
-
-const homeMain = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const error = submitErrorSlot(model, h)
-  return h.div(
-    [
-      h.Attribute('data-main', ''),
-      h.Class('flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-6'),
-    ],
-    [
-      pickerStatusSlot(model, h),
-      ...(error === undefined ? [] : [error]),
-      composerSlot(model, 'What should we build in oru?', h),
-    ],
-  )
-}
-
-/**
- * A thread's conversation. The header names the thread the route selected, and
- * the column between it and the composer holds nothing because nothing about
- * this thread is recorded by the app yet.
- */
-const conversationMain = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const error = submitErrorSlot(model, h)
-  return h.div(
-    [h.Attribute('data-conversation', ''), h.Class('flex min-h-0 flex-1 flex-col')],
-    [
-      h.header(
-        [h.Class('flex h-10 shrink-0 items-center px-5')],
-        [
-          h.span(
-            [h.Class('truncate text-sm font-medium')],
-            [Option.match(selectedThread(model), { onNone: () => '', onSome: threadName })],
-          ),
-        ],
-      ),
-      h.div([h.Class('min-h-0 flex-1')], []),
-      h.div(
-        [h.Class('flex shrink-0 flex-col items-center gap-2 px-6 pb-6')],
-        [
-          pickerStatusSlot(model, h),
-          ...(error === undefined ? [] : [error]),
-          composerSlot(model, undefined, h),
-        ],
-      ),
-    ],
-  )
-}
-
-const threadName = (id: string): string => id
 
 const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.submodel({

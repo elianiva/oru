@@ -13,8 +13,8 @@ import type { Html } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import { defineView } from 'foldkit/submodel'
 import { ArrowUp } from 'lucide'
-import { button } from '@/components/ui/button.ts'
-import { icon } from '@/lib/icons.ts'
+import { button } from './ui/button.ts'
+import { icon } from './lib/icons.ts'
 
 export const Model = Schema.Struct({
   draft: Schema.String,
