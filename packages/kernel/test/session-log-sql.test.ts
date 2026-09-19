@@ -1,7 +1,10 @@
+import { randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { Clock, Effect, type Scope } from 'effect'
+import { Clock, Effect, Schema, type Scope } from 'effect'
 import { EventJournal, SqlEventJournal } from 'effect/unstable/eventlog'
+import { SqlClient } from 'effect/unstable/sql/SqlClient'
 import { SqliteClient } from '@effect/sql-sqlite-node'
+import { pack } from 'msgpackr'
 import {
   foldActivePlugins,
   foldNamedThreads,
@@ -10,6 +13,7 @@ import {
   MessageAppended,
   pathOfLane,
   SessionActivated,
+  SessionEvent,
   SessionLog,
   sessionLogLayer,
   threadLane,
@@ -21,7 +25,7 @@ import {
 import { sqliteJournalLayer } from '../src/sqlite.ts'
 
 const runSql = <A, E>(
-  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | Scope.Scope>,
+  effect: Effect.Effect<A, E, EventJournal.EventJournal | SessionLog | SqlClient | Scope.Scope>,
 ) =>
   Effect.runPromise(
     Effect.scoped(
@@ -165,5 +169,38 @@ describe('sql session log', () => {
     )
     expect(replayed.usage).toEqual({ inputTokens: 11, outputTokens: 3, cost: 0.04 })
     expect(replayed.context).toEqual({ tokens: 40, contextWindow: 128_000 })
+  })
+
+  it('reads facts the legacy MessagePack codec wrote before the SchemaBinary switch', async () => {
+    await runSql(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient
+        const stamped = {
+          ...SessionActivated.make({
+            ...unsignedTree,
+            id: 'legacy-0',
+            plugin: 'logging',
+            scope: 'host',
+          }),
+          parentId: null,
+          seq: 0,
+          timestamp: 1_000,
+        }
+        // What `Msgpack.schema(SessionEvent)` on effect rc.112 stored: the
+        // schema-encoded value packed as MessagePack.
+        const legacy = Buffer.from(pack(Schema.encodeSync(SessionEvent)(stamped)))
+        yield* sql`INSERT INTO ${sql('effect_event_journal')} ${sql.insert({
+          id: randomBytes(16),
+          event: 'plugin/activated',
+          primary_key: 'legacy-0',
+          payload: legacy,
+          timestamp: 1_000,
+        })}`
+        const entries = yield* (yield* SessionLog).entries
+        expect(entries.map((entry) => entry.id)).toEqual(['legacy-0'])
+        expect(entries[0]?._tag).toBe('plugin/activated')
+        expect([...foldActivePlugins(entries)]).toEqual(['logging'])
+      }),
+    )
   })
 })

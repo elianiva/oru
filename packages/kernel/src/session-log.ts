@@ -1,6 +1,7 @@
 import { Clock, Context, Effect, Layer, Match, Schema, Semaphore, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { SchemaBinary } from 'effect/unstable/encoding'
+import { unpack } from 'msgpackr'
 import type { HostEvent } from './event.ts'
 import {
   PluginActivated as SessionPluginActivated,
@@ -29,7 +30,26 @@ export class SessionLog extends Context.Service<SessionLog, SessionLogContract>(
 
 const codec = SchemaBinary.toCodec(SessionEvent)
 const encodePayload = Schema.encodeEffect(codec)
-const decodePayload = Schema.decodeUnknownEffect(codec)
+const decodeBinary = Schema.decodeUnknownEffect(codec)
+
+/**
+ * Payloads written before the SchemaBinary switch were MessagePack of the
+ * schema-encoded value (`Msgpack.schema` on effect rc.112). One journal file
+ * spans the upgrade, so a binary miss falls back to the legacy unpack and only
+ * fails when neither format decodes.
+ */
+const decodePayload = (payload: Uint8Array): Effect.Effect<SessionEvent, Schema.SchemaError> =>
+  Effect.catch(decodeBinary(payload), (binaryError) => {
+    let unpacked: unknown
+    try {
+      unpacked = unpack(payload)
+    } catch {
+      return Effect.fail(binaryError)
+    }
+    return Effect.catch(Schema.decodeUnknownEffect(SessionEvent)(unpacked), () =>
+      Effect.fail(binaryError),
+    )
+  })
 
 const decodeEntry = (entry: EventJournal.Entry) => decodePayload(entry.payload)
 
