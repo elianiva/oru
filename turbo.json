@@ -5,6 +5,19 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "@oru/host#build": {
+      "dependsOn": [
+        "^build",
+        "@oru/chat-ui#build",
+        "@oru/harness-claude-code#build",
+        "@oru/harness-pi#build"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "oru#build": {
+      "dependsOn": ["^build", "@oru/host#build"],
+      "outputs": ["dist/**"]
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
