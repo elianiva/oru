@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@effect/sql-sqlite-node": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115",
-    "msgpackr": "^2.1.0"
+    "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
     "@oru/plugin-build": "workspace:*",
