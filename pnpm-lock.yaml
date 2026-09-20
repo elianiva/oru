@@ -164,6 +164,9 @@ importers:
       '@oru/plugin-build':
         specifier: workspace:*
         version: link:../../packages/plugin-build
+      '@oru/reload-fixture':
+        specifier: workspace:*
+        version: link:../../plugins/reload-fixture
       '@oru/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
@@ -465,6 +468,25 @@ importers:
       vitest:
         specifier: ^5.0.1
         version: 5.0.1(@types/node@22.20.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  plugins/reload-fixture:
+    dependencies:
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
 packages:
 

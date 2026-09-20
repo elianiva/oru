@@ -1,0 +1,25 @@
+{
+  "name": "@oru/reload-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oru/kernel": "workspace:*",
+    "@oru/ui": "workspace:*",
+    "effect": "4.0.0-rc.115"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "typescript": "^7.0.2"
+  },
+  "oru": {
+    "server": "./src/server.ts",
+    "ui": "./src/ui.ts"
+  }
+}

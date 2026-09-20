@@ -28,6 +28,7 @@
     "@oru/harness-registry": "workspace:*",
     "@oru/kernel": "workspace:*",
     "@oru/plugin-build": "workspace:*",
+    "@oru/reload-fixture": "workspace:*",
     "@oru/rpc": "workspace:*",
     "@oru/ui": "workspace:*",
     "effect": "4.0.0-rc.115"
