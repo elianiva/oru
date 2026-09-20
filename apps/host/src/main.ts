@@ -4,7 +4,13 @@ import { ServeError } from 'effect/unstable/http/HttpServerError'
 import type { BootError } from '@oru/kernel'
 import type { JournalOpenError } from '@oru/kernel/sqlite'
 import type { PluginId } from '@oru/kernel'
+import { PluginReloadClient, reloadFor } from '@oru/rpc'
 import { packageVersion, parseArgs, usage } from './cli.ts'
+import { corePlugins } from './plugins.ts'
+import { loadExternalPlugins, readPluginList } from './plugin-sources.ts'
+import { describeReload, startDevWatch } from './dev-watch.ts'
+import { serveHost } from './server.ts'
+
 import {
   ConfigError,
   ensureLayout,
@@ -34,9 +40,6 @@ const registryDefaultsOf = (settings: Settings) => {
   if (settings.defaultModel.value !== undefined) out.model = settings.defaultModel.value
   return out
 }
-import { corePlugins } from './plugins.ts'
-import { loadExternalPlugins, readPluginList } from './plugin-sources.ts'
-import { serveHost } from './server.ts'
 
 const write = (line: string, stream: NodeJS.WriteStream) =>
   Effect.sync(() => {
@@ -139,6 +142,70 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             `unset ${key}; it is startup-only, so the next start reads it\n`,
             process.stdout,
           )
+          return 0
+        }),
+      PluginReload: (command) =>
+        Effect.gen(function* () {
+          const settings = yield* syncConfig(() => {
+            const inner = openSettings(
+              { home: command.home, hostname: command.hostname, port: command.port },
+              process.env,
+            )
+            ensureLayout(inner.home.value)
+            return inner
+          })
+          const url = `http://${settings.hostname.value}:${settings.port.value}`
+          const program = Effect.gen(function* () {
+            const client = yield* PluginReloadClient
+            return yield* client.reload(command.specifier)
+          }).pipe(Effect.provide(reloadFor(url)))
+          return yield* Effect.scoped(program).pipe(
+            Effect.flatMap((result) =>
+              write(`${describeReload(result)}\n`, process.stdout).pipe(Effect.as(0)),
+            ),
+            Effect.catchTags({
+              UnknownPlugin: (error) =>
+                write(
+                  `error: unknown plugin "${error.specifier}" (this host serves: ${error.known.join(', ') || 'nothing'})\n`,
+                  process.stderr,
+                ).pipe(Effect.as(2)),
+              ReloadFailed: (error) =>
+                write(
+                  `error: reload ${error.specifier} failed: ${error.reason}\n`,
+                  process.stderr,
+                ).pipe(Effect.as(1)),
+              HostUnreachable: (error) =>
+                write(`error: host at ${url} unreachable: ${error.reason}\n`, process.stderr).pipe(
+                  Effect.as(1),
+                ),
+            }),
+          )
+        }),
+      PluginDev: (command) =>
+        Effect.gen(function* () {
+          const settings = yield* syncConfig(() => {
+            const inner = openSettings(
+              { home: command.home, hostname: command.hostname, port: command.port },
+              process.env,
+            )
+            ensureLayout(inner.home.value)
+            return inner
+          })
+          const url = `http://${settings.hostname.value}:${settings.port.value}`
+          let stop: (() => void) | undefined
+          try {
+            stop = startDevWatch(command.path, {
+              url,
+              debounceMs: command.debounce,
+              log: (line) => process.stdout.write(`${line}\n`),
+            })
+          } catch (cause) {
+            const message = cause instanceof Error ? cause.message : String(cause)
+            yield* write(`error: ${message}\n`, process.stderr)
+            return 2
+          }
+          yield* askedToStop
+          yield* Effect.sync(stop)
           return 0
         }),
       Serve: (command) =>

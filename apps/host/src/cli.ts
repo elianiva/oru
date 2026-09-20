@@ -13,6 +13,19 @@ export type Command = Data.TaggedEnum<{
     readonly port?: number | undefined
     readonly journal?: string | undefined
   }
+  PluginReload: {
+    readonly home?: string | undefined
+    readonly hostname?: string | undefined
+    readonly port?: number | undefined
+    readonly specifier: string
+  }
+  PluginDev: {
+    readonly home?: string | undefined
+    readonly hostname?: string | undefined
+    readonly port?: number | undefined
+    readonly path: string
+    readonly debounce?: number | undefined
+  }
   ConfigList: { readonly home?: string | undefined }
   ConfigSet: { readonly home?: string | undefined; readonly key: string; readonly value: string }
   ConfigUnset: { readonly home?: string | undefined; readonly key: string }
@@ -27,6 +40,8 @@ Runs the oru kernel and serves its RPC boundary.
 
 Usage:
   oru-host [--home <dir>] [--host <address>] [--port <port>] [--journal <file>]
+  oru-host [--home <dir>] [--host <address>] [--port <port>] plugin reload <id>
+  oru-host [--home <dir>] [--host <address>] [--port <port>] plugin dev <path> [--debounce <ms>]
   oru-host [--home <dir>] config list
   oru-host [--home <dir>] config set <key> <value>
   oru-host [--home <dir>] config unset <key>
@@ -40,6 +55,7 @@ Options:
   --port <port>     port to listen on, 0 picks a free one (default ${defaultPort})
   --journal <file>  journal file to keep facts in, so a restart resumes
                     (default <home>/data/oru.db)
+  --debounce <ms>   save-burst window for plugin dev (default 150)
 
 Settings are flags, then config.json, then the environment, then these defaults.
 host, port, journal, and the pi.* keys are startup-only: config set writes the
@@ -62,6 +78,7 @@ interface FlagDraft {
   hostname?: string | undefined
   port?: number | undefined
   journal?: string | undefined
+  debounce?: number | undefined
 }
 
 export const parseArgs = (argv: readonly string[]): Command => {
@@ -69,6 +86,7 @@ export const parseArgs = (argv: readonly string[]): Command => {
   let hostname: string | undefined
   let port: number | undefined
   let journal: string | undefined
+  let debounce: number | undefined
   const positionals: string[] = []
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -76,7 +94,13 @@ export const parseArgs = (argv: readonly string[]): Command => {
     if (arg === undefined) continue
     if (arg === '--help' || arg === '-h') return Command.Help()
     if (arg === '--version' || arg === '-v') return Command.Version()
-    if (arg === '--home' || arg === '--host' || arg === '--port' || arg === '--journal') {
+    if (
+      arg === '--home' ||
+      arg === '--host' ||
+      arg === '--port' ||
+      arg === '--journal' ||
+      arg === '--debounce'
+    ) {
       const value = argv[index + 1]
       if (value === undefined) return needValue(arg)
       index += 1
@@ -90,6 +114,14 @@ export const parseArgs = (argv: readonly string[]): Command => {
       }
       if (arg === '--journal') {
         journal = value
+        continue
+      }
+      if (arg === '--debounce') {
+        const wanted = Number(value)
+        if (!Number.isInteger(wanted) || wanted < 0 || wanted > 60_000) {
+          return Command.Invalid({ message: `--debounce takes milliseconds, got ${value}` })
+        }
+        debounce = wanted
         continue
       }
       const wanted = Number(value)
@@ -110,9 +142,13 @@ export const parseArgs = (argv: readonly string[]): Command => {
   if (hostname !== undefined) flags.hostname = hostname
   if (port !== undefined) flags.port = port
   if (journal !== undefined) flags.journal = journal
+  if (debounce !== undefined) flags.debounce = debounce
 
   if (positionals.length === 0) {
     return Command.Serve(flags)
+  }
+  if (positionals[0] === 'plugin') {
+    return parsePlugin(positionals.slice(1), flags)
   }
   if (positionals[0] !== 'config') {
     return Command.Invalid({ message: `unknown argument ${positionals[0]}` })
@@ -147,4 +183,29 @@ export const parseArgs = (argv: readonly string[]): Command => {
       : Command.ConfigUnset({ home: flags.home, key })
   }
   return Command.Invalid({ message: `unknown config action ${action}` })
+}
+
+export const parsePlugin = (rest: readonly string[], flags: FlagDraft): Command => {
+  const target = { home: flags.home, hostname: flags.hostname, port: flags.port }
+  const action = rest[0]
+  if (action === 'reload') {
+    const specifier = rest[1]
+    if (specifier === undefined || rest.length !== 2) {
+      return Command.Invalid({ message: 'plugin reload needs a plugin id' })
+    }
+    return Command.PluginReload({ ...target, specifier })
+  }
+  if (action === 'dev') {
+    const path = rest[1]
+    if (path === undefined || rest.length !== 2) {
+      return Command.Invalid({ message: 'plugin dev needs a plugin path' })
+    }
+    return flags.debounce === undefined
+      ? Command.PluginDev({ ...target, path })
+      : Command.PluginDev({ ...target, path, debounce: flags.debounce })
+  }
+  if (action === undefined) {
+    return Command.Invalid({ message: 'plugin needs reload or dev' })
+  }
+  return Command.Invalid({ message: `unknown plugin action ${action}` })
 }
