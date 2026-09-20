@@ -4,6 +4,7 @@ import { RpcClient, RpcClientError } from 'effect/unstable/rpc'
 import type {
   DirectoryMissing,
   NotDirectory,
+  PersonalProjectLocked,
   PluginId,
   ProjectId,
   RelativeCwd,
@@ -81,7 +82,10 @@ export interface ProjectClientContract {
   ) => Effect.Effect<Project, RelativeCwd | UnknownProject | HostUnreachable>
   readonly remove: (
     project: ProjectId,
-  ) => Effect.Effect<{ readonly project: ProjectId }, UnknownProject | HostUnreachable>
+  ) => Effect.Effect<
+    { readonly project: ProjectId },
+    UnknownProject | PersonalProjectLocked | HostUnreachable
+  >
   readonly listDirectory: (
     path?: string,
   ) => Effect.Effect<DirectoryListing, DirectoryMissing | NotDirectory | HostUnreachable>
@@ -189,6 +193,16 @@ const reachableNew = <A>(
     ),
   )
 
+const reachableDelete = <A>(
+  operation: string,
+  effect: Effect.Effect<A, UnknownProject | PersonalProjectLocked | RpcClientError.RpcClientError>,
+): Effect.Effect<A, UnknownProject | PersonalProjectLocked | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): UnknownProject | PersonalProjectLocked | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
 const reachableFork = <A>(
   operation: string,
   effect: Effect.Effect<A, UnknownThread | UnknownProject | RpcClientError.RpcClientError>,
@@ -276,7 +290,7 @@ export const projectClientOf = (
           icon: change.icon,
         }),
       ),
-    remove: (project) => reachableNew('DeleteProject', client.DeleteProject({ project })),
+    remove: (project) => reachableDelete('DeleteProject', client.DeleteProject({ project })),
     listDirectory: (path) => reachableDirectory('ListDirectory', client.ListDirectory({ path })),
     detail: (project) => reachableNew('GetProjectDetail', client.GetProjectDetail({ project })),
   })

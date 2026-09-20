@@ -8,6 +8,7 @@ import {
   DirectoryMissing,
   foldThreadCwd,
   NotDirectory,
+  PersonalProjectLocked,
   RelativeCwd,
   SessionLog,
   UnknownProject,
@@ -357,6 +358,27 @@ describe('DeleteProject', () => {
     )
 
     expect(refused).toEqual(new UnknownProject({ project: 'p-ghost' }))
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(entries.some((event) => Predicate.isTagged(event, 'project/deleted'))).toBe(false)
+  })
+
+  it("refuses Personal with the host's own lock, writing nothing", async () => {
+    const file = sessionFile()
+    const personalCwd = mkdtempSync(join(tmpdir(), 'oru-personal-'))
+
+    const refused = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* Effect.flip(projects.remove('personal'))
+        }),
+        personalCwd,
+      ),
+    )
+
+    expect(refused).toEqual(new PersonalProjectLocked({ project: 'personal' }))
 
     const entries = await readJournal(file, (log) => log.entries)
     expect(entries.some((event) => Predicate.isTagged(event, 'project/deleted'))).toBe(false)

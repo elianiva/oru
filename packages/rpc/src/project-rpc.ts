@@ -1,6 +1,13 @@
 import { Schema } from 'effect'
 import { Rpc, RpcGroup } from 'effect/unstable/rpc'
-import { DirectoryMissing, NotDirectory, ProjectId, RelativeCwd, UnknownProject } from '@oru/kernel'
+import {
+  DirectoryMissing,
+  NotDirectory,
+  PersonalProjectLocked,
+  ProjectId,
+  RelativeCwd,
+  UnknownProject,
+} from '@oru/kernel'
 import { Project } from './project.ts'
 
 export const DirectoryEntry = Schema.Struct({
@@ -63,7 +70,7 @@ export const ProjectRpc = RpcGroup.make(
   Rpc.make('DeleteProject', {
     payload: { project: ProjectId },
     success: Schema.Struct({ project: ProjectId }),
-    error: UnknownProject,
+    error: Schema.Union([UnknownProject, PersonalProjectLocked]),
   }),
   Rpc.make('ListProjects', {
     success: Schema.Array(Project),

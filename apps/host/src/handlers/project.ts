@@ -7,6 +7,7 @@ import { Effect, Option, Predicate } from 'effect'
 import {
   DirectoryMissing,
   NotDirectory,
+  PersonalProjectLocked,
   ProjectCreated,
   ProjectDeleted,
   ProjectUpdated,
@@ -19,6 +20,7 @@ import {
   foldProjectThreadDefaults,
   foldProjectThreads,
   foldProjects,
+  isPersonalProjectId,
   newId,
   unsignedTree,
   type ProjectId,
@@ -29,6 +31,7 @@ const keepProjectError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.catch((error) =>
       Predicate.isTagged(error, 'RelativeCwd') ||
       Predicate.isTagged(error, 'UnknownProject') ||
+      Predicate.isTagged(error, 'PersonalProjectLocked') ||
       Predicate.isTagged(error, 'DirectoryMissing') ||
       Predicate.isTagged(error, 'NotDirectory')
         ? Effect.fail(error)
@@ -152,6 +155,9 @@ export const projectRpcHandlers = (options?: { readonly personalCwd?: string | u
     DeleteProject: (payload: { readonly project: ProjectId }) =>
       keepProjectError(
         Effect.gen(function* () {
+          if (isPersonalProjectId(payload.project)) {
+            return yield* new PersonalProjectLocked({ project: payload.project })
+          }
           const log = yield* SessionLog
           const existing = foldProject(yield* log.entries, payload.project)
           if (existing === undefined) {

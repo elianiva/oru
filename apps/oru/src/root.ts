@@ -310,6 +310,9 @@ export const DeleteProject = Command.define('DeleteProject', {
       Effect.catchTags({
         UnknownProject: () =>
           Effect.succeed(Message.GotProjects({ message: Projects.Message.DeleteRefused() })),
+        // The Personal row stays: refusing loudly would read as an error for a choice the UI offers.
+        PersonalProjectLocked: () =>
+          Effect.succeed(Message.GotProjects({ message: Projects.Message.DeleteRefused() })),
         HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
       }),
     ),
