@@ -478,7 +478,7 @@ export const LoadBundle = Command.define('LoadBundle', {
         return fail(`bundle for ${plugin}/${defId} carries no usable ${slot} definition`)
       }
       const record = match
-      registerDef(plugin, defId, {
+      registerDef(plugin, defId, address, {
         init: record.init,
         update: record.update,
         view: record.view,
@@ -745,7 +745,7 @@ const readyComposer = (
 const syncComposer = (model: Model): Model => {
   const outlet = model.composerUi
   if (!Predicate.isTagged(outlet, 'Ready')) return model
-  const absorb = getDef(outlet.plugin, outlet.defId)?.absorb
+  const absorb = getDef(outlet.plugin, outlet.defId, outlet.address)?.absorb
   if (absorb === undefined) return model
   const childModel = absorb(outlet.childModel, composerPropsOf(model))
   if (childModel === outlet.childModel) return model
@@ -756,7 +756,7 @@ const syncComposer = (model: Model): Model => {
 const signalComposer = (model: Model, signal: UiSignal): Model => {
   const outlet = model.composerUi
   if (!Predicate.isTagged(outlet, 'Ready')) return model
-  const send = getDef(outlet.plugin, outlet.defId)?.signal
+  const send = getDef(outlet.plugin, outlet.defId, outlet.address)?.signal
   if (send === undefined) return model
   return readyComposer(model, send(outlet.childModel, signal))
 }
@@ -886,7 +886,7 @@ const foldComposerUi = (
 ): UpdateReturn => {
   const outlet = model.composerUi
   if (!Predicate.isTagged(outlet, 'Ready')) return { model }
-  const def = getDef(outlet.plugin, outlet.defId)
+  const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return { model }
   const result = def.update(outlet.childModel, childMessage)
   const advanced = readyComposer(model, result.model)
@@ -901,7 +901,7 @@ const foldConversationUi = (
 ): UpdateReturn => {
   const outlet = model.conversationUi
   if (!Predicate.isTagged(outlet, 'Ready')) return { model }
-  const def = getDef(outlet.plugin, outlet.defId)
+  const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return { model }
   const result = def.update(outlet.childModel, childMessage)
   if (result.model === outlet.childModel) return { model }
@@ -968,7 +968,7 @@ const reconcileSlot = (
   ) {
     return { model, commands: [] }
   }
-  const def = getDef(assignment.plugin, assignment.defId)
+  const def = getDef(assignment.plugin, assignment.defId, bundle.address)
   if (def !== undefined) {
     const mounted = setOutlet(
       model,
@@ -1118,7 +1118,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       ) {
         return { model }
       }
-      const def = getDef(plugin, defId)
+      const def = getDef(plugin, defId, address)
       if (def === undefined) return { model }
       const mounted = setOutlet(
         model,
@@ -1206,7 +1206,7 @@ export const subscriptions = Subscription.aggregate(shellSubs, threadSubs, uiSub
 const composerOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
   const outlet = model.composerUi
   if (!Predicate.isTagged(outlet, 'Ready')) return undefined
-  const def = getDef(outlet.plugin, outlet.defId)
+  const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return undefined
   // SAFETY: the brand is type-level-only per foldkit's docs, so a def view built by another foldkit copy stays structurally compatible.
   return h.submodel({
@@ -1221,7 +1221,7 @@ const composerOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undefined
 const conversationOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undefined => {
   const outlet = model.conversationUi
   if (!Predicate.isTagged(outlet, 'Ready')) return undefined
-  const def = getDef(outlet.plugin, outlet.defId)
+  const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return undefined
   const threadId = Option.getOrUndefined(selectedThread(model))
   const props: ConversationProps = threadId === undefined ? {} : { threadId }

@@ -10,11 +10,14 @@ import type { LoadedDef, UiSignal } from '@oru/ui'
  */
 const defs = new Map<string, LoadedDef>()
 
-const keyOf = (plugin: string, defId: string): string => `${plugin}/${defId}`
+/** A def is only usable for the generation it was imported from: same code, new address, refetch. */
+const keyOf = (plugin: string, defId: string, address: string): string =>
+  `${plugin}/${defId}/${address}`
 
 export const registerDef = <Model, Message, Props, Out>(
   plugin: string,
   defId: string,
+  address: string,
   def: {
     readonly init: () => Model
     readonly update: (
@@ -29,12 +32,20 @@ export const registerDef = <Model, Message, Props, Out>(
     readonly signal?: ((model: Model, signal: UiSignal) => Model) | undefined
   },
 ): void => {
+  // Superseded generations under the same plugin/defId are dropped: no outlet
+  // can hold them anymore (reconcile moves the slot to the new generation first),
+  // so the map stays one entry per slot instead of growing per reload.
+  for (const key of [...defs.keys()]) {
+    if (key.startsWith(`${plugin}/${defId}/`) && key !== keyOf(plugin, defId, address)) {
+      defs.delete(key)
+    }
+  }
   // SAFETY: the app only ever feeds a def its own models and messages — init's output, update's output, and view dispatches of this same def — so erasing the parameters to the shared opaque shape is sound.
-  defs.set(keyOf(plugin, defId), def as LoadedDef)
+  defs.set(keyOf(plugin, defId, address), def as LoadedDef)
 }
 
-export const getDef = (plugin: string, defId: string): LoadedDef | undefined =>
-  defs.get(keyOf(plugin, defId))
+export const getDef = (plugin: string, defId: string, address: string): LoadedDef | undefined =>
+  defs.get(keyOf(plugin, defId, address))
 
 export const resetDefsForTest = (): void => {
   defs.clear()

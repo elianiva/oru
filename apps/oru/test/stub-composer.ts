@@ -190,14 +190,14 @@ const stubConversationView = defineView<unknown, never, { readonly threadId?: st
 
 export const mountStubs = (): void => {
   resetDefsForTest()
-  registerDef('test/stub', 'composer', {
+  registerDef('test/stub', 'composer', composerAddress, {
     init,
     update,
     view,
     absorb: absorbProps,
     signal,
   })
-  registerDef('test/stub', 'conversation', {
+  registerDef('test/stub', 'conversation', conversationAddress, {
     init: () => ({}),
     update: (model: Record<string, never>) => ({ model }),
     view: stubConversationView,
