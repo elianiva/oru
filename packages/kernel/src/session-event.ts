@@ -59,6 +59,7 @@ export const ThreadCreated = Schema.TaggedStruct('thread/created', {
   ...Tree,
   thread: ThreadId,
   project: ProjectId,
+  cwd: Schema.optional(Schema.NonEmptyString),
 })
 
 /**
@@ -175,6 +176,7 @@ export const ThreadBranched = Schema.TaggedStruct('thread/branched', {
   thread: ThreadId,
   fromId: EventId,
   summary: Schema.UndefinedOr(Schema.String),
+  cwd: Schema.optional(Schema.NonEmptyString),
 })
 
 export const InboxQueue = Schema.Literals(['next-turn', 'next-step'])

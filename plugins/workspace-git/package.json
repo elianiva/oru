@@ -1,5 +1,5 @@
 {
-  "name": "@oru/rpc",
+  "name": "@oru/workspace-git",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,13 +11,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
-    "@oru/ui": "workspace:*",
     "@oru/workspace": "workspace:*",
     "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
+    "@types/node": "^26.6.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   }

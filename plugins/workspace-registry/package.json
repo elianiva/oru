@@ -1,5 +1,5 @@
 {
-  "name": "@oru/rpc",
+  "name": "@oru/workspace-registry",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,12 +8,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
-    "@oru/ui": "workspace:*",
     "@oru/workspace": "workspace:*",
     "effect": "4.0.0-rc.115"
   },

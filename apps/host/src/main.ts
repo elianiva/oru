@@ -42,6 +42,14 @@ const registryDefaultsOf = (settings: Settings) => {
   return out
 }
 
+const workspaceDefaultsOf = (settings: Settings) => {
+  const out: Record<string, string> = {}
+  if (settings.workspaceProvider.value !== undefined) {
+    out.provider = settings.workspaceProvider.value
+  }
+  return out
+}
+
 const write = (line: string, stream: NodeJS.WriteStream) =>
   Effect.sync(() => {
     stream.write(line)
@@ -224,6 +232,7 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
           // handed instead of the process environment.
           const configs = new Map<PluginId, unknown>([
             ['oru/harness-registry', registryDefaultsOf(settings)],
+            ['oru/workspace-registry', workspaceDefaultsOf(settings)],
             ['oru/harness-pi', { env: stringEnvOf(piEnvOf(process.env, settings)) }],
             ['oru/harness-claude-code', { env: stringEnvOf(process.env) }],
           ])

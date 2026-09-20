@@ -11,7 +11,12 @@ export const UiSubmitted = Schema.TaggedStruct('Submitted', {
   harness: Schema.UndefinedOr(Schema.String),
   model: Schema.UndefinedOr(Schema.String),
   reasoning: Schema.UndefinedOr(Schema.String),
+  cwd: Schema.optional(Schema.String),
   text: Schema.NonEmptyString,
+})
+export const UiDecideApproval = Schema.TaggedStruct('DecideApproval', {
+  request: Schema.NonEmptyString,
+  decision: Schema.Literals(['approve', 'deny']),
 })
 export const UiOptionsRequested = Schema.TaggedStruct('OptionsRequested', {
   refresh: Schema.Boolean,
@@ -32,6 +37,7 @@ export const UiOutMessage = Schema.Union([
   UiConfigureRequested,
   UiCopyRequested,
   UiRequestedCreateDialog,
+  UiDecideApproval,
 ])
 export type UiOutMessage = typeof UiOutMessage.Type
 

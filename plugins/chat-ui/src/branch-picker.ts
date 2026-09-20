@@ -2,7 +2,7 @@
  * The composer's branch picker.
  *
  * A facade for now: no host surface lists branches yet, so the rows are
- * static and the selection lives here. Shaped like the worktree picker so a
+ * static and the selection lives here. Shaped like the workspace picker so a
  * real backend drops in the same way. Emits no OutMessage until something
  * reads the pick.
  */

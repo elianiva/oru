@@ -8,6 +8,7 @@ import {
   RelativeCwd,
   UnknownProject,
 } from '@oru/kernel'
+import { UnknownProvider, WorkspaceFailed, WorkspaceInfo } from '@oru/workspace'
 import { Project } from './project.ts'
 
 export const DirectoryEntry = Schema.Struct({
@@ -46,6 +47,8 @@ export const ProjectDetail = Schema.Struct({
   threadDefaults: Schema.UndefinedOr(ProjectThreadDefaults),
 })
 export type ProjectDetail = typeof ProjectDetail.Type
+
+export { WorkspaceInfo }
 
 export const ProjectRpc = RpcGroup.make(
   Rpc.make('CreateProject', {
@@ -89,5 +92,29 @@ export const ProjectRpc = RpcGroup.make(
     payload: { project: ProjectId },
     success: ProjectDetail,
     error: UnknownProject,
+  }),
+  Rpc.make('ListWorkspaces', {
+    payload: { project: ProjectId },
+    success: Schema.Array(WorkspaceInfo),
+    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed]),
+  }),
+  Rpc.make('CreateWorkspace', {
+    payload: {
+      project: ProjectId,
+      path: Schema.NonEmptyString,
+      branch: Schema.optional(Schema.String),
+      provider: Schema.optional(Schema.String),
+    },
+    success: WorkspaceInfo,
+    error: Schema.Union([UnknownProject, RelativeCwd, UnknownProvider, WorkspaceFailed]),
+  }),
+  Rpc.make('RemoveWorkspace', {
+    payload: {
+      project: ProjectId,
+      path: Schema.NonEmptyString,
+      provider: Schema.optional(Schema.String),
+    },
+    success: Schema.Struct({ path: Schema.String }),
+    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed]),
   }),
 )

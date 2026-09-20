@@ -8,12 +8,16 @@ import {
   type ProviderInfo,
 } from '@oru/harness'
 import {
+  MessageAppended,
   SessionLog,
   ThreadCreated,
   UnknownProject,
   UnknownThread,
+  foldNamedThreads,
   foldProject,
   foldThreadConfig,
+  foldThreadCwd,
+  modelVisiblePath,
   newId,
   threadOf,
   unsignedTree,
@@ -25,6 +29,7 @@ import {
 } from '@oru/kernel'
 import { Runtime } from '@oru/harness'
 import {
+  CompactFailed,
   HarnessChoice,
   ThreadOptions,
   signalOf,
@@ -117,10 +122,21 @@ const optionsOf = (
 const hasConfiguration = (input: ThreadConfiguration): boolean =>
   input.harness !== undefined || input.model !== undefined || input.reasoning !== undefined
 
+const titleOf = (events: Parameters<typeof modelVisiblePath>[0], thread: ThreadId): string => {
+  for (const event of modelVisiblePath(events, thread)) {
+    if (Schema.is(MessageAppended)(event) && event.role === 'user' && event.body.trim() !== '') {
+      const line = event.body.trim().split('\n')[0] ?? ''
+      return line.length > 80 ? `${line.slice(0, 80)}…` : line
+    }
+  }
+  return thread.slice(0, 8)
+}
+
 const createThread = (
   host: Host,
   project: ProjectId,
   configuration: ThreadConfiguration,
+  cwd?: string,
 ): Effect.Effect<
   { readonly threadId: ThreadId; readonly project: NamedProject },
   SessionLogError | UnknownProject,
@@ -133,14 +149,26 @@ const createThread = (
       return yield* new UnknownProject({ project })
     }
     const threadId = yield* newId()
-    yield* log.write(
-      ThreadCreated.make({
-        ...unsignedTree,
-        id: yield* newId(),
-        thread: threadId,
-        project: named.id,
-      }),
-    )
+    if (cwd === undefined) {
+      yield* log.write(
+        ThreadCreated.make({
+          ...unsignedTree,
+          id: yield* newId(),
+          thread: threadId,
+          project: named.id,
+        }),
+      )
+    } else {
+      yield* log.write(
+        ThreadCreated.make({
+          ...unsignedTree,
+          id: yield* newId(),
+          thread: threadId,
+          project: named.id,
+          cwd,
+        }),
+      )
+    }
     // The configuration lands on the created thread's own lane, before any
     // turn, so there is no window where the thread runs unconfigured.
     if (hasConfiguration(configuration)) {
@@ -161,13 +189,51 @@ export const threadRpcHandlers = (host: Host) => ({
     readonly harness: string | undefined
     readonly model: string | undefined
     readonly reasoning: string | undefined
+    readonly cwd?: string | undefined
   }) =>
     keepThreadError(
-      createThread(host, payload.project, {
-        harness: payload.harness,
-        model: payload.model,
-        reasoning: payload.reasoning,
-      }),
+      createThread(
+        host,
+        payload.project,
+        {
+          harness: payload.harness,
+          model: payload.model,
+          reasoning: payload.reasoning,
+        },
+        payload.cwd,
+      ),
+    ),
+  ListThreads: (payload: { readonly project?: ProjectId | undefined }) =>
+    Effect.gen(function* () {
+      const log = yield* SessionLog
+      const entries = yield* log.entries
+      const threads = [...foldNamedThreads(entries)]
+      const summaries = []
+      for (const thread of threads) {
+        let project: ProjectId | undefined
+        let updatedAt = 0
+        for (const event of entries) {
+          if (threadOf(event) !== thread) continue
+          if (Schema.is(ThreadCreated)(event)) project = event.project
+          if (event.timestamp > updatedAt) updatedAt = event.timestamp
+        }
+        if (project === undefined) continue
+        if (payload.project !== undefined && project !== payload.project) continue
+        summaries.push({
+          thread,
+          project,
+          title: titleOf(entries, thread),
+          updatedAt,
+          cwd: foldThreadCwd(entries, thread),
+        })
+      }
+      summaries.sort((left, right) => right.updatedAt - left.updatedAt)
+      return summaries
+    }).pipe(Effect.orDie),
+  WaitThread: (payload: { readonly threadId: ThreadId }) =>
+    host.service(Runtime).pipe(
+      Effect.flatMap((runtime) => runtime.whenIdle(payload.threadId)),
+      Effect.orDie,
     ),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Runtime).pipe(
@@ -246,7 +312,11 @@ export const threadRpcHandlers = (host: Host) => ({
   }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.compact(payload.threadId, payload.instructions)),
-      Effect.orDie,
+      Effect.catch((error) =>
+        Predicate.isTagged(error, 'HarnessError')
+          ? Effect.fail(new CompactFailed({ thread: payload.threadId, reason: error.message }))
+          : Effect.die(error),
+      ),
     ),
   ForkThread: (payload: { readonly sourceThreadId: ThreadId; readonly cwd: string | undefined }) =>
     keepThreadError(
@@ -263,7 +333,7 @@ export const threadRpcHandlers = (host: Host) => ({
         if (project === undefined) {
           return yield* new UnknownThread({ thread: payload.sourceThreadId })
         }
-        const created = yield* createThread(host, project, {})
+        const created = yield* createThread(host, project, {}, payload.cwd)
         yield* runtime.fork(
           payload.cwd === undefined
             ? { sourceThreadId: payload.sourceThreadId, targetThreadId: created.threadId }

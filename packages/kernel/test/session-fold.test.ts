@@ -5,6 +5,7 @@ import {
   ProjectDeleted,
   ProjectUpdated,
   SessionActivated,
+  ThreadBranched,
   ThreadCreated,
   ThreadContextWindow,
   TurnUsage,
@@ -281,6 +282,58 @@ describe('foldThreadCwd', () => {
       icon: undefined,
     })
     expect(foldThreadCwd([project, thread, moved], 't1')).toBe('/tmp/moved')
+  })
+
+  it('prefers the cwd a creation carried over the project checkout', () => {
+    const project = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+      icon: undefined,
+    })
+    const thread = ThreadCreated.make({
+      ...unsignedTree,
+      id: 'e2',
+      thread: 't1',
+      project: 'p1',
+      cwd: '/tmp/oru/worktrees/one',
+    })
+    expect(foldThreadCwd([project, thread], 't1')).toBe('/tmp/oru/worktrees/one')
+  })
+
+  it('prefers the cwd a branch carried over the creation', () => {
+    const project = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'p1',
+      name: 'oru',
+      cwd: '/tmp/oru',
+      icon: undefined,
+    })
+    const source = ThreadCreated.make({
+      ...unsignedTree,
+      id: 'e2',
+      thread: 't1',
+      project: 'p1',
+    })
+    const fork = ThreadCreated.make({
+      ...unsignedTree,
+      id: 'e3',
+      thread: 't2',
+      project: 'p1',
+    })
+    const branched = ThreadBranched.make({
+      ...unsignedTree,
+      id: 'e4',
+      thread: 't2',
+      fromId: 'e2',
+      summary: undefined,
+      cwd: '/tmp/oru/worktrees/two',
+    })
+    expect(foldThreadCwd([project, source, fork, branched], 't2')).toBe('/tmp/oru/worktrees/two')
+    expect(foldThreadCwd([project, source, fork, branched], 't1')).toBe('/tmp/oru')
   })
 })
 

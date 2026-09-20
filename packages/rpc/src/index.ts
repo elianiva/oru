@@ -6,8 +6,9 @@ export {
   ProjectDetail,
   ProjectRpc,
   ProjectThreadDefaults,
+  WorkspaceInfo,
 } from './project-rpc.ts'
-export { ThreadRpc } from './thread-rpc.ts'
+export { CompactFailed, ThreadRpc, ThreadSummary } from './thread-rpc.ts'
 export { UiRpc } from './ui-rpc.ts'
 export {
   hostRpcPath,

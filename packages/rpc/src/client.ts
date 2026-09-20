@@ -13,10 +13,11 @@ import type {
   UnknownProject,
   UnknownThread,
 } from '@oru/kernel'
+import type { UnknownProvider, WorkspaceFailed } from '@oru/workspace'
 import { UiSnapshot } from '@oru/ui'
 import { HostRpc, ReloadFailed, UnknownPlugin, type ReloadResult } from './host-rpc.ts'
-import { ProjectRpc } from './project-rpc.ts'
-import { ThreadRpc } from './thread-rpc.ts'
+import { ProjectRpc, type WorkspaceInfo } from './project-rpc.ts'
+import { CompactFailed, ThreadRpc, type ThreadSummary } from './thread-rpc.ts'
 import { UiRpc } from './ui-rpc.ts'
 import {
   hostRpcPath,
@@ -74,6 +75,28 @@ export interface ProjectClientContract {
     cwd: string,
     icon?: string,
   ) => Effect.Effect<Project, RelativeCwd | HostUnreachable>
+  readonly workspaces: (
+    project: ProjectId,
+  ) => Effect.Effect<
+    readonly WorkspaceInfo[],
+    UnknownProject | UnknownProvider | WorkspaceFailed | HostUnreachable
+  >
+  readonly createWorkspace: (
+    project: ProjectId,
+    path: string,
+    options?: { readonly branch?: string; readonly provider?: string },
+  ) => Effect.Effect<
+    WorkspaceInfo,
+    UnknownProject | RelativeCwd | UnknownProvider | WorkspaceFailed | HostUnreachable
+  >
+  readonly removeWorkspace: (
+    project: ProjectId,
+    path: string,
+    provider?: string,
+  ) => Effect.Effect<
+    { readonly path: string },
+    UnknownProject | UnknownProvider | WorkspaceFailed | HostUnreachable
+  >
   readonly list: () => Effect.Effect<readonly Project[], HostUnreachable>
   readonly get: (project: ProjectId) => Effect.Effect<Project, UnknownProject | HostUnreachable>
   readonly update: (
@@ -102,11 +125,13 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientC
 export interface ThreadClientContract {
   readonly create: (
     project: ProjectId,
-    configuration?: ThreadConfiguration,
+    configuration?: ThreadConfiguration & { readonly cwd?: string },
   ) => Effect.Effect<
     { readonly threadId: ThreadId; readonly project: Project },
     UnknownProject | HostUnreachable
   >
+  readonly list: (project?: ProjectId) => Effect.Effect<readonly ThreadSummary[], HostUnreachable>
+  readonly wait: (threadId: ThreadId) => Effect.Effect<void, HostUnreachable>
   readonly send: (threadId: ThreadId, text: string) => Effect.Effect<void, HostUnreachable>
   readonly watch: (threadId: ThreadId) => Stream.Stream<SessionEvent, HostUnreachable>
   readonly options: (
@@ -122,7 +147,7 @@ export interface ThreadClientContract {
   readonly compact: (
     threadId: ThreadId,
     instructions?: string,
-  ) => Effect.Effect<void, HostUnreachable>
+  ) => Effect.Effect<void, CompactFailed | HostUnreachable>
   readonly fork: (
     sourceThreadId: ThreadId,
     cwd?: string,
@@ -213,6 +238,49 @@ const reachableFork = <A>(
     ),
   )
 
+const reachableWorkspace = <A>(
+  operation: string,
+  effect: Effect.Effect<
+    A,
+    UnknownProject | UnknownProvider | WorkspaceFailed | RpcClientError.RpcClientError
+  >,
+): Effect.Effect<A, UnknownProject | UnknownProvider | WorkspaceFailed | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError(
+      (error): UnknownProject | UnknownProvider | WorkspaceFailed | HostUnreachable =>
+        isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+const reachableWorkspaceCreate = <A>(
+  operation: string,
+  effect: Effect.Effect<
+    A,
+    UnknownProject | RelativeCwd | UnknownProvider | WorkspaceFailed | RpcClientError.RpcClientError
+  >,
+): Effect.Effect<
+  A,
+  UnknownProject | RelativeCwd | UnknownProvider | WorkspaceFailed | HostUnreachable
+> =>
+  effect.pipe(
+    Effect.mapError(
+      (
+        error,
+      ): UnknownProject | RelativeCwd | UnknownProvider | WorkspaceFailed | HostUnreachable =>
+        isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+const reachableCompact = <A>(
+  operation: string,
+  effect: Effect.Effect<A, CompactFailed | RpcClientError.RpcClientError>,
+): Effect.Effect<A, CompactFailed | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): CompactFailed | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
 const reachableStream = <A>(
   operation: string,
   stream: Stream.Stream<A, RpcClientError.RpcClientError>,
@@ -293,6 +361,20 @@ export const projectClientOf = (
     remove: (project) => reachableDelete('DeleteProject', client.DeleteProject({ project })),
     listDirectory: (path) => reachableDirectory('ListDirectory', client.ListDirectory({ path })),
     detail: (project) => reachableNew('GetProjectDetail', client.GetProjectDetail({ project })),
+    workspaces: (project) =>
+      reachableWorkspace('ListWorkspaces', client.ListWorkspaces({ project })),
+    createWorkspace: (project, path, options) =>
+      reachableWorkspaceCreate(
+        'CreateWorkspace',
+        client.CreateWorkspace({
+          project,
+          path,
+          branch: options?.branch,
+          provider: options?.provider,
+        }),
+      ),
+    removeWorkspace: (project, path, provider) =>
+      reachableWorkspace('RemoveWorkspace', client.RemoveWorkspace({ project, path, provider })),
   })
 
 export const threadClientOf = (
@@ -307,8 +389,11 @@ export const threadClientOf = (
           harness: configuration?.harness,
           model: configuration?.model,
           reasoning: configuration?.reasoning,
+          cwd: configuration?.cwd,
         }),
       ),
+    list: (project) => reachable('ListThreads', client.ListThreads({ project })),
+    wait: (threadId) => reachable('WaitThread', client.WaitThread({ threadId })),
     send: (threadId, text) => reachable('SendMessage', client.SendMessage({ threadId, text })),
     watch: (threadId) => reachableStream('WatchThread', client.WatchThread({ threadId })),
     options: (threadId, options) =>
@@ -331,7 +416,7 @@ export const threadClientOf = (
     watchSignals: (threadId) => reachableStream('WatchSignals', client.WatchSignals({ threadId })),
     stop: (threadId) => reachable('StopThread', client.StopThread({ threadId })),
     compact: (threadId, instructions) =>
-      reachable('CompactThread', client.CompactThread({ threadId, instructions })),
+      reachableCompact('CompactThread', client.CompactThread({ threadId, instructions })),
     fork: (sourceThreadId, cwd) =>
       reachableFork('ForkThread', client.ForkThread({ sourceThreadId, cwd })),
     decide: (threadId, request, decision) =>

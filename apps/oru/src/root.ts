@@ -6,7 +6,13 @@ import { defineMessageUnion } from 'foldkit/message'
 import { evo } from 'foldkit/struct'
 import * as Subscription from 'foldkit/subscription'
 import * as Update from 'foldkit/update'
-import { ProjectClient, ThreadClient, UiClient, type HostUnreachable } from '@oru/rpc'
+import {
+  ProjectClient,
+  ThreadClient,
+  ThreadSummary,
+  UiClient,
+  type HostUnreachable,
+} from '@oru/rpc'
 import {
   ComposerOptions,
   ComposerOptionsLoaded,
@@ -15,13 +21,14 @@ import {
   ThreadOptions,
   UI_SDK_MAJOR,
   UiSnapshot,
+  WorkspaceChoice,
   decodeUiDefRecord,
   decodeUiOutMessage,
   type ComposerProps,
   type ConversationProps,
   type UiSignal,
 } from '@oru/ui'
-import { PluginId, isPersonalProjectId } from '@oru/kernel'
+import { PluginId, SessionEvent, isPersonalProjectId } from '@oru/kernel'
 import * as LeftPanel from './left-panel.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
@@ -38,7 +45,6 @@ import {
   titleForRoute,
   urlToAppRoute,
 } from './route.ts'
-import { emptyThreadSections } from './threads.ts'
 
 export const Submit = Schema.Struct({
   pending: Schema.Boolean,
@@ -80,6 +86,9 @@ export const Model = Schema.Struct({
   options: ComposerOptions,
   settings: General.Model,
   submit: Submit,
+  workspaces: Schema.Array(WorkspaceChoice),
+  threadEvents: Schema.Record(Schema.String, Schema.Array(SessionEvent)),
+  threadList: Schema.Array(ThreadSummary),
 })
 export type Model = typeof Model.Type
 
@@ -116,6 +125,12 @@ export const Message = defineMessageUnion({
   ThreadMessageSent: {},
   ThreadMessageFailed: { reason: Schema.String, text: Schema.String },
   DismissedSubmitError: {},
+  WorkspacesArrived: { workspaces: Schema.Array(WorkspaceChoice) },
+  ThreadsArrived: { threads: Schema.Array(ThreadSummary) },
+  ThreadEventArrived: { threadId: Schema.String, event: SessionEvent },
+  ThreadWatchReset: { threadId: Schema.UndefinedOr(Schema.String) },
+  ApprovalSent: {},
+  ApprovalFailed: { reason: Schema.String },
 })
 export type Message = typeof Message.Type
 
@@ -497,20 +512,79 @@ export const LoadBundle = Command.define('LoadBundle', {
  * with no second command. Provisioning stays on the host, which opens the
  * thread on creation.
  */
+export const LoadWorkspaces = Command.define('LoadWorkspaces', {
+  args: { project: Schema.NonEmptyString },
+  messages: [Message.WorkspacesArrived],
+  execute: ({ project }) =>
+    ProjectClient.pipe(
+      Effect.flatMap((client) => client.workspaces(project)),
+      Effect.map((listed) =>
+        Message.WorkspacesArrived({
+          workspaces: listed.map((entry) => ({
+            path: entry.path,
+            branch: entry.branch,
+            isCurrent: entry.isCurrent,
+            provider: entry.provider,
+          })),
+        }),
+      ),
+      Effect.catch(() => Effect.succeed(Message.WorkspacesArrived({ workspaces: [] }))),
+    ),
+})
+
+export const LoadThreads = Command.define('LoadThreads', {
+  messages: [Message.ThreadsArrived],
+  execute: ThreadClient.pipe(
+    Effect.flatMap((client) => client.list()),
+    Effect.map((threads) => Message.ThreadsArrived({ threads: [...threads] })),
+    Effect.catch(() => Effect.succeed(Message.ThreadsArrived({ threads: [] }))),
+  ),
+})
+
+export const DecideApproval = Command.define('DecideApproval', {
+  args: {
+    threadId: Schema.NonEmptyString,
+    request: Schema.NonEmptyString,
+    decision: Schema.Literals(['approve', 'deny']),
+  },
+  messages: [Message.ApprovalSent, Message.ApprovalFailed],
+  execute: ({ threadId, request, decision }) =>
+    ThreadClient.pipe(
+      Effect.flatMap((client) => client.decide(threadId, request, decision)),
+      Effect.map(() => Message.ApprovalSent()),
+      Effect.catch((error) =>
+        Effect.succeed(Message.ApprovalFailed({ reason: `${error.operation}: ${error.reason}` })),
+      ),
+    ),
+})
+
+interface CreateThreadConfig {
+  harness?: string
+  model?: string
+  reasoning?: string
+  cwd?: string
+}
+
 export const CreateThreadAndSend = Command.define('CreateThreadAndSend', {
   args: {
     project: Schema.NonEmptyString,
     harness: Schema.UndefinedOr(Schema.String),
     model: Schema.UndefinedOr(Schema.String),
     reasoning: Schema.UndefinedOr(Schema.String),
+    cwd: Schema.optional(Schema.String),
     text: Schema.NonEmptyString,
   },
   messages: [Message.ThreadCreated, Message.ThreadCreateFailed],
-  execute: ({ project, harness, model, reasoning, text }) =>
+  execute: ({ project, harness, model, reasoning, cwd, text }) =>
     ThreadClient.pipe(
       Effect.flatMap((client) =>
         Effect.gen(function* () {
-          const created = yield* client.create(project, { harness, model, reasoning })
+          const configuration: CreateThreadConfig = {}
+          if (harness !== undefined) configuration.harness = harness
+          if (model !== undefined) configuration.model = model
+          if (reasoning !== undefined) configuration.reasoning = reasoning
+          if (cwd !== undefined) configuration.cwd = cwd
+          const created = yield* client.create(project, configuration)
           yield* client.send(created.threadId, text)
           return Message.ThreadCreated({ threadId: created.threadId })
         }),
@@ -624,8 +698,11 @@ export const init = (url: Url.Url) => {
       options: ComposerOptionsLoading.make({}),
       settings: General.init(),
       submit: Submit.make({ pending: false, error: undefined }),
+      workspaces: [],
+      threadEvents: {},
+      threadList: [],
     },
-    commands: [ListProjects(), ...pickerLoad(route), ...detailLoad(route)],
+    commands: [ListProjects(), LoadThreads(), ...pickerLoad(route), ...detailLoad(route)],
   }
 }
 
@@ -712,6 +789,7 @@ const composerPropsOf = (model: Model): ComposerProps => {
   const projects = [...Projects.projectsOf(model.projects)]
   const projectsLoading = Projects.isLoading(model.projects)
   const options = model.options
+  const workspaces = [...model.workspaces]
   const threadId = Option.getOrUndefined(selectedThread(model))
   if (threadId === undefined) {
     return {
@@ -719,10 +797,43 @@ const composerPropsOf = (model: Model): ComposerProps => {
       projects,
       projectsLoading,
       options,
+      workspaces,
       headline: 'What should we build in oru?',
     }
   }
-  return { placeholder, projects, projectsLoading, options, threadId }
+  return { placeholder, projects, projectsLoading, options, workspaces, threadId }
+}
+
+const conversationPropsOf = (model: Model): ConversationProps => {
+  const threadId = Option.getOrUndefined(selectedThread(model))
+  if (threadId === undefined) return { events: [], pending: false }
+  const events = model.threadEvents[threadId] ?? []
+  const pending = model.submit.pending
+  return { threadId, events: [...events], pending }
+}
+
+const sectionsOf = (model: Model) => {
+  const projects = new Map(Projects.projectsOf(model.projects).map((entry) => [entry.id, entry]))
+  const rows = model.threadList.map((entry) => ({
+    id: entry.thread,
+    title: entry.title,
+    project: {
+      id: entry.project,
+      name: projects.get(entry.project)?.name ?? entry.project.slice(0, 8),
+      iconUrl: Option.none<string>(),
+    },
+    location: {
+      kind: 'workspace' as const,
+      name: entry.cwd === undefined ? '' : (entry.cwd.split('/').at(-1) ?? entry.cwd),
+    },
+    status: 'idle' as const,
+    isUnread: false,
+    activity: 0,
+    updatedAt: entry.updatedAt,
+    children: [],
+  }))
+  if (rows.length === 0) return []
+  return [{ id: 'active', label: 'Threads', rows }]
 }
 
 const readyComposer = (
@@ -786,6 +897,7 @@ const submitIntent = (
     readonly harness?: string | undefined
     readonly model?: string | undefined
     readonly reasoning?: string | undefined
+    readonly cwd?: string | undefined
     readonly text: string
   },
 ): UpdateReturn => {
@@ -812,17 +924,26 @@ const submitIntent = (
   if (projectId === undefined) {
     return { model: submitFailed(model, 'Select a project first.', intent.text) }
   }
+  const createArgs =
+    intent.cwd === undefined
+      ? {
+          project: projectId,
+          harness: intent.harness,
+          model: intent.model,
+          reasoning: intent.reasoning,
+          text: intent.text,
+        }
+      : {
+          project: projectId,
+          harness: intent.harness,
+          model: intent.model,
+          reasoning: intent.reasoning,
+          cwd: intent.cwd,
+          text: intent.text,
+        }
   return {
     model: submitting(model),
-    commands: [
-      CreateThreadAndSend({
-        project: projectId,
-        harness: intent.harness,
-        model: intent.model,
-        reasoning: intent.reasoning,
-        text: intent.text,
-      }),
-    ],
+    commands: [CreateThreadAndSend(createArgs)],
   }
 }
 
@@ -846,6 +967,7 @@ const foldAreaOutMessage = (
         harness: submitted.harness,
         model: submitted.model,
         reasoning: submitted.reasoning,
+        cwd: submitted.cwd,
         text: submitted.text,
       })
     }
@@ -886,6 +1008,18 @@ const foldAreaOutMessage = (
     }
     case 'RequestedCreateDialog':
       return Update.combine(model, [(next) => foldProjects(next, Projects.Message.ClickedCreate())])
+    case 'DecideApproval': {
+      const approval = decoded.value
+      return Option.match(selectedThread(model), {
+        onNone: () => ({ model }),
+        onSome: (threadId) => ({
+          model,
+          commands: [
+            DecideApproval({ threadId, request: approval.request, decision: approval.decision }),
+          ],
+        }),
+      })
+    }
   }
 }
 
@@ -914,19 +1048,20 @@ const foldConversationUi = (
   const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return { model }
   const result = def.update(outlet.childModel, childMessage)
-  if (result.model === outlet.childModel) return { model }
-  return {
-    model: evo(model, {
-      conversationUi: () =>
-        OutletReady.make({
-          plugin: outlet.plugin,
-          defId: outlet.defId,
-          slot: outlet.slot,
-          address: outlet.address,
-          childModel: result.model,
-        }),
-    }),
+  const advanced = evo(model, {
+    conversationUi: () =>
+      OutletReady.make({
+        plugin: outlet.plugin,
+        defId: outlet.defId,
+        slot: outlet.slot,
+        address: outlet.address,
+        childModel: result.model,
+      }),
+  })
+  if (result.outMessage === undefined) {
+    return result.model === outlet.childModel ? { model } : { model: advanced }
   }
+  return foldAreaOutMessage(advanced, result.outMessage)
 }
 
 type UiSlot = 'composer' | 'conversation'
@@ -1048,14 +1183,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             Projects.Message.OpenedDetail({ project: route.projectId }),
           ).model
         : model.projects
+      const cleared =
+        AppRoute.guards.Thread(route) && model.threadEvents[route.threadId] === undefined
+          ? evo(model, {
+              route: () => route,
+              options: () => ComposerOptionsLoading.make({}),
+              projects: () => projects,
+              threadEvents: (prev) => ({ ...prev, [route.threadId]: [] }),
+            })
+          : evo(model, {
+              route: () => route,
+              options: () => ComposerOptionsLoading.make({}),
+              projects: () => projects,
+            })
       return {
-        model: syncComposer(
-          evo(model, {
-            route: () => route,
-            options: () => ComposerOptionsLoading.make({}),
-            projects: () => projects,
-          }),
-        ),
+        model: syncComposer(cleared),
         commands: [...pickerLoad(route), ...detailLoad(route)],
       }
     },
@@ -1079,8 +1221,48 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         return { ...combined, model: syncComposer(combined.model) }
       }
       const combined = foldProjects(model, childMessage)
-      return { ...combined, model: syncComposer(combined.model) }
+      const synced = syncComposer(combined.model)
+      const pending = 'commands' in combined ? combined.commands : undefined
+      if (Predicate.isTagged(childMessage, 'ProjectsArrived')) {
+        const first = childMessage.projects[0]
+        const extra =
+          first === undefined
+            ? [LoadThreads()]
+            : [LoadWorkspaces({ project: first.id }), LoadThreads()]
+        return { model: synced, commands: [...(pending ?? []), ...extra] }
+      }
+      if (Predicate.isTagged(childMessage, 'ProjectCreated')) {
+        return {
+          model: synced,
+          commands: [
+            ...(pending ?? []),
+            LoadWorkspaces({ project: childMessage.project.id }),
+            LoadThreads(),
+          ],
+        }
+      }
+      return { ...combined, model: synced }
     },
+    WorkspacesArrived: ({ workspaces }) => ({
+      model: syncComposer(evo(model, { workspaces: () => [...workspaces] })),
+    }),
+    ThreadsArrived: ({ threads }) => ({ model: evo(model, { threadList: () => [...threads] }) }),
+    ThreadEventArrived: ({ threadId, event }) => ({
+      model: evo(model, {
+        threadEvents: (prev) => ({ ...prev, [threadId]: [...(prev[threadId] ?? []), event] }),
+      }),
+    }),
+    ThreadWatchReset: ({ threadId }) => ({
+      model:
+        threadId === undefined
+          ? model
+          : evo(model, { threadEvents: (prev) => ({ ...prev, [threadId]: [] }) }),
+      commands: threadId === undefined ? [] : [LoadThreadOptions({ threadId, refresh: false })],
+    }),
+    ApprovalSent: () => ({ model }),
+    ApprovalFailed: ({ reason }) => ({
+      model: evo(model, { submit: () => ({ pending: false, error: reason }) }),
+    }),
     GotComposerUi: ({ message: childMessage }) => foldComposerUi(model, childMessage),
     GotConversationUi: ({ message: childMessage }) => foldConversationUi(model, childMessage),
     HostOptionsArrived: ({ options }) => ({
@@ -1206,7 +1388,32 @@ const uiSubs = Subscription.make<Model, Message, UiClient>()((entry) => ({
   ),
 }))
 
-export const subscriptions = Subscription.aggregate(shellSubs, threadSubs, uiSubs)
+const threadWatchSubs = Subscription.make<Model, Message, ThreadClient>()((entry) => ({
+  threadWatch: entry(
+    { threadId: Schema.String },
+    {
+      modelToDependencies: (model) => ({
+        threadId: Option.getOrUndefined(selectedThread(model)) ?? '',
+      }),
+      dependenciesToStream: ({ threadId }): Stream.Stream<Message, never, ThreadClient> =>
+        threadId === ''
+          ? Stream.empty
+          : Stream.unwrap(
+              Effect.map(Effect.serviceOption(ThreadClient), (option) =>
+                Option.match(option, {
+                  onNone: (): Stream.Stream<Message, never, ThreadClient> => Stream.empty,
+                  onSome: (client) =>
+                    Stream.map(client.watch(threadId), (event): Message =>
+                      Message.ThreadEventArrived({ threadId, event }),
+                    ).pipe(Stream.catch(() => Stream.empty)),
+                }),
+              ),
+            ),
+    },
+  ),
+}))
+
+export const subscriptions = Subscription.aggregate(shellSubs, threadSubs, uiSubs, threadWatchSubs)
 
 /**
  * One outlet: the assigned def rendering through the app's boundary, or
@@ -1233,8 +1440,7 @@ const conversationOutlet = (model: Model, h: HtmlBuilder<Message>): Html | undef
   if (!Predicate.isTagged(outlet, 'Ready')) return undefined
   const def = getDef(outlet.plugin, outlet.defId, outlet.address)
   if (def === undefined) return undefined
-  const threadId = Option.getOrUndefined(selectedThread(model))
-  const props: ConversationProps = threadId === undefined ? {} : { threadId }
+  const props: ConversationProps = conversationPropsOf(model)
   // SAFETY: see composer-outlet above.
   return h.submodel({
     slotId: 'conversation-outlet',
@@ -1316,7 +1522,7 @@ const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
     model: model.threads,
     view: LeftPanel.view,
     viewInputs: {
-      sections: emptyThreadSections,
+      sections: sectionsOf(model),
       selected: selectedThread(model),
       projects: Projects.projectsOf(model.projects).map((project) => ({
         id: project.id,
@@ -1327,7 +1533,7 @@ const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
   })
 
 const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
-  RightPanel.view(selectedThread(model), { sections: emptyThreadSections }, h)
+  RightPanel.view(selectedThread(model), { sections: sectionsOf(model) }, h)
 
 const shellView = (model: Model, main: Html, h: HtmlBuilder<Message>): Html =>
   h.submodel({

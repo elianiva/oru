@@ -5,6 +5,29 @@ import { hostname } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { Effect, Option, Predicate } from 'effect'
 import {
+  UnknownProvider,
+  Workspaces,
+  type WorkspaceEntry,
+  type WorkspacesContract,
+} from '@oru/workspace'
+import type { Host } from '@oru/kernel'
+
+/** The provider a call names, or the host default. Unknown names fail typed. */
+const resolveWorkspaceProvider = (
+  registry: WorkspacesContract,
+  provider: string | undefined,
+): Effect.Effect<WorkspaceEntry, UnknownProvider> =>
+  Effect.gen(function* () {
+    if (provider !== undefined) {
+      const named = yield* registry.get(provider)
+      if (Option.isSome(named)) return named.value
+      return yield* new UnknownProvider({ provider })
+    }
+    const preferred = yield* registry.preferred()
+    if (Option.isSome(preferred)) return preferred.value
+    return yield* new UnknownProvider({ provider: '(default)' })
+  })
+import {
   DirectoryMissing,
   NotDirectory,
   PersonalProjectLocked,
@@ -33,7 +56,9 @@ const keepProjectError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Predicate.isTagged(error, 'UnknownProject') ||
       Predicate.isTagged(error, 'PersonalProjectLocked') ||
       Predicate.isTagged(error, 'DirectoryMissing') ||
-      Predicate.isTagged(error, 'NotDirectory')
+      Predicate.isTagged(error, 'NotDirectory') ||
+      Predicate.isTagged(error, 'UnknownProvider') ||
+      Predicate.isTagged(error, 'WorkspaceFailed')
         ? Effect.fail(error)
         : Effect.die(error),
     ),
@@ -44,7 +69,10 @@ const blankIcon = (icon: string | undefined): string | undefined => {
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed
 }
 
-export const projectRpcHandlers = (options?: { readonly personalCwd?: string | undefined }) => {
+export const projectRpcHandlers = (
+  host: Host,
+  options?: { readonly personalCwd?: string | undefined },
+) => {
   const personalCwd = options?.personalCwd
   const seedPersonal =
     personalCwd === undefined
@@ -279,6 +307,72 @@ export const projectRpcHandlers = (options?: { readonly personalCwd?: string | u
           return parent === resolved
             ? { path: resolved, entries }
             : { path: resolved, parent, entries }
+        }),
+      ),
+    ListWorkspaces: (payload: { readonly project: ProjectId }) =>
+      keepProjectError(
+        Effect.gen(function* () {
+          const log = yield* SessionLog
+          const named = foldProject(yield* log.entries, payload.project)
+          if (named === undefined) {
+            return yield* new UnknownProject({ project: payload.project })
+          }
+          const registry = yield* host.service(Workspaces)
+          const entries = yield* registry.list()
+          // Best effort across strategies: a provider that cannot read this
+          // checkout reports nothing instead of failing the whole listing.
+          const infos = yield* Effect.forEach(entries, (entry) =>
+            entry.provider.list(payload.project, named.cwd).pipe(Effect.option),
+          )
+          return infos.flatMap((info) => (Option.isSome(info) ? [...info.value] : []))
+        }),
+      ),
+    CreateWorkspace: (payload: {
+      readonly project: ProjectId
+      readonly path: string
+      readonly branch?: string | undefined
+      readonly provider?: string | undefined
+    }) =>
+      keepProjectError(
+        Effect.gen(function* () {
+          if (!isAbsolute(payload.path)) {
+            return yield* new RelativeCwd({ cwd: payload.path })
+          }
+          const log = yield* SessionLog
+          const named = foldProject(yield* log.entries, payload.project)
+          if (named === undefined) {
+            return yield* new UnknownProject({ project: payload.project })
+          }
+          const entry = yield* resolveWorkspaceProvider(
+            yield* host.service(Workspaces),
+            payload.provider,
+          )
+          return yield* entry.provider.provision(
+            payload.project,
+            named.cwd,
+            payload.path,
+            payload.branch === undefined ? undefined : { branch: payload.branch },
+          )
+        }),
+      ),
+    RemoveWorkspace: (payload: {
+      readonly project: ProjectId
+      readonly path: string
+      readonly provider?: string | undefined
+    }) =>
+      keepProjectError(
+        Effect.gen(function* () {
+          const log = yield* SessionLog
+          const named = foldProject(yield* log.entries, payload.project)
+          if (named === undefined) {
+            return yield* new UnknownProject({ project: payload.project })
+          }
+          const entry = yield* resolveWorkspaceProvider(
+            yield* host.service(Workspaces),
+            payload.provider,
+          )
+          const removed = yield* entry.provider.remove(payload.project, named.cwd, payload.path)
+          return { path: removed }
         }),
       ),
   }

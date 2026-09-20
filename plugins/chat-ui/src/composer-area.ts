@@ -11,7 +11,7 @@ import * as BranchPicker from './branch-picker.ts'
 import * as Composer from './composer.ts'
 import * as ModelPicker from './model-picker.ts'
 import * as ProjectPicker from './project-picker.ts'
-import * as WorktreePicker from './worktree-picker.ts'
+import * as WorkspacePicker from './workspace-picker.ts'
 
 /**
  * The composer slot's definition: the draft, every picker, and the submit
@@ -26,7 +26,7 @@ export const Model = Schema.Struct({
   composer: Composer.Model,
   picker: ModelPicker.Model,
   projectPicker: ProjectPicker.Model,
-  worktree: WorktreePicker.Model,
+  workspace: WorkspacePicker.Model,
   branch: BranchPicker.Model,
   access: AccessPicker.Model,
   /**
@@ -46,7 +46,7 @@ export const Message = defineMessageUnion({
   GotComposer: { message: Composer.Message },
   GotPicker: { message: ModelPicker.Message },
   GotProjectPicker: { message: ProjectPicker.Message },
-  GotWorktree: { message: WorktreePicker.Message },
+  GotWorkspace: { message: WorkspacePicker.Message },
   GotBranch: { message: BranchPicker.Message },
   GotAccess: { message: AccessPicker.Message },
 })
@@ -63,6 +63,7 @@ export const OutMessage = defineMessageUnion({
     harness: Schema.UndefinedOr(Schema.String),
     model: Schema.UndefinedOr(Schema.String),
     reasoning: Schema.UndefinedOr(Schema.String),
+    cwd: Schema.optional(Schema.String),
     text: Schema.NonEmptyString,
   },
   OptionsRequested: { refresh: Schema.Boolean },
@@ -80,7 +81,7 @@ export const init = (): Model => ({
   composer: Composer.init(),
   picker: ModelPicker.init(),
   projectPicker: ProjectPicker.init(),
-  worktree: WorktreePicker.init(),
+  workspace: WorkspacePicker.init(),
   branch: BranchPicker.init(),
   access: AccessPicker.init(),
   mounted: false,
@@ -92,15 +93,26 @@ type AreaStep = Update.StepWithOutMessage<Model, Message, OutMessage>
 
 const submitIntent = (model: Model, text: string): AreaReturn => {
   const options = ModelPicker.loadedOptions(model.picker)
+  const cwd = WorkspacePicker.selectedCwd(model.workspace)
   return {
     model,
-    outMessage: OutMessage.Submitted({
-      project: model.projectPicker.selected,
-      harness: model.picker.selection.harness ?? options?.harness,
-      model: model.picker.selection.model ?? options?.config.model,
-      reasoning: model.picker.selection.reasoning ?? options?.config.reasoning,
-      text,
-    }),
+    outMessage:
+      cwd === undefined
+        ? OutMessage.Submitted({
+            project: model.projectPicker.selected,
+            harness: model.picker.selection.harness ?? options?.harness,
+            model: model.picker.selection.model ?? options?.config.model,
+            reasoning: model.picker.selection.reasoning ?? options?.config.reasoning,
+            text,
+          })
+        : OutMessage.Submitted({
+            project: model.projectPicker.selected,
+            harness: model.picker.selection.harness ?? options?.harness,
+            model: model.picker.selection.model ?? options?.config.model,
+            reasoning: model.picker.selection.reasoning ?? options?.config.reasoning,
+            cwd,
+            text,
+          }),
   }
 }
 
@@ -162,11 +174,12 @@ const foldProjectPicker = Update.foldChild({
     }),
 })
 
-const foldWorktree = Update.foldChild({
-  update: WorktreePicker.update,
-  read: (model: Model) => Option.some(model.worktree),
-  write: (model, nextChild) => evo(model, { worktree: () => nextChild }),
-  toParentMessage: (message: WorktreePicker.Message) => Message.GotWorktree({ message }),
+const foldWorkspace = Update.foldChild({
+  update: WorkspacePicker.update,
+  read: (model: Model) => Option.some(model.workspace),
+  write: (model, nextChild) => evo(model, { workspace: () => nextChild }),
+  toParentMessage: (message: WorkspacePicker.Message) => Message.GotWorkspace({ message }),
+  foldOutMessage: (): AreaStep => (model) => ({ model }),
 })
 
 const foldBranch = Update.foldChild({
@@ -188,7 +201,7 @@ export const update = (model: Model, message: Message): AreaReturn =>
     GotComposer: ({ message: childMessage }) => foldComposer(model, childMessage),
     GotPicker: ({ message: childMessage }) => foldPicker(model, childMessage),
     GotProjectPicker: ({ message: childMessage }) => foldProjectPicker(model, childMessage),
-    GotWorktree: ({ message: childMessage }) => foldWorktree(model, childMessage),
+    GotWorkspace: ({ message: childMessage }) => foldWorkspace(model, childMessage),
     GotBranch: ({ message: childMessage }) => foldBranch(model, childMessage),
     GotAccess: ({ message: childMessage }) => foldAccess(model, childMessage),
   })
@@ -213,10 +226,27 @@ const selectPersonal = (area: Model, ids: readonly string[]): Model =>
  * selection the list no longer carries clears the way a deletion did. An
  * unchanged props value returns the identical model, so memoization holds.
  */
+const workspacePaths = (model: Model): readonly string[] =>
+  model.workspace.workspaces.map((row) => row.path)
+
+const syncWorkspaces = (current: Model, props: ComposerProps): Model => {
+  const rows = props.workspaces.map((row) => ({
+    path: row.path,
+    branch: row.branch,
+    isCurrent: row.isCurrent,
+    provider: row.provider,
+  }))
+  const prev = workspacePaths(current)
+  const next = rows.map((row) => row.path)
+  if (sameIds([...prev], [...next])) return current
+  return foldWorkspace(current, WorkspacePicker.Message.WorkspacesArrived({ workspaces: rows }))
+    .model
+}
+
 export const absorbProps = (model: Model, props: ComposerProps): Model => {
   const ids = props.projects.map((project) => project.id)
   if (model.mounted && props.options === model.seen.options && sameIds(model.seen.projects, ids)) {
-    return model
+    return syncWorkspaces(model, props)
   }
   if (!model.mounted) {
     // Mount is not a creation: every project looks added against the empty
@@ -236,12 +266,13 @@ export const absorbProps = (model: Model, props: ComposerProps): Model => {
         ModelPicker.Message.OptionsFailed({ reason: props.options.reason }),
       ).model
     }
-    return selectPersonal(
+    const mounted = selectPersonal(
       evo(current, {
         seen: () => ({ projects: ids, options: props.options }),
       }),
       ids,
     )
+    return syncWorkspaces(mounted, props)
   }
   let current = model
   if (props.options !== model.seen.options) {
@@ -275,12 +306,13 @@ export const absorbProps = (model: Model, props: ComposerProps): Model => {
       ProjectPicker.Message.ProjectDeleted({ project: selected }),
     ).model
   }
-  return selectPersonal(
+  const settled = selectPersonal(
     evo(current, {
       seen: () => ({ projects: ids, options: props.options }),
     }),
     ids,
   )
+  return syncWorkspaces(settled, props)
 }
 
 /** Deliver a one-shot signal root cannot construct messages for. */
@@ -324,10 +356,10 @@ const composerInputs = (
             toParentMessage: (childMessage) => Message.GotProjectPicker({ message: childMessage }),
           }),
           h.submodel({
-            slotId: 'worktree-picker',
-            model: model.worktree,
-            view: WorktreePicker.view,
-            toParentMessage: (childMessage) => Message.GotWorktree({ message: childMessage }),
+            slotId: 'workspace-picker',
+            model: model.workspace,
+            view: WorkspacePicker.view,
+            toParentMessage: (childMessage) => Message.GotWorkspace({ message: childMessage }),
           }),
           h.submodel({
             slotId: 'branch-picker',

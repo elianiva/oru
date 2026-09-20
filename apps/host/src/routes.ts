@@ -29,7 +29,7 @@ export const rpcRoutes = (
       Layer.provide(HostRpc.toLayer(hostRpcHandlers(host, store))),
     ),
     RpcServer.layerHttp({ group: ProjectRpc, path: projectRpcPath, protocol: 'http' }).pipe(
-      Layer.provide(ProjectRpc.toLayer(projectRpcHandlers(options))),
+      Layer.provide(ProjectRpc.toLayer(projectRpcHandlers(host, options))),
     ),
     RpcServer.layerHttp({ group: ThreadRpc, path: threadRpcPath, protocol: 'http' }).pipe(
       Layer.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),

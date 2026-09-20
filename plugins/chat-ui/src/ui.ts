@@ -28,7 +28,7 @@ export const conversationDef: ChatUiDef<
   Conversation.Model,
   Conversation.Message,
   ConversationProps,
-  never
+  Conversation.OutMessage
 > = {
   slot: 'conversation',
   defId: 'conversation',
