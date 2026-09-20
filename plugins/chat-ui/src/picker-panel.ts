@@ -30,7 +30,7 @@ export const pickerTrigger = <M>(config: PickerTriggerConfig<M>, h: HtmlBuilder<
       onClick: config.message,
       variant: 'ghost',
       size: 'sm',
-      className: 'gap-1.5 px-2 font-normal text-muted-foreground',
+      className: 'h-8 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground',
       attributes: [
         h.DataAttribute(config.hook, ''),
         h.AriaHasPopup('menu'),

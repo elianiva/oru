@@ -1,6 +1,11 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* The composer UI is bundled by the host and loaded at runtime, so the Vite
+   module graph never imports it: name its sources explicitly or their
+   utilities never make it into the stylesheet. */
+@source '../../../plugins/chat-ui/src';
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

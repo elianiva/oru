@@ -68,26 +68,31 @@ export const view = defineView<Model, Message, ViewInputs>((model, inputs, h) =>
               [
                 h.Attribute('data-composer-headline', ''),
                 h.Class(
-                  'mb-6 text-center text-2xl font-medium tracking-tight text-balance md:text-3xl',
+                  'mb-8 text-center text-3xl font-semibold tracking-tight text-balance md:text-4xl',
                 ),
               ],
               [inputs.headline],
             ),
           ]),
       h.div(
-        [h.Attribute('data-composer-card', ''), h.Class('rounded-2xl bg-sidebar border-[0.5px]')],
+        [
+          h.Attribute('data-composer-card', ''),
+          h.Class(
+            'rounded-3xl border border-border/60 bg-card shadow-[0_1px_2px_rgb(0_0_0/0.05),0_16px_40px_-24px_rgb(0_0_0/0.2)]',
+          ),
+        ],
         [
           h.textarea([
             h.Attribute('data-composer-input', ''),
             h.Class(
-              'min-h-24 w-full resize-none bg-transparent px-4 pt-4 text-base outline-none placeholder:text-muted-foreground',
+              'min-h-28 w-full resize-none bg-transparent px-5 pt-5 text-[1.0625rem] leading-relaxed outline-none placeholder:text-muted-foreground',
             ),
             h.Value(model.draft),
             h.Placeholder(inputs.placeholder),
             h.OnInput((value) => Message.ChangedDraft({ value })),
           ]),
           h.div(
-            [h.Class('flex items-center gap-0.5 px-3 pt-1 pb-3')],
+            [h.Class('flex items-center gap-2 px-4 pt-2 pb-4')],
             [
               toLeading(),
               h.div([h.Class('flex-1')], []),
@@ -98,7 +103,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, inputs, h) =>
                   variant: 'secondary',
                   size: 'icon',
                   isDisabled: model.draft.trim().length === 0,
-                  className: 'ml-1 rounded-full',
+                  className: 'ml-1 size-9 rounded-full',
                   attributes: [h.Attribute('data-composer-submit', '')],
                 },
                 [icon(h, ArrowUp, 'size-4')],
@@ -111,7 +116,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, inputs, h) =>
       h.div(
         [
           h.Attribute('data-composer-context', ''),
-          h.Class('mt-2 flex flex-wrap items-center gap-0.5'),
+          h.Class('mt-3 flex flex-wrap items-center gap-x-1 gap-y-1.5'),
         ],
         [toChipsLeft(), h.div([h.Class('flex-1')], []), toChipsRight()],
       ),

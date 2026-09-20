@@ -294,7 +294,7 @@ const composerInputs = (
       }),
     toChipsLeft: () =>
       h.div(
-        [h.Class('flex items-center gap-0.5')],
+        [h.Class('flex flex-wrap items-center gap-1')],
         [
           h.submodel({
             slotId: 'project-picker',

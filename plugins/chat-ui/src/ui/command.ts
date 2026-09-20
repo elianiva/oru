@@ -5,15 +5,15 @@ import * as Dom from 'foldkit/dom'
 import * as Update from 'foldkit/update'
 import { defineMessageUnion } from 'foldkit/message'
 import { defineView } from 'foldkit/submodel'
-import * as Dialog from './dialog'
-import { commandScore } from './command-score'
+import * as Dialog from './dialog.ts'
+import { commandScore } from './command-score.ts'
 
 import type { Attribute, Html, HtmlBuilder, KeyboardModifiers } from 'foldkit/html'
 
 import { cn } from '../lib/utils.ts'
 import { icon } from '../lib/icons.ts'
 import { Check, Search } from 'lucide'
-import { inputGroup, inputGroupAddon, inputGroupInput } from './input-group'
+import { inputGroup, inputGroupAddon, inputGroupInput } from './input-group.ts'
 
 type Child = Html | string
 

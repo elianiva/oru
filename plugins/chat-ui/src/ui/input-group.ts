@@ -1,9 +1,9 @@
 import type { Attribute, Html, HtmlBuilder } from 'foldkit/html'
 
 import { cn } from '../lib/utils.ts'
-import { button, type ButtonConfig } from './button'
-import { inputClass } from './input'
-import { textareaClass } from './textarea'
+import { button, type ButtonConfig } from './button.ts'
+import { inputClass } from './input.ts'
+import { textareaClass } from './textarea.ts'
 
 type Child = Html | string
 
