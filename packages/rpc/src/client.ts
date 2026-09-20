@@ -13,7 +13,7 @@ import type {
   UnknownThread,
 } from '@oru/kernel'
 import { UiSnapshot } from '@oru/ui'
-import { HostRpc } from './host-rpc.ts'
+import { HostRpc, ReloadFailed, UnknownPlugin, type ReloadResult } from './host-rpc.ts'
 import { ProjectRpc } from './project-rpc.ts'
 import { ThreadRpc } from './thread-rpc.ts'
 import { UiRpc } from './ui-rpc.ts'
@@ -56,6 +56,16 @@ export interface UiClientContract {
 }
 
 export class UiClient extends Context.Service<UiClient, UiClientContract>()('oru/UiClient') {}
+
+export interface PluginReloadContract {
+  readonly reload: (
+    specifier: string,
+  ) => Effect.Effect<ReloadResult, UnknownPlugin | ReloadFailed | HostUnreachable>
+}
+
+export class PluginReloadClient extends Context.Service<PluginReloadClient, PluginReloadContract>()(
+  'oru/PluginReloadClient',
+) {}
 
 export interface ProjectClientContract {
   readonly create: (
@@ -221,6 +231,33 @@ export const uiClientOf = (
     watch: reachableStream('WatchUi', client.WatchUi()),
   })
 
+const reachableReload = <A>(
+  operation: string,
+  effect: Effect.Effect<A, UnknownPlugin | ReloadFailed | RpcClientError.RpcClientError>,
+): Effect.Effect<A, UnknownPlugin | ReloadFailed | HostUnreachable> =>
+  effect.pipe(
+    Effect.mapError((error): UnknownPlugin | ReloadFailed | HostUnreachable =>
+      isTransportError(error) ? lostHost(operation, error) : error,
+    ),
+  )
+
+export const pluginReloadClientOf = (
+  client: RpcClient.FromGroup<typeof HostRpc, RpcClientError.RpcClientError>,
+): Layer.Layer<PluginReloadClient> =>
+  Layer.succeed(PluginReloadClient, {
+    reload: (specifier) => reachableReload('ReloadPlugin', client.ReloadPlugin({ specifier })),
+  })
+
+export const reloadFor = (hostUrl: string): Layer.Layer<PluginReloadClient> =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const host = yield* RpcClient.make(HostRpc).pipe(
+        Effect.provide(protocolFor(`${hostUrl}${hostRpcPath}`)),
+      )
+      return pluginReloadClientOf(host)
+    }),
+  )
+
 export const projectClientOf = (
   client: RpcClient.FromGroup<typeof ProjectRpc, RpcClientError.RpcClientError>,
 ): Layer.Layer<ProjectClient> =>
@@ -299,7 +336,7 @@ export const threadClientOf = (
  */
 export const clientsFor = (
   hostUrl: string,
-): Layer.Layer<GraphRpc | ProjectClient | ThreadClient | UiClient> =>
+): Layer.Layer<GraphRpc | ProjectClient | ThreadClient | UiClient | PluginReloadClient> =>
   Layer.unwrap(
     Effect.gen(function* () {
       const host = yield* RpcClient.make(HostRpc).pipe(
@@ -319,6 +356,7 @@ export const clientsFor = (
         projectClientOf(projects),
         threadClientOf(thread),
         uiClientOf(ui),
+        pluginReloadClientOf(host),
       )
     }),
   )

@@ -1,4 +1,4 @@
-export { HostRpc } from './host-rpc.ts'
+export { HostRpc, ReloadFailed, ReloadResult, UnknownPlugin } from './host-rpc.ts'
 export {
   Checkout,
   DirectoryEntry,
@@ -19,15 +19,19 @@ export {
 export {
   clientsFor,
   graphRpcOf,
+  pluginReloadClientOf,
   projectClientOf,
+  reloadFor,
   threadClientOf,
   uiClientOf,
   GraphRpc,
   HostUnreachable,
+  PluginReloadClient,
   ProjectClient,
   ThreadClient,
   UiClient,
   type GraphRpcContract,
+  type PluginReloadContract,
   type ProjectClientContract,
   type ThreadClientContract,
   type UiClientContract,
