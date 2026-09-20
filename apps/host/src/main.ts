@@ -18,6 +18,7 @@ import {
   listLines,
   loadFileConfig,
   openSettings,
+  personalDirOf,
   piEnvOf,
   setFileKey,
   unsetFileKey,
@@ -232,6 +233,7 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             hostname: settings.hostname.value,
             port: settings.port.value,
             journal: settings.journal.value,
+            personalCwd: personalDirOf(settings.home.value),
             ui: {
               sources,
               overrides: {

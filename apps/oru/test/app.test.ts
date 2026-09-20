@@ -715,6 +715,33 @@ describe('composer', () => {
     )
   })
 
+  it('sends a Personal pick even before the host list arrives', () => {
+    const typed = update(
+      withStubs(init(homeUrl).model),
+      Message.GotComposerUi({
+        message: StubComposer.StubMessage.ChangedDraft({ value: 'hello personal' }),
+      }),
+    )
+    const picked = update(
+      typed.model,
+      Message.GotComposerUi({
+        message: StubComposer.StubMessage.SelectedOption({ option: 'personal' }),
+      }),
+    )
+    const submitted = update(
+      picked.model,
+      Message.GotComposerUi({ message: StubComposer.StubMessage.ClickedSubmit() }),
+    )
+    expect(submitted.commands?.[0]?.name).toBe('CreateThreadAndSend')
+    expect(submitted.commands?.[0]?.args).toEqual({
+      project: 'personal',
+      harness: 'pi',
+      model: 'muse/claude-1.3-contributor',
+      reasoning: 'high',
+      text: 'hello personal',
+    })
+  })
+
   it('creates the thread with the def configuration and navigates to it', () => {
     const ready = withStubs(listOne())
 

@@ -21,7 +21,7 @@ import {
   type ConversationProps,
   type UiSignal,
 } from '@oru/ui'
-import { PluginId } from '@oru/kernel'
+import { PluginId, isPersonalProjectId } from '@oru/kernel'
 import * as LeftPanel from './left-panel.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
@@ -309,6 +309,9 @@ export const DeleteProject = Command.define('DeleteProject', {
       ),
       Effect.catchTags({
         UnknownProject: () =>
+          Effect.succeed(Message.GotProjects({ message: Projects.Message.DeleteRefused() })),
+        // The Personal row stays: refusing loudly would read as an error for a choice the UI offers.
+        PersonalProjectLocked: () =>
           Effect.succeed(Message.GotProjects({ message: Projects.Message.DeleteRefused() })),
         HostUnreachable: (error) => Effect.succeed(didNotAnswer(error)),
       }),
@@ -772,7 +775,9 @@ const submitFailed = (model: Model, reason: string, text: string): Model =>
 /**
  * The intent chat-ui owns, executed here. The picks travel with the text;
  * the project id resolves against the host list the way the picker's
- * fallback did (picked-while-listed, otherwise the host's first).
+ * fallback did (picked-while-listed, otherwise the host's first). A pick of
+ * Personal resolves even when the list has not arrived yet: the host seeds
+ * it, so the submit trusts the id instead of failing on no project.
  */
 const submitIntent = (
   model: Model,
@@ -795,18 +800,23 @@ const submitIntent = (
     }
   }
   const projects = Projects.projectsOf(model.projects)
-  const project =
+  const picked =
     (intent.project !== undefined
       ? projects.find((entry) => entry.id === intent.project)
       : undefined) ?? projects[0]
-  if (project === undefined) {
+  const projectId =
+    picked?.id ??
+    (intent.project !== undefined && isPersonalProjectId(intent.project)
+      ? intent.project
+      : undefined)
+  if (projectId === undefined) {
     return { model: submitFailed(model, 'Select a project first.', intent.text) }
   }
   return {
     model: submitting(model),
     commands: [
       CreateThreadAndSend({
-        project: project.id,
+        project: projectId,
         harness: intent.harness,
         model: intent.model,
         reasoning: intent.reasoning,

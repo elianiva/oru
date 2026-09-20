@@ -68,6 +68,14 @@ export class UnknownProject extends Schema.TaggedError<UnknownProject>()('Unknow
   project: ProjectId,
 }) {}
 
+/** The Personal singleton answers reads but refuses deletion: chat without a project must survive. */
+export class PersonalProjectLocked extends Schema.TaggedError<PersonalProjectLocked>()(
+  'PersonalProjectLocked',
+  {
+    project: ProjectId,
+  },
+) {}
+
 export class UnknownThread extends Schema.TaggedError<UnknownThread>()('UnknownThread', {
   thread: ThreadId,
 }) {}

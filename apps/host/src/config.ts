@@ -109,6 +109,8 @@ export const configPath = (home: string): string => join(home, 'config.json')
 
 export const dataDirOf = (home: string): string => join(home, 'data')
 
+export const personalDirOf = (home: string): string => join(dataDirOf(home), 'personal')
+
 export const defaultJournalOf = (home: string): string => join(dataDirOf(home), 'oru.db')
 
 export const defaultPiHomeOf = (home: string): string => join(dataDirOf(home), 'pi')
@@ -533,6 +535,7 @@ export const piEnvOf = (base: NodeJS.ProcessEnv, settings: Settings): NodeJS.Pro
 export const ensureLayout = (home: string): void => {
   mkdirSync(home, { recursive: true, mode: 0o700 })
   mkdirSync(dataDirOf(home), { recursive: true, mode: 0o700 })
+  mkdirSync(personalDirOf(home), { recursive: true, mode: 0o700 })
   mkdirSync(defaultPiSessionDirOf(defaultPiHomeOf(home)), { recursive: true, mode: 0o700 })
   const path = configPath(home)
   if (!existsSync(path)) writeFileSync(path, '{}\n', { encoding: 'utf8', mode: 0o600 })

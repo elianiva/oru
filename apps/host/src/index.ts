@@ -12,6 +12,7 @@ export {
   loadFileConfig,
   openSettings,
   parseFileConfig,
+  personalDirOf,
   piEnvOf,
   resolveSettings,
   setFileKey,

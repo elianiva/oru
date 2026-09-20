@@ -5,6 +5,7 @@ import { evo } from 'foldkit/struct'
 import { defineView } from 'foldkit/submodel'
 import * as Update from 'foldkit/update'
 import { type ComposerProps, type UiSignal } from '@oru/ui'
+import { PERSONAL_PROJECT_ID } from '@oru/kernel'
 import * as AccessPicker from './access-picker.ts'
 import * as BranchPicker from './branch-picker.ts'
 import * as Composer from './composer.ts'
@@ -196,6 +197,16 @@ const sameIds = (left: readonly string[], right: readonly string[]): boolean =>
   left.length === right.length && left.every((id, index) => id === right[index])
 
 /**
+ * Point an undecided composer at Personal: the host seeds it, so a submit
+ * with no explicit pick carries its id instead of failing on no project.
+ */
+const selectPersonal = (area: Model, ids: readonly string[]): Model =>
+  area.projectPicker.selected === undefined && ids.includes(PERSONAL_PROJECT_ID)
+    ? foldProjectPicker(area, ProjectPicker.Message.SelectedOption({ option: PERSONAL_PROJECT_ID }))
+        .model
+    : area
+
+/**
  * Fold host facts that arrived as props into state, silently and without
  * out-messages: a fresh catalogue replays the picker's arrival arms, a
  * project added after mount selects itself the way a creation did, and a
@@ -225,9 +236,12 @@ export const absorbProps = (model: Model, props: ComposerProps): Model => {
         ModelPicker.Message.OptionsFailed({ reason: props.options.reason }),
       ).model
     }
-    return evo(current, {
-      seen: () => ({ projects: ids, options: props.options }),
-    })
+    return selectPersonal(
+      evo(current, {
+        seen: () => ({ projects: ids, options: props.options }),
+      }),
+      ids,
+    )
   }
   let current = model
   if (props.options !== model.seen.options) {
@@ -261,9 +275,12 @@ export const absorbProps = (model: Model, props: ComposerProps): Model => {
       ProjectPicker.Message.ProjectDeleted({ project: selected }),
     ).model
   }
-  return evo(current, {
-    seen: () => ({ projects: ids, options: props.options }),
-  })
+  return selectPersonal(
+    evo(current, {
+      seen: () => ({ projects: ids, options: props.options }),
+    }),
+    ids,
+  )
 }
 
 /** Deliver a one-shot signal root cannot construct messages for. */

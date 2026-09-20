@@ -17,6 +17,7 @@ import { Url } from 'foldkit'
 import * as Scene from 'foldkit/scene'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProjectClient, ThreadClient, clientsFor } from '@oru/rpc'
+import { personalProject } from '@oru/kernel'
 import * as Projects from '../src/projects.ts'
 import { resetDefsForTest } from '../src/ui-defs.ts'
 import { mountStubs, stubSnapshot } from './stub-composer.ts'
@@ -59,7 +60,12 @@ const homeUrl: Url.Url = {
 
 const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-seam-')), 'session.db')
 
-type StartedHost = Readonly<{ url: string; output: string; stop: () => void }>
+type StartedHost = Readonly<{
+  url: string
+  output: string
+  home: string
+  stop: () => void
+}>
 
 /** A real host process, with a journal and a home of its own, on a port the kernel picks. */
 const startHost = async (): Promise<StartedHost> => {
@@ -81,7 +87,7 @@ const startHost = async (): Promise<StartedHost> => {
       break
     }
   }
-  return { url, output, stop: () => child.kill('SIGTERM') }
+  return { url, output, home, stop: () => child.kill('SIGTERM') }
 }
 
 /** A port nothing listens on, so a call to it fails the way a stopped host does. */
@@ -104,11 +110,11 @@ const runEffect = <A, E>(
 
 const listProjects = (hostUrl: string) => runEffect(hostUrl, ListProjects().effect)
 
-const withHost = async (use: (hostUrl: string) => Promise<void>): Promise<void> => {
+const withHost = async (use: (hostUrl: string, home: string) => Promise<void>): Promise<void> => {
   const host = await startHost()
   try {
     if (host.url === '') expect.fail(`the host never listened:\n${host.output}`)
-    await use(host.url)
+    await use(host.url, host.home)
   } finally {
     host.stop()
   }
@@ -124,13 +130,15 @@ describe('the app’s seam to a running host', () => {
     ])
   })
 
-  it('renders the host’s answer: no projects renders nothing', async () => {
-    await withHost(async (hostUrl) => {
+  it('seeds Personal on an empty host and renders the pick', async () => {
+    await withHost(async (hostUrl, home) => {
       const message = await listProjects(hostUrl)
 
       expect(message).toEqual(
         Message.GotProjects({
-          message: Projects.Message.ProjectsArrived({ projects: [] }),
+          message: Projects.Message.ProjectsArrived({
+            projects: [personalProject(join(home, 'data', 'personal'))],
+          }),
         }),
       )
 
@@ -142,6 +150,7 @@ describe('the app’s seam to a running host', () => {
         Scene.expect(Scene.selector('[data-composer]')).toExist(),
         Scene.expect(Scene.selector('[data-projects]')).not.toExist(),
         Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
+        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('Personal'),
         Scene.expect(Scene.text('No projects yet')).not.toExist(),
       )
     })
@@ -150,7 +159,7 @@ describe('the app’s seam to a running host', () => {
   it('renders the projects a started host recorded', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-project-'))
 
-    await withHost(async (hostUrl) => {
+    await withHost(async (hostUrl, home) => {
       const created = await runEffect(
         hostUrl,
         Effect.gen(function* () {
@@ -162,7 +171,9 @@ describe('the app’s seam to a running host', () => {
 
       expect(message).toEqual(
         Message.GotProjects({
-          message: Projects.Message.ProjectsArrived({ projects: [created] }),
+          message: Projects.Message.ProjectsArrived({
+            projects: [personalProject(join(home, 'data', 'personal')), created],
+          }),
         }),
       )
 
@@ -172,7 +183,9 @@ describe('the app’s seam to a running host', () => {
         Scene.given(model),
         Scene.expect(Scene.selector('[data-main]')).toExist(),
         Scene.expect(Scene.selector('[data-projects-list]')).not.toExist(),
-        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('oru'),
+        Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('Personal'),
+        Scene.click(Scene.selector('[data-project-picker-trigger]')),
+        Scene.expect(Scene.selector('[data-project-picker-panel]')).toContainText('oru'),
       )
     })
   })
@@ -248,7 +261,7 @@ describe('the app’s seam to a running host', () => {
 
     await withHost(async (hostUrl) => {
       const listed = await runEffect(hostUrl, ListProjects().effect)
-      const loaded = update(init(homeUrl).model, listed).model
+      const loaded = withStubs(update(init(homeUrl).model, listed).model)
       const message = await runEffect(hostUrl, CreateProject({ name: 'oru', cwd }).effect)
       if (!Predicate.isTagged(message, 'GotProjects')) expect.fail('the create produced no answer')
       const created = message.message
@@ -256,7 +269,7 @@ describe('the app’s seam to a running host', () => {
         expect.fail(`the host refused a create it should have accepted: ${created._tag}`)
       }
 
-      const model = withStubs(update(loaded, message).model)
+      const model = update(loaded, message).model
       Scene.scene(
         { update, view },
         Scene.given(model),
@@ -314,6 +327,7 @@ describe('the app’s seam to a running host', () => {
 
     await withHost(async (hostUrl) => {
       const listed = await runEffect(hostUrl, ListProjects().effect)
+      const mounted = withStubs(update(init(homeUrl).model, listed).model)
       const created = await runEffect(hostUrl, CreateProject({ name: 'before', cwd }).effect)
       if (!Predicate.isTagged(created, 'GotProjects')) expect.fail('the create produced no answer')
       if (!Schema.is(Projects.Message.ProjectCreated)(created.message)) {
@@ -333,7 +347,7 @@ describe('the app’s seam to a running host', () => {
         }),
       )
 
-      const model = withStubs(update(update(init(homeUrl).model, listed).model, updated).model)
+      const model = update(update(mounted, created).model, updated).model
       Scene.scene(
         { update, view },
         Scene.given(model),
@@ -346,7 +360,7 @@ describe('the app’s seam to a running host', () => {
   it('carries the host’s own refusal for a relative cwd, for both write paths', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'oru-seam-refused-'))
 
-    await withHost(async (hostUrl) => {
+    await withHost(async (hostUrl, home) => {
       const refusedCreate = await runEffect(
         hostUrl,
         CreateProject({ name: 'oru', cwd: 'relative/place' }).effect,
@@ -378,12 +392,47 @@ describe('the app’s seam to a running host', () => {
         }),
       )
 
-      // The host wrote nothing, so neither refusal changed the list it answers.
+      // Neither refusal wrote its own project; only the Personal seed stands
+      // beside the created one.
       const listed = await runEffect(hostUrl, ListProjects().effect)
       if (!Predicate.isTagged(listed, 'GotProjects')) expect.fail('the list produced no answer')
       expect(listed.message).toEqual(
-        Projects.Message.ProjectsArrived({ projects: [created.message.project] }),
+        Projects.Message.ProjectsArrived({
+          projects: [personalProject(join(home, 'data', 'personal')), created.message.project],
+        }),
       )
+    })
+  })
+
+  it('sends a first message into Personal and creates the thread', async () => {
+    await withHost(async (hostUrl, home) => {
+      const listed = await runEffect(hostUrl, ListProjects().effect)
+      if (!Predicate.isTagged(listed, 'GotProjects')) expect.fail('the list produced no answer')
+      expect(listed.message).toEqual(
+        Projects.Message.ProjectsArrived({
+          projects: [personalProject(join(home, 'data', 'personal'))],
+        }),
+      )
+
+      const created = await runEffect(
+        hostUrl,
+        CreateThreadAndSend({
+          project: 'personal',
+          harness: 'pi',
+          model: undefined,
+          reasoning: undefined,
+          text: 'hello personal',
+        }).effect,
+      )
+      if (!Predicate.isTagged(created, 'ThreadCreated')) {
+        expect.fail(`the host refused a submit it should have accepted: ${created._tag}`)
+      }
+
+      const detail = await runEffect(hostUrl, GetProjectDetail({ project: 'personal' }).effect)
+      if (!Predicate.isTagged(detail, 'GotProjects')) {
+        expect.fail('the detail produced no answer')
+      }
+      expect(detail.message).toMatchObject({ detail: { threadCount: 1 } })
     })
   })
 })

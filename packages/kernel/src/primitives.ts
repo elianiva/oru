@@ -13,6 +13,12 @@ export const ThreadId = Schema.NonEmptyString
 export type ThreadId = typeof ThreadId.Type
 
 export const ProjectId = Schema.NonEmptyString
+
+/** The singleton project every host seeds: one stable id across restarts, so the no-project working mode is a project fact and needs no migration. */
+// SAFETY: 'personal' is a non-empty literal, so it satisfies the ProjectId string contract.
+export const PERSONAL_PROJECT_ID = 'personal' as ProjectId
+export const PERSONAL_PROJECT_NAME = 'Personal'
+export const isPersonalProjectId = (id: string): id is ProjectId => id === PERSONAL_PROJECT_ID
 export type ProjectId = typeof ProjectId.Type
 
 export const EventId = Schema.NonEmptyString

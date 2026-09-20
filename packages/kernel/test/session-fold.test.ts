@@ -9,10 +9,13 @@ import {
   ThreadContextWindow,
   TurnUsage,
   chain,
+  ensurePersonalProject,
   foldThreadContextWindow,
   foldThreadUsage,
+  isPersonalProjectId,
   leafOf,
   pathFromLeaf,
+  personalProject,
   relink,
   threadLane,
   unsignedTree,
@@ -197,6 +200,41 @@ describe('foldProjects', () => {
     })
     expect(foldProjects([stranded])).toEqual([])
     expect(foldProject([stranded], 'p-ghost')).toBeUndefined()
+  })
+})
+
+describe('personal project', () => {
+  it('builds the singleton from a cwd', () => {
+    expect(personalProject('/tmp/personal')).toEqual({
+      id: 'personal',
+      name: 'Personal',
+      cwd: '/tmp/personal',
+    })
+    expect(isPersonalProjectId('personal')).toBe(true)
+    expect(isPersonalProjectId('p1')).toBe(false)
+  })
+
+  it('proposes the fact once, and again after a deletion', () => {
+    const created = ProjectCreated.make({
+      ...unsignedTree,
+      id: 'e1',
+      project: 'personal',
+      name: 'Personal',
+      cwd: '/tmp/personal',
+      icon: undefined,
+    })
+    expect(ensurePersonalProject([], '/tmp/personal')).toEqual({
+      id: 'personal',
+      name: 'Personal',
+      cwd: '/tmp/personal',
+    })
+    expect(ensurePersonalProject([created], '/tmp/personal')).toBeUndefined()
+    const deleted = ProjectDeleted.make({ ...unsignedTree, id: 'e2', project: 'personal' })
+    expect(ensurePersonalProject([created, deleted], '/tmp/personal')).toEqual({
+      id: 'personal',
+      name: 'Personal',
+      cwd: '/tmp/personal',
+    })
   })
 })
 

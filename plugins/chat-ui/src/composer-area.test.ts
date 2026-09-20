@@ -4,6 +4,7 @@ import { ComposerOptionsLoaded, ComposerOptionsLoading, type ComposerProps } fro
 import type { ThreadOptions } from '@oru/rpc'
 import * as Composer from './composer.ts'
 import * as ComposerArea from './composer-area.ts'
+import * as ProjectPicker from './project-picker.ts'
 
 const project = { id: 'p1', name: 'P', cwd: '/tmp' }
 
@@ -34,6 +35,43 @@ describe('composer-area', () => {
     expect(submitted.outMessage.text).toBe('hi')
     // The raw selection travels; root applies the list fallback.
     expect(submitted.outMessage.project).toBeUndefined()
+  })
+
+  it('points an undecided composer at Personal and carries its id', () => {
+    const personal = { id: 'personal', name: 'Personal', cwd: '/tmp/personal' }
+    const mounted = ComposerArea.absorbProps(ComposerArea.init(), propsOf([personal]))
+    expect(mounted.projectPicker.selected).toBe('personal')
+    const drafted = ComposerArea.update(
+      mounted,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ChangedDraft({ value: 'hi' }) }),
+    )
+    const submitted = ComposerArea.update(
+      drafted.model,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    if (
+      submitted.outMessage === undefined ||
+      !Predicate.isTagged(submitted.outMessage, 'Submitted')
+    ) {
+      expect.fail('expected a Submitted out-message')
+    }
+    expect(submitted.outMessage.project).toBe('personal')
+  })
+
+  it('keeps an explicit pick over Personal', () => {
+    const personal = { id: 'personal', name: 'Personal', cwd: '/tmp/personal' }
+    const other = { id: 'p1', name: 'P', cwd: '/tmp' }
+    const mounted = ComposerArea.absorbProps(ComposerArea.init(), propsOf([personal, other]))
+    expect(mounted.projectPicker.selected).toBe('personal')
+    const picked = ComposerArea.update(
+      mounted,
+      ComposerArea.Message.GotProjectPicker({
+        message: ProjectPicker.Message.SelectedOption({ option: 'p1' }),
+      }),
+    )
+    expect(picked.model.projectPicker.selected).toBe('p1')
+    const settled = ComposerArea.absorbProps(picked.model, propsOf([personal, other]))
+    expect(settled.projectPicker.selected).toBe('p1')
   })
 
   it('selects a project added after mount, the way a creation did', () => {

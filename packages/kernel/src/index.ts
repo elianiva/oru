@@ -42,6 +42,8 @@ export {
   foldProjectThreadDefaults,
   foldProjectThreads,
   foldProjects,
+  ensurePersonalProject,
+  personalProject,
   foldThreadConfig,
   foldThreadContextWindow,
   foldThreadCwd,
