@@ -1,7 +1,7 @@
-import { Layer } from 'effect'
+import { Effect, Layer } from 'effect'
 import { HttpRouter, HttpServerResponse } from 'effect/unstable/http'
 import { RpcServer } from 'effect/unstable/rpc'
-import type { AnyPlugin, Host } from '@oru/kernel'
+import type { Host } from '@oru/kernel'
 import {
   HostRpc,
   ProjectRpc,
@@ -17,16 +17,12 @@ import { hostRpcHandlers } from './handlers/host.ts'
 import { projectRpcHandlers } from './handlers/project.ts'
 import { threadRpcHandlers } from './handlers/thread.ts'
 import { uiRpcHandlers } from './handlers/ui.ts'
-import type { UiBundles, UiOverrides } from './ui.ts'
+import type { PluginStore } from './plugin-store.ts'
 
-export const rpcRoutes = (
-  host: Host,
-  plugins: readonly AnyPlugin[],
-  ui: { readonly built: UiBundles; readonly overrides: UiOverrides },
-) =>
+export const rpcRoutes = (host: Host, store: PluginStore) =>
   Layer.mergeAll(
     RpcServer.layerHttp({ group: HostRpc, path: hostRpcPath, protocol: 'http' }).pipe(
-      Layer.provide(HostRpc.toLayer(hostRpcHandlers(host, plugins))),
+      Layer.provide(HostRpc.toLayer(hostRpcHandlers(host, store))),
     ),
     RpcServer.layerHttp({ group: ProjectRpc, path: projectRpcPath, protocol: 'http' }).pipe(
       Layer.provide(ProjectRpc.toLayer(projectRpcHandlers)),
@@ -35,22 +31,28 @@ export const rpcRoutes = (
       Layer.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),
     ),
     RpcServer.layerHttp({ group: UiRpc, path: uiRpcPath, protocol: 'http' }).pipe(
-      Layer.provide(UiRpc.toLayer(uiRpcHandlers(host, ui.built, ui.overrides))),
+      Layer.provide(UiRpc.toLayer(uiRpcHandlers(host, store))),
     ),
-    uiBundleRoutes(ui.built),
+    uiBundleRoutes(store),
   ).pipe(Layer.provide(rpcSerializationLayer))
 
 /**
- * One exact route per built bundle: no path params to parse, no directory
- * to escape. An address the host did not build is simply no route.
+ * One parameterized route over the store's address index: the lookup key
+ * space is exactly the set of addresses the store built, never a filesystem
+ * path. An address the host did not build is a 404.
  */
-const uiBundleRoutes = (built: UiBundles) =>
-  HttpRouter.addAll(
-    [...built.values()].map((bundle) =>
-      HttpRouter.route(
-        'GET',
-        `/ui/${bundle.address}.js`,
-        HttpServerResponse.text(bundle.js, { contentType: 'text/javascript' }),
-      ),
+const uiBundleRoutes = (store: PluginStore) =>
+  HttpRouter.addAll([
+    HttpRouter.route(
+      'GET',
+      '/ui/:address',
+      Effect.gen(function* () {
+        const params = yield* HttpRouter.params
+        const js = yield* store.bundleJs(params['address'] ?? '')
+        if (js === undefined) {
+          return HttpServerResponse.text('not found', { status: 404 })
+        }
+        return HttpServerResponse.text(js, { contentType: 'text/javascript' })
+      }),
     ),
-  )
+  ])

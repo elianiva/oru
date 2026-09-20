@@ -110,7 +110,9 @@ const isRecordWithName = (
 }
 
 const readRecord = async (specifier: string): Promise<AnyPlugin | undefined> => {
-  const pending: Promise<unknown> = import(specifier)
+  const url = fileUrlOfSpecifier(specifier)
+  const stamped = url.startsWith('file:') ? `${url}?oru=${Date.now()}` : url
+  const pending: Promise<unknown> = import(stamped)
   const decoded = decodeEnvelope(await pending.catch(() => undefined))
   if (Option.isNone(decoded) || !isPluginRecord(decoded.value.default)) return undefined
   return decoded.value.default
@@ -132,7 +134,9 @@ const decodeUiEntryEnvelope = Schema.decodeUnknownOption(UiEntryEnvelope)
  * claims UI.
  */
 const defsOfUiEntry = async (dir: string, entry: string): Promise<readonly UiDef[]> => {
-  const pending: Promise<unknown> = import(pathToFileURL(join(dir, entry)).href)
+  const pending: Promise<unknown> = import(
+    `${pathToFileURL(join(dir, entry)).href}?oru=${Date.now()}`
+  )
   const loaded = await pending.catch(() => undefined)
   if (loaded === undefined) return []
   const envelope = decodeUiEntryEnvelope(loaded)
@@ -150,6 +154,16 @@ const defsOfUiEntry = async (dir: string, entry: string): Promise<readonly UiDef
   return defs
 }
 
+/** Every specifier resolves to a file URL first, so a re-import with a query stamp misses the ESM cache. */
+export const fileUrlOfSpecifier = (specifier: string): string => {
+  try {
+    const require = createRequire(import.meta.url)
+    return pathToFileURL(require.resolve(specifier)).href
+  } catch {
+    return specifier
+  }
+}
+
 /** The defs a prebuilt manifest entry names, zipped back into claims. */
 const defsOfPrebuilt = (entry: FacetUiEntry): readonly UiDef[] => {
   const defs: UiDef[] = []
@@ -161,6 +175,94 @@ const defsOfPrebuilt = (entry: FacetUiEntry): readonly UiDef[] => {
   })
   return defs
 }
+
+export interface OneUiBuild {
+  readonly record: AnyPlugin
+  readonly built: BuiltUi | undefined
+  readonly buildError: string | undefined
+}
+
+/** Whether the source tree names a ui facet: the reload builds it from source instead of re-reading prebuilt bytes. */
+export const hasSourceUi = (specifier: string): boolean => readManifest(specifier)?.ui !== undefined
+
+export const buildOneUiBundle = (
+  source: PluginSource,
+  log: (message: string) => void = defaultLog,
+  facetsRoot: string = defaultFacetsRoot(),
+  options: { readonly preferSource?: boolean } = {},
+): Effect.Effect<OneUiBuild | undefined> =>
+  Effect.gen(function* () {
+    if (options.preferSource) {
+      const manifest = readManifest(source.specifier)
+      const uiEntry = manifest?.ui
+      if (manifest !== undefined && uiEntry !== undefined) {
+        return yield* buildFromSource(source, manifest.dir, uiEntry, log)
+      }
+    }
+    const prebuilt: PrebuiltUi | undefined = readPrebuiltUi(source.specifier, facetsRoot)
+    if (prebuilt !== undefined) {
+      const record =
+        (yield* Effect.promise(() => loadPrebuiltRecord(source.specifier, facetsRoot))) ??
+        (yield* Effect.promise(() => readRecord(source.specifier)))
+      if (record === undefined) {
+        log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
+        return undefined
+      }
+      const defs = defsOfPrebuilt(prebuilt.entry)
+      if (defs.length === 0) return { record, built: undefined, buildError: undefined }
+      return {
+        record,
+        built: {
+          plugin: record.id,
+          defs,
+          address: prebuilt.entry.address,
+          js: prebuilt.js,
+        },
+        buildError: undefined,
+      }
+    }
+    const fallbackManifest = readManifest(source.specifier)
+    const fallbackEntry = fallbackManifest?.ui
+    if (fallbackManifest === undefined || fallbackEntry === undefined) {
+      const record = yield* Effect.promise(() => readRecord(source.specifier))
+      if (record === undefined) return undefined
+      return { record, built: undefined, buildError: undefined }
+    }
+    return yield* buildFromSource(source, fallbackManifest.dir, fallbackEntry, log)
+  })
+
+const buildFromSource = (
+  source: PluginSource,
+  dir: string,
+  uiEntry: string,
+  log: (message: string) => void,
+): Effect.Effect<OneUiBuild | undefined> =>
+  Effect.gen(function* () {
+    const record = yield* Effect.promise(() => readRecord(source.specifier))
+    if (record === undefined) {
+      log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
+      return undefined
+    }
+    const defs = yield* Effect.promise(() => defsOfUiEntry(dir, uiEntry))
+    if (defs.length === 0) return { record, built: undefined, buildError: undefined }
+    const entry = join(dir, uiEntry)
+    const bundle = yield* Effect.promise(() => buildUiBundle(entry)).pipe(
+      Effect.catchDefect((defect) =>
+        Effect.as(
+          Effect.sync(() => log(`plugin ${source.specifier} ui bundle failed: ${String(defect)}`)),
+          undefined,
+        ),
+      ),
+    )
+    if (bundle === undefined) {
+      return { record, built: undefined, buildError: `ui bundle failed for ${source.specifier}` }
+    }
+    return {
+      record,
+      built: { plugin: record.id, defs, address: bundle.address, js: bundle.js },
+      buildError: undefined,
+    }
+  })
 
 /**
  * Build every source's presentation facet once at startup. A source without
@@ -181,48 +283,9 @@ export const buildUiBundles = (
   Effect.gen(function* () {
     const built = new Map<PluginId, BuiltUi>()
     for (const source of sources) {
-      const prebuilt: PrebuiltUi | undefined = readPrebuiltUi(source.specifier, facetsRoot)
-      if (prebuilt !== undefined) {
-        const record =
-          (yield* Effect.promise(() => loadPrebuiltRecord(source.specifier, facetsRoot))) ??
-          (yield* Effect.promise(() => readRecord(source.specifier)))
-        if (record === undefined) {
-          log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
-          continue
-        }
-        const defs = defsOfPrebuilt(prebuilt.entry)
-        if (defs.length === 0) continue
-        built.set(record.id, {
-          plugin: record.id,
-          defs,
-          address: prebuilt.entry.address,
-          js: prebuilt.js,
-        })
-        continue
-      }
-      const manifest = readManifest(source.specifier)
-      const uiEntry = manifest?.ui
-      if (manifest === undefined || uiEntry === undefined) continue
-      const record = yield* Effect.promise(() => readRecord(source.specifier))
-      if (record === undefined) {
-        log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
-        continue
-      }
-      const defs = yield* Effect.promise(() => defsOfUiEntry(manifest.dir, uiEntry))
-      if (defs.length === 0) continue
-      const entry = join(manifest.dir, uiEntry)
-      const bundle = yield* Effect.promise(() => buildUiBundle(entry)).pipe(
-        Effect.catchDefect((defect) =>
-          Effect.as(
-            Effect.sync(() =>
-              log(`plugin ${source.specifier} ui bundle failed: ${String(defect)}`),
-            ),
-            undefined,
-          ),
-        ),
-      )
-      if (bundle === undefined) continue
-      built.set(record.id, { plugin: record.id, defs, address: bundle.address, js: bundle.js })
+      const one = yield* buildOneUiBundle(source, log, facetsRoot)
+      if (one?.built === undefined) continue
+      built.set(one.built.plugin, one.built)
     }
     // SAFETY: built only ever receives complete bundle records in the loop above; the empty map is the no-UI-plugin case.
     return built as UiBundles

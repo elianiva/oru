@@ -46,5 +46,24 @@ export {
 export { hostRpcHandlers } from './handlers/host.ts'
 export { projectRpcHandlers } from './handlers/project.ts'
 export { threadRpcHandlers } from './handlers/thread.ts'
+export {
+  makePluginStore,
+  ReloadFailed,
+  ReloadResult,
+  UnknownPlugin,
+  type PluginStore,
+} from './plugin-store.ts'
+export {
+  defaultDebounceMs,
+  describeReload,
+  DevTargetError,
+  resolveDevTarget,
+  shouldIgnore,
+  shortAddress,
+  startDevWatch,
+  type DevTarget,
+  type DevWatchOptions,
+} from './dev-watch.ts'
 export { rpcRoutes } from './routes.ts'
 export { serveHost, type HostOptions, type RunningHost } from './server.ts'
+export { buildOneUiBundle, buildUiBundles, fileUrlOfSpecifier, hasSourceUi } from './ui.ts'

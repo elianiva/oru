@@ -7,8 +7,10 @@ import * as NodeHttpServer from '@effect/platform-node/NodeHttpServer'
 import { makeHost, sessionLogLayer, type AnyPlugin, type BootError, type Host } from '@oru/kernel'
 import type { PluginId } from '@oru/kernel'
 import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- SAFETY: makePluginStore is a plain Effect-returning factory like makeHost, not a Context.Tag service constructor; there is no Layer to yield instead.
+import { makePluginStore, type PluginStore } from './plugin-store.ts'
 import { rpcRoutes } from './routes.ts'
-import { buildUiBundles, type UiBundles, type UiOverrides } from './ui.ts'
+import type { UiOverrides } from './ui.ts'
 
 class NotTcpAddress extends Schema.TaggedError<NotTcpAddress>()('NotTcpAddress', {
   address: Schema.String,
@@ -46,6 +48,7 @@ export interface HostOptions {
 /** A host that is serving. Releasing the scope stops it. */
 export interface RunningHost {
   readonly host: Host
+  readonly store: PluginStore
   readonly url: string
   readonly hostname: string
   readonly port: number
@@ -76,16 +79,16 @@ export const serveHost = (
     const host = yield* makeHost(options.plugins, options.configs).pipe(
       Effect.provideContext(provided),
     )
-    const built: UiBundles =
-      options.ui === undefined
-        ? new Map()
-        : yield* buildUiBundles(options.ui.sources, undefined, options.ui.facetsDir)
-    const httpEffect = yield* HttpRouter.toHttpEffect(
-      rpcRoutes(host, options.plugins, {
-        built,
-        overrides: options.ui?.overrides ?? {},
-      }),
-    ).pipe(Effect.provideContext(provided))
+    const store = yield* makePluginStore({
+      host,
+      plugins: options.plugins,
+      sources: options.ui?.sources ?? [],
+      facetsRoot: options.ui?.facetsDir,
+      overrides: options.ui?.overrides ?? {},
+    })
+    const httpEffect = yield* HttpRouter.toHttpEffect(rpcRoutes(host, store)).pipe(
+      Effect.provideContext(provided),
+    )
     const server = yield* NodeHttpServer.make(() => createServer(), {
       host: options.hostname,
       port: options.port,
@@ -102,6 +105,7 @@ export const serveHost = (
     const hostPart = Predicate.isTagged(address, 'InetAddressV6') ? `[${hostname}]` : hostname
     return {
       host,
+      store,
       url: `http://${hostPart}:${address.port}`,
       hostname,
       port: address.port,
