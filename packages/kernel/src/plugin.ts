@@ -1,14 +1,8 @@
-import type { Context, Effect, Scope } from 'effect'
-import type {
-  Contribution,
-  ContributionEntry,
-  ContributionKind,
-  DataContribution,
-  ServiceProvisions,
-} from './contribution.ts'
+import type { Effect, Schema, Scope } from 'effect'
+import type { ContributionEntry, ContributionKind, DataContribution } from './contribution.ts'
 import type { PluginId, PluginScope } from './primitives.ts'
 import type { SessionLog } from './session-log.ts'
-import type { AnyServiceToken, IdentifierOf } from './service.ts'
+import type { AnyServiceToken, IdentifierOf, ServiceToken } from './service.ts'
 
 export interface PluginContext {
   readonly id: PluginId
@@ -16,100 +10,61 @@ export interface PluginContext {
   readonly contributions: <C>(
     kind: ContributionKind<C>,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
-  /**
-   * Contribute a payload only setup can build, because it depends on the
-   * plugin's coeffects: a harness assembled from its resolved environment.
-   * The kind owns construction, so a payload can never be paired with a kind it
-   * does not belong to. Registered with the plugin's other contributions and
-   * removed with them when the plugin deactivates.
-   */
   readonly contribute: (contribution: DataContribution) => Effect.Effect<void>
+  readonly provide: <S>(token: ServiceToken<S>, value: S) => Effect.Effect<void>
+  readonly effect: (release: Effect.Effect<void, never, never>) => Effect.Effect<void>
 }
 
-export type SetupEffect<
-  Needs extends readonly AnyServiceToken[],
-  Provides extends readonly Contribution[],
-> = Effect.Effect<
-  Context.Context<ServiceProvisions<Provides>>,
+export type ApplyEffect<Inject extends readonly AnyServiceToken[], ConfigValue> = Effect.Effect<
+  void,
   unknown,
-  IdentifierOf<Needs[number]> | Scope.Scope | SessionLog
->
+  IdentifierOf<Inject[number]> | Scope.Scope | SessionLog
+> & { readonly _config?: ConfigValue }
 
-export interface ServerFacet<
-  Needs extends readonly AnyServiceToken[],
-  Provides extends readonly Contribution[],
-> {
-  /**
-   * Activation for this facet: it receives the plugin's context and returns the
-   * services the declaration claims. One shape, so the host never has to
-   * discriminate at runtime between "already built" and "build me".
-   */
-  readonly setup: (ctx: PluginContext) => SetupEffect<Needs, Provides>
-}
+export type ApplyFn<Inject extends readonly AnyServiceToken[], ConfigValue> = (
+  ctx: PluginContext,
+  config: ConfigValue,
+) => Effect.Effect<void, unknown, IdentifierOf<Inject[number]> | Scope.Scope | SessionLog>
 
 export interface Plugin<
-  Needs extends readonly AnyServiceToken[] = readonly AnyServiceToken[],
-  Provides extends readonly Contribution[] = readonly Contribution[],
-  UI = unknown,
+  Inject extends readonly AnyServiceToken[] = readonly AnyServiceToken[],
+  ConfigValue = unknown,
 > {
   readonly id: PluginId
   readonly scope: PluginScope
-  readonly needs: Needs
-  readonly provides: Provides
-  readonly server?: ServerFacet<Needs, Provides>
-  readonly ui?: UI
+  readonly inject: Inject
+  readonly panel?: unknown
+  readonly Config?: Schema.ConstraintDecoder<ConfigValue>
+  readonly apply?: ApplyFn<Inject, NoInfer<ConfigValue>>
 }
 
-export type AnyPlugin = Plugin<readonly AnyServiceToken[], readonly Contribution[], unknown>
+// oxlint-disable-next-line typescript/no-explicit-any -- mixed plugin graphs erase the config value parameter
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyPlugin = Plugin<readonly AnyServiceToken[], any>
 
 export const definePlugin = <
-  const Needs extends readonly AnyServiceToken[] = readonly [],
-  const Provides extends readonly Contribution[] = readonly [],
-  UI = never,
+  const Inject extends readonly AnyServiceToken[] = readonly [],
+  ConfigValue = unknown,
 >(declaration: {
   readonly id: PluginId
   readonly scope?: PluginScope
-  readonly needs?: Needs
-  readonly provides?: Provides
-  readonly server?: ServerFacet<Needs, Provides>
-  readonly ui?: UI
-}): Plugin<Needs, Provides, UI> => {
-  // SAFETY: omitted needs default to the empty tuple used by the type parameter
-  const needs = (declaration.needs ?? []) as Needs
-  // SAFETY: omitted provides default to the empty tuple used by the type parameter
-  const provides = (declaration.provides ?? []) as Provides
-  if (declaration.server !== undefined && declaration.ui !== undefined) {
-    return {
-      id: declaration.id,
-      scope: declaration.scope ?? 'host',
-      needs,
-      provides,
-      server: declaration.server,
-      ui: declaration.ui,
-    }
-  }
-  if (declaration.server !== undefined) {
-    return {
-      id: declaration.id,
-      scope: declaration.scope ?? 'host',
-      needs,
-      provides,
-      server: declaration.server,
-    }
-  }
-  if (declaration.ui !== undefined) {
-    return {
-      id: declaration.id,
-      scope: declaration.scope ?? 'host',
-      needs,
-      provides,
-      ui: declaration.ui,
-    }
-  }
-  return {
+  readonly inject?: Inject
+  readonly panel?: unknown
+  readonly Config?: Schema.ConstraintDecoder<ConfigValue>
+  readonly apply?: ApplyFn<Inject, NoInfer<ConfigValue>>
+}): Plugin<Inject, ConfigValue> => {
+  // SAFETY: omitted inject defaults to the empty tuple used by the type parameter
+  const inject = (declaration.inject ?? []) as Inject
+  const base: Plugin<Inject, ConfigValue> = {
     id: declaration.id,
     scope: declaration.scope ?? 'host',
-    needs,
-    provides,
+    inject,
   }
+  const withPanel = declaration.panel === undefined ? base : { ...base, panel: declaration.panel }
+  if (declaration.Config !== undefined) {
+    return declaration.apply === undefined
+      ? { ...withPanel, Config: declaration.Config }
+      : { ...withPanel, Config: declaration.Config, apply: declaration.apply }
+  }
+  return declaration.apply === undefined ? withPanel : { ...withPanel, apply: declaration.apply }
 }

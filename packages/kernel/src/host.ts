@@ -1,5 +1,4 @@
 import {
-  Context,
   Effect,
   Exit,
   Option,
@@ -13,8 +12,6 @@ import {
   Stream,
 } from 'effect'
 import {
-  dataContributionsOf,
-  serviceTokensOf,
   type ContributionEntry,
   type ContributionKind,
   type DataContribution,
@@ -22,9 +19,7 @@ import {
 import { BootKind } from './boot.ts'
 import {
   CoeffectsUnmet,
-  DeclarationMismatch,
-  ServiceMissing,
-  ServiceUndeclared,
+  DuplicateProvider,
   SetupFailed,
   type ActivationError,
   type BootError,
@@ -73,17 +68,17 @@ export interface Host {
     thread?: ThreadId,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
   readonly service: <S>(token: ServiceToken<S>, thread?: ThreadId) => Effect.Effect<S>
-  /**
-   * A live stand-in for a service token, resolved per call. Setup captures the
-   * facade rather than the value, so replacing a provider is seen by everyone
-   * that depends on it without re-running their setup.
-   */
   readonly facade: <S>(token: ServiceToken<S>, thread?: ThreadId) => S
 }
 
 interface StoredContribution {
   readonly plugin: PluginId
   readonly thread: ThreadId | undefined
+  readonly value: unknown
+}
+
+interface ProvidedService {
+  readonly token: AnyServiceToken
   readonly value: unknown
 }
 
@@ -94,15 +89,16 @@ interface Generation {
   readonly address: BundleAddress | undefined
 }
 
+/** Config data decoded against a plugin's own `Config`, carried as data to its `apply`. */
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- SAFETY: values arrive parsed by each def's own Config schema in decodeConfig; the host only carries them
+type DecodedConfig = Record<string, unknown> | undefined
+
 export const makeHost = Effect.fnUntraced(function* (
   plugins: readonly AnyPlugin[],
+  configs?: ReadonlyMap<PluginId, unknown>,
 ): Effect.fn.Return<Host, BootError, Scope.Scope | SessionLog> {
   const hostScope = yield* Scope.Scope
   const pubsub = yield* PubSub.unbounded<HostEvent>()
-  // The journal is a service rather than a second reader of it. Two `SessionLog`
-  // values over one journal serialize their writes under two locks, which is
-  // how two facts come to share a leaf (ADR-0003), and the SQL driver rejects
-  // the overlap outright.
   const log = yield* SessionLog
   const known = new Map<PluginId, AnyPlugin>()
   for (const plugin of plugins) {
@@ -136,6 +132,7 @@ export const makeHost = Effect.fnUntraced(function* (
   const scopes = yield* Ref.make<ReadonlyMap<string, Scope.Closeable>>(new Map())
   const store = yield* Ref.make<ReadonlyMap<string, ReadonlyArray<StoredContribution>>>(new Map())
   const generations = yield* Ref.make<ReadonlyMap<string, Generation>>(new Map())
+  const providedTokens = yield* Ref.make<ReadonlyMap<string, readonly AnyServiceToken[]>>(new Map())
   const booted = yield* Ref.make<ReadonlySet<PluginId>>(new Set())
   const threadRoots = yield* Ref.make<ReadonlyMap<ThreadId, Scope.Closeable>>(new Map())
   const threadRegistries = yield* Ref.make<ReadonlyMap<ThreadId, Registry>>(new Map())
@@ -144,14 +141,6 @@ export const makeHost = Effect.fnUntraced(function* (
   )
   const threadDesired = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlySet<PluginId>>>(new Map())
 
-  /**
-   * Run the boot steps the current plugin set has not run yet.
-   *
-   * The host calls this once its activation pass is done and again after any
-   * later activation, so a step that reads the whole graph never runs against
-   * part of it, and a plugin that joins after boot still gets its step
-   * (ADR-0010).
-   */
   const runBootSteps = Effect.fnUntraced(function* () {
     const done = yield* Ref.get(booted)
     for (const step of yield* readContributions(BootKind)) {
@@ -174,8 +163,8 @@ export const makeHost = Effect.fnUntraced(function* (
           .filter((entry) => visibleIn(entry, thread))
           .map((entry) => ({
             plugin: entry.plugin,
-            // SAFETY: the payload schema is `unknown`; the kind that wrote it owns the type, and
-            // readers look up by the same kind id
+            // SAFETY: the payload schema is `unknown`; the kind that wrote it owns the type,
+            // and readers look up by the same kind id
             value: entry.value as C,
           })),
       ),
@@ -197,10 +186,6 @@ export const makeHost = Effect.fnUntraced(function* (
   const facade = <S>(token: ServiceToken<S>, thread?: ThreadId): S =>
     serviceFacade(() => peekService(token, thread), serviceId(token))
 
-  const serviceTokens = (plugin: AnyPlugin): readonly AnyServiceToken[] =>
-    serviceTokensOf(plugin.provides)
-  const dataContributions = (plugin: AnyPlugin) => dataContributionsOf(plugin.provides)
-
   const remember = Effect.fnUntraced(function* (plugin: AnyPlugin) {
     yield* Ref.update(byId, (map) => {
       if (map.has(plugin.id)) return map
@@ -221,6 +206,12 @@ export const makeHost = Effect.fnUntraced(function* (
     return next
   })
 
+  const missingInject = (plugin: AnyPlugin, liveProviders: ReadonlyMap<string, PluginId>) =>
+    plugin.inject.flatMap((token) => {
+      const key = serviceId(token)
+      return liveProviders.has(key) ? [] : [key]
+    })
+
   const refreshBlocked = Effect.fnUntraced(function* () {
     const liveProviders = yield* registry.providers
     const current = yield* Ref.get(active)
@@ -231,21 +222,15 @@ export const makeHost = Effect.fnUntraced(function* (
       if (current.has(id)) continue
       const plugin = pluginsById.get(id)
       if (plugin === undefined || plugin.scope === 'thread') continue
-      const missing = plugin.needs.flatMap((token) => {
-        const key = serviceId(token)
-        return liveProviders.has(key) ? [] : [key]
-      })
+      const missing = missingInject(plugin, liveProviders)
       if (missing.length > 0) next.set(id, new CoeffectsUnmet({ plugin: id, missing }))
     }
     yield* Ref.set(blocked, next)
   })
 
-  const requireNeeds = Effect.fnUntraced(function* (plugin: AnyPlugin, thread?: ThreadId) {
+  const requireInject = Effect.fnUntraced(function* (plugin: AnyPlugin, thread?: ThreadId) {
     const liveProviders = yield* mergedProviders(thread)
-    const missing = plugin.needs.flatMap((token) => {
-      const key = serviceId(token)
-      return liveProviders.has(key) ? [] : [key]
-    })
+    const missing = missingInject(plugin, liveProviders)
     if (missing.length > 0) {
       const unmet = new CoeffectsUnmet({ plugin: plugin.id, missing })
       if (thread === undefined) {
@@ -255,11 +240,27 @@ export const makeHost = Effect.fnUntraced(function* (
     }
   })
 
+  const decodeConfig = (plugin: AnyPlugin): Effect.Effect<DecodedConfig, SetupFailed> =>
+    Effect.gen(function* () {
+      if (plugin.Config === undefined) return undefined
+      const raw = configs?.get(plugin.id) ?? {}
+      const decoded = Schema.decodeUnknownOption(plugin.Config)(raw)
+      if (Option.isNone(decoded)) {
+        return yield* Effect.fail(
+          new SetupFailed({ plugin: plugin.id, cause: `invalid config for ${plugin.id}` }),
+        )
+      }
+      // SAFETY: every Config in this repo decodes to a string-keyed object; the host
+      // only carries it as data to the def that declared the schema
+      return decoded.value as DecodedConfig
+    })
+
   const setupGeneration = Effect.fnUntraced(function* (plugin: AnyPlugin, thread?: ThreadId) {
     const parent =
       thread === undefined ? hostScope : ((yield* Ref.get(threadRoots)).get(thread) ?? hostScope)
     const pluginScope = yield* Scope.fork(parent)
     const contributed: DataContribution[] = []
+    const provided: ProvidedService[] = []
     const ctx: PluginContext = {
       id: plugin.id,
       scope: plugin.scope,
@@ -268,39 +269,32 @@ export const makeHost = Effect.fnUntraced(function* (
         Effect.sync(() => {
           contributed.push(contribution)
         }),
+      provide: (token, value) =>
+        Effect.sync(() => {
+          // SAFETY: a ServiceToken<S> is an AnyServiceToken with its instance forgotten;
+          // the lane re-keys it by token id and hands the value back under the same token
+          provided.push({ token: token as AnyServiceToken, value })
+        }),
+      effect: (release) => Scope.addFinalizer(pluginScope, release),
     }
 
-    const rawSetup = plugin.server?.setup
-    const setup = rawSetup === undefined ? Effect.succeed(Context.empty()) : rawSetup(ctx)
-    // SAFETY: missing server facets contribute an empty context; present facets return their provision context
-    const base = setup as Effect.Effect<Context.Context<unknown>, unknown, Scope.Scope>
-    let wired = base
-    for (const token of plugin.needs) {
+    const config = yield* decodeConfig(plugin)
+    // SAFETY: AnyPlugin erases inject and config params; the host decoded this def's
+    // Config above and provides inject facades plus SessionLog below
+    const apply = plugin.apply as
+      | undefined
+      | ((ctx: PluginContext, config: DecodedConfig) => Effect.Effect<void, unknown, Scope.Scope>)
+    let wired: Effect.Effect<void, unknown, Scope.Scope> =
+      apply === undefined ? Effect.void : apply(ctx, config)
+    for (const token of plugin.inject) {
       wired = Effect.provideService(wired, token, facade(token, thread))
     }
-    wired = Effect.provideService(wired, SessionLog, log)
-    const provided = yield* Scope.provide(pluginScope)(wired).pipe(
+    // SAFETY: SessionLog is ambient in every apply; providing it here leaves inject and Scope
+    wired = Effect.provideService(wired, SessionLog, log) as typeof wired
+    yield* Scope.provide(pluginScope)(wired).pipe(
       Effect.mapError((cause) => new SetupFailed({ plugin: plugin.id, cause })),
       Effect.onError(() => Scope.close(pluginScope, Exit.void)),
     )
-
-    // The registry publishes by declaration. A declared service that setup omitted breaks consumers, and a returned service nobody declared is unreachable. It is never published, resolved, or shown in the graph.
-    const declared = new Set(serviceTokens(plugin).map(serviceId))
-    const problems = [
-      ...serviceTokens(plugin).flatMap((token) =>
-        Option.isNone(Context.getOption(token)(provided))
-          ? [ServiceMissing.make({ token: serviceId(token) })]
-          : [],
-      ),
-      ...[...provided.mapUnsafe.keys()].flatMap((token) =>
-        declared.has(token) ? [] : [ServiceUndeclared.make({ token })],
-      ),
-    ]
-    if (problems.length > 0) {
-      yield* Scope.close(pluginScope, Exit.void)
-      return yield* Effect.fail(new DeclarationMismatch({ plugin: plugin.id, problems }))
-    }
-
     return { pluginScope, provided, contributed }
   })
 
@@ -308,6 +302,7 @@ export const makeHost = Effect.fnUntraced(function* (
     plugin: AnyPlugin,
     pluginScope: Scope.Closeable,
     marker: Generation,
+    tokens: readonly AnyServiceToken[],
     thread?: ThreadId,
   ) =>
     Scope.addFinalizer(
@@ -317,7 +312,7 @@ export const makeHost = Effect.fnUntraced(function* (
         const live = yield* Ref.get(generations)
         if (live.get(key) !== marker) return
         const lane = registryOf(thread)
-        for (const token of serviceTokens(plugin)) yield* lane.remove(token, plugin.id)
+        for (const token of tokens) yield* lane.remove(token, plugin.id)
         yield* Ref.update(store, (map) => {
           const next = new Map(map)
           for (const [kind, list] of next) {
@@ -353,18 +348,33 @@ export const makeHost = Effect.fnUntraced(function* (
           next.delete(key)
           return next
         })
+        yield* Ref.update(providedTokens, (map) => {
+          const next = new Map(map)
+          next.delete(key)
+          return next
+        })
       }),
     )
 
   const publishServices = Effect.fnUntraced(function* (
     plugin: AnyPlugin,
-    provided: Context.Context<unknown>,
+    provided: readonly ProvidedService[],
     thread?: ThreadId,
   ) {
+    const liveProviders = yield* mergedProviders(thread)
+    for (const { token } of provided) {
+      const owner = liveProviders.get(serviceId(token))
+      if (owner !== undefined && owner !== plugin.id) {
+        return yield* Effect.fail(
+          new DuplicateProvider({ token: serviceId(token), existing: owner, incoming: plugin.id }),
+        )
+      }
+    }
     const lane = registryOf(thread)
-    for (const token of serviceTokens(plugin)) {
-      const value = Option.getOrThrow(Context.getOption(token)(provided))
-      yield* lane.provide(token, value, plugin.id)
+    for (const { token, value } of provided) {
+      // SAFETY: the lane keys by token id and hands the value back under the same token;
+      // the host collected both halves from one ctx.provide call
+      yield* lane.provide(token as never, value as never, plugin.id)
     }
   })
 
@@ -381,7 +391,7 @@ export const makeHost = Effect.fnUntraced(function* (
           list.filter((entry) => !(entry.plugin === plugin.id && entry.thread === thread)),
         )
       }
-      for (const contribution of [...dataContributions(plugin), ...contributed]) {
+      for (const contribution of contributed) {
         const list = next.get(contribution.kind) ?? []
         next.set(contribution.kind, [
           ...list,
@@ -396,16 +406,13 @@ export const makeHost = Effect.fnUntraced(function* (
     plugin: AnyPlugin,
     pluginScope: Scope.Closeable,
     marker: Generation,
+    tokens: readonly AnyServiceToken[],
     thread?: ThreadId,
   ) {
-    const provides = serviceTokens(plugin).map((token) => serviceId(token))
+    const provides = tokens.map((token) => serviceId(token))
     const activation =
       marker.address === undefined
-        ? Activation.make({
-            plugin: plugin.id,
-            scope: plugin.scope,
-            provides,
-          })
+        ? Activation.make({ plugin: plugin.id, scope: plugin.scope, provides })
         : Activation.make({
             plugin: plugin.id,
             scope: plugin.scope,
@@ -414,6 +421,7 @@ export const makeHost = Effect.fnUntraced(function* (
           })
     const key = layerKey(plugin.id, thread)
     yield* Ref.update(generations, (map) => new Map(map).set(key, marker))
+    yield* Ref.update(providedTokens, (map) => new Map(map).set(key, tokens))
     if (thread === undefined) {
       yield* Ref.update(active, (map) => new Map(map).set(plugin.id, activation))
     } else {
@@ -432,8 +440,6 @@ export const makeHost = Effect.fnUntraced(function* (
         return next
       })
     }
-    // A fresh generation has not run its boot step yet, so one that activates
-    // after boot still gets it.
     yield* Ref.update(booted, (set) => {
       const next = new Set(set)
       next.delete(plugin.id)
@@ -448,11 +454,7 @@ export const makeHost = Effect.fnUntraced(function* (
     address?: BundleAddress,
   ) {
     if (plugin.scope === 'thread' && thread === undefined) {
-      return Activation.make({
-        plugin: plugin.id,
-        scope: plugin.scope,
-        provides: serviceTokens(plugin).map((token) => serviceId(token)),
-      })
+      return Activation.make({ plugin: plugin.id, scope: plugin.scope, provides: [] })
     }
     const current =
       thread === undefined
@@ -461,13 +463,16 @@ export const makeHost = Effect.fnUntraced(function* (
     const existing = current.get(plugin.id)
     if (existing !== undefined) return existing
 
-    yield* requireNeeds(plugin, thread)
+    yield* requireInject(plugin, thread)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin, thread)
+    const tokens = provided.map((entry) => entry.token)
     const marker: Generation = { address }
-    yield* bindReverse(plugin, pluginScope, marker, thread)
-    yield* publishServices(plugin, provided, thread)
+    yield* bindReverse(plugin, pluginScope, marker, tokens, thread)
+    yield* publishServices(plugin, provided, thread).pipe(
+      Effect.onError(() => Scope.close(pluginScope, Exit.void)),
+    )
     yield* replaceData(plugin, contributed, thread)
-    const activation = yield* recordActivation(plugin, pluginScope, marker, thread)
+    const activation = yield* recordActivation(plugin, pluginScope, marker, tokens, thread)
     yield* emit(PluginActivated.make({ plugin: plugin.id, scope: plugin.scope }))
     return activation
   })
@@ -477,25 +482,25 @@ export const makeHost = Effect.fnUntraced(function* (
     thread?: ThreadId,
     address?: BundleAddress,
   ) {
-    yield* requireNeeds(plugin, thread)
+    yield* requireInject(plugin, thread)
     const { pluginScope, provided, contributed } = yield* setupGeneration(plugin, thread)
+    const tokens = provided.map((entry) => entry.token)
 
-    const retiring = yield* Ref.get(byId)
-    const previous = retiring.get(plugin.id)
     const scopesNow = yield* Ref.get(scopes)
     const oldScope = scopesNow.get(layerKey(plugin.id, thread))
 
     const marker: Generation = { address }
-    yield* bindReverse(plugin, pluginScope, marker, thread)
-    const activation = yield* recordActivation(plugin, pluginScope, marker, thread)
-    yield* publishServices(plugin, provided, thread)
+    yield* bindReverse(plugin, pluginScope, marker, tokens, thread)
+    const activation = yield* recordActivation(plugin, pluginScope, marker, tokens, thread)
+    yield* publishServices(plugin, provided, thread).pipe(
+      Effect.onError(() => Scope.close(pluginScope, Exit.void)),
+    )
 
-    const nextKeys = new Set(serviceTokens(plugin).map((token) => serviceId(token)))
-    if (previous !== undefined) {
-      const lane = registryOf(thread)
-      for (const token of serviceTokens(previous)) {
-        if (!nextKeys.has(serviceId(token))) yield* lane.remove(token, plugin.id)
-      }
+    const nextKeys = new Set(tokens.map((token) => serviceId(token)))
+    const oldTokens = (yield* Ref.get(providedTokens)).get(layerKey(plugin.id, thread)) ?? []
+    const lane = registryOf(thread)
+    for (const token of oldTokens) {
+      if (!nextKeys.has(serviceId(token))) yield* lane.remove(token, plugin.id)
     }
     yield* replaceData(plugin, contributed, thread)
 
@@ -522,7 +527,7 @@ export const makeHost = Effect.fnUntraced(function* (
         const plugin = pluginsById.get(id)
         if (plugin === undefined) continue
         if (thread === undefined ? plugin.scope === 'thread' : plugin.scope !== 'thread') continue
-        if (!plugin.needs.every((token) => liveProviders.has(serviceId(token)))) continue
+        if (!plugin.inject.every((token) => liveProviders.has(serviceId(token)))) continue
         const result = yield* Effect.result(install(plugin, thread))
         if (Result.isSuccess(result)) progressing = true
         break
@@ -591,11 +596,7 @@ export const makeHost = Effect.fnUntraced(function* (
         yield* remember(plugin)
         if (plugin.scope === 'thread') {
           if (thread === undefined) {
-            return Activation.make({
-              plugin: plugin.id,
-              scope: plugin.scope,
-              provides: serviceTokens(plugin).map((token) => serviceId(token)),
-            })
+            return Activation.make({ plugin: plugin.id, scope: plugin.scope, provides: [] })
           }
           yield* Ref.update(threadDesired, (map) => {
             const next = new Set(map.get(thread) ?? [])
@@ -633,7 +634,7 @@ export const makeHost = Effect.fnUntraced(function* (
       if (other === id) return false
       const otherPlugin = pluginsById.get(other)
       if (otherPlugin === undefined) return false
-      return otherPlugin.needs.some((token) => liveProviders.get(serviceId(token)) === id)
+      return otherPlugin.inject.some((token) => liveProviders.get(serviceId(token)) === id)
     })
     for (const dependent of dependents) yield* deactivateBody(dependent)
 
@@ -679,11 +680,7 @@ export const makeHost = Effect.fnUntraced(function* (
           plugin.scope === 'host' ? new Set(set).add(plugin.id) : set,
         )
         if (plugin.scope === 'thread') {
-          let last = Activation.make({
-            plugin: plugin.id,
-            scope: plugin.scope,
-            provides: serviceTokens(plugin).map((token) => serviceId(token)),
-          })
+          let last = Activation.make({ plugin: plugin.id, scope: plugin.scope, provides: [] })
           for (const thread of (yield* Ref.get(threadRoots)).keys()) {
             const lane = (yield* Ref.get(threadActive)).get(thread)
             if (lane === undefined || !lane.has(plugin.id)) continue
@@ -726,10 +723,7 @@ export const makeHost = Effect.fnUntraced(function* (
         if (merged.has(id)) continue
         const plugin = pluginsById.get(id)
         if (plugin === undefined) continue
-        const missing = plugin.needs.flatMap((token) => {
-          const key = serviceId(token)
-          return providers.has(key) ? [] : [key]
-        })
+        const missing = missingInject(plugin, providers)
         if (missing.length > 0) nextBlocked.set(id, new CoeffectsUnmet({ plugin: id, missing }))
       }
       return Graph.make({ active: merged, blocked: nextBlocked, providers })
@@ -738,12 +732,17 @@ export const makeHost = Effect.fnUntraced(function* (
   const openThread = (thread: ThreadId) => lock.withPermit(openThreadBody(thread))
   const closeThread = (thread: ThreadId) => lock.withPermit(closeThreadBody(thread))
 
-  const plan = yield* Effect.fromResult(resolve(plugins, new Set()))
-  for (const plugin of plan.order) {
-    const want = yield* Ref.get(desired)
-    if (!want.has(plugin.id)) continue
-    if (plugin.scope === 'thread') continue
-    yield* install(plugin).pipe(Effect.ignore)
+  const plan = resolve(plugins, new Set())
+  let progressing = true
+  while (progressing) {
+    progressing = false
+    for (const plugin of plan.order) {
+      if ((yield* Ref.get(active)).has(plugin.id)) continue
+      if (plugin.scope === 'thread') continue
+      if (!(yield* Ref.get(desired)).has(plugin.id)) continue
+      const result = yield* Effect.result(install(plugin))
+      if (Result.isSuccess(result)) progressing = true
+    }
   }
   yield* refreshBlocked()
   yield* runBootSteps()

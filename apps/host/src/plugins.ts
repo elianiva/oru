@@ -1,8 +1,7 @@
-import { Context, Effect, Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 import { definePlugin, defineService, type AnyPlugin } from '@oru/kernel'
 import { defineTool, runtimePlugin, ToolKind } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
-import { PanelUi } from './panel.ts'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -18,31 +17,23 @@ export const Greeter = defineService<GreeterService>('oru/greeter')
 
 export const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [Logger],
-  ui: { title: 'Log' } satisfies PanelUi,
-  server: {
-    setup: () => Effect.succeed(Context.make(Logger, { log: () => Effect.void })),
-  },
+  panel: { title: 'Log' },
+  apply: (ctx) => ctx.provide(Logger, { log: () => Effect.void }),
 })
 
 export const greeterPlugin = definePlugin({
   id: 'greeter',
-  needs: [Logger],
-  provides: [Greeter],
-  ui: { title: 'Greet' } satisfies PanelUi,
-  server: {
-    setup: () =>
-      Effect.succeed(
-        Context.make(Greeter, {
-          greet: (name) => Effect.succeed(`hello ${name}`),
-        }),
-      ),
-  },
+  inject: [Logger],
+  panel: { title: 'Greet' },
+  apply: (ctx) =>
+    ctx.provide(Greeter, {
+      greet: (name) => Effect.succeed(`hello ${name}`),
+    }),
 })
 
 /**
  * The slice's two-plugin pair: `logging` provides, `greeter` consumes. Toggling
- * `logging` offline is what shows a coeffect doing its work, and it is the only
+ * `logging` offline is what shows an inject doing its work, and it is the only
  * thing the panel view has to render before a thread exists.
  */
 export const fixturePlugins = [greeterPlugin, loggingPlugin]
@@ -51,16 +42,17 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 
 export const echoToolPlugin = definePlugin({
   id: 'tools/echo',
-  provides: [
-    ToolKind.of(
-      defineTool({
-        name: 'echo',
-        description: 'Return the text that was passed in.',
-        parameters: EchoArgs,
-        execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
-      }),
+  apply: (ctx) =>
+    ctx.contribute(
+      ToolKind.of(
+        defineTool({
+          name: 'echo',
+          description: 'Return the text that was passed in.',
+          parameters: EchoArgs,
+          execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
+        }),
+      ),
     ),
-  ],
 })
 
 /**
@@ -68,9 +60,8 @@ export const echoToolPlugin = definePlugin({
  *
  * A bridge is an external plugin now, so this is what the transport suite
  * composes to keep `pnpm test` hermetic. The registry reads its defaults from
- * ambient `HarnessDefaultsService` configuration: absent it carries no
- * configured default, and a composition that resolves `config.json` provides
- * its own value with `Effect.provideService`.
+ * the host's plugin configs: absent it carries no configured default, and a
+ * composition that resolves `config.json` hands its own value over.
  */
 export const corePlugins: readonly AnyPlugin[] = [
   ...fixturePlugins,
@@ -88,6 +79,5 @@ export const corePlugins: readonly AnyPlugin[] = [
  * and this is that process (ADR-0007). The bridges load through the generic
  * plugin-source loader, the same path a third-party harness takes: the host
  * knows no harness by name. The caller appends whatever the sources resolve
- * to `corePlugins` and provides its configured defaults and bridge environment
- * with `Effect.provideService`.
+ * to `corePlugins` and hands every plugin its config data.
  */

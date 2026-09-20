@@ -23,7 +23,7 @@ import {
   unsignedTree,
   type SessionEvent,
 } from '@oru/kernel'
-import { PiBridgeConfig, harnessPiPlugin, type PiBridgeConfigValue } from '../src/index.ts'
+import { harnessPiPlugin, type PiBridgeConfigValue } from '../src/index.ts'
 import {
   SCRIPTED_MODEL,
   startScriptedProvider,
@@ -46,17 +46,18 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
-  provides: [
-    ToolKind.of(
-      defineTool({
-        name: 'echo',
-        description: 'Return the text that was passed in.',
-        parameters: EchoArgs,
-        execute: (input: { readonly text: string }) =>
-          Effect.succeed(JSON.stringify({ echoed: input.text })),
-      }),
+  apply: (ctx) =>
+    ctx.contribute(
+      ToolKind.of(
+        defineTool({
+          name: 'echo',
+          description: 'Return the text that was passed in.',
+          parameters: EchoArgs,
+          execute: (input: { readonly text: string }) =>
+            Effect.succeed(JSON.stringify({ echoed: input.text })),
+        }),
+      ),
     ),
-  ],
 })
 
 const cleanups: Array<() => Promise<void> | void> = []
@@ -71,9 +72,9 @@ const bridge = async (): Promise<PiBridgeConfigValue> => {
     await scripted.close()
   })
   // The bridge talks to people through oru; a test has no one to tell. The
-  // scripted environment arrives as a service value, and the host builds the
-  // bridge from it, the same path the app takes.
-  return { env: scripted.env, log: () => undefined }
+  // scripted environment arrives as the plugin's config value, and the host
+  // builds the bridge from it, the same path the app takes.
+  return { env: scripted.env }
 }
 
 const approveAll = (runtime: Runtime['Service']) =>
@@ -155,7 +156,7 @@ describe('harness-pi in a host', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost(hostsOf())
+        const host = yield* makeHost(hostsOf(), new Map([['oru/harness-pi', config]]))
         const graph = yield* host.graph
         expect(graph.active.has('oru/harness-pi')).toBe(true)
         expect(graph.active.has('oru/runtime')).toBe(true)
@@ -196,7 +197,7 @@ describe('harness-pi in a host', () => {
         ])
         // The bridge paired the call with its output, so nothing is left pending.
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
-      }).pipe(Effect.provideService(PiBridgeConfig, config)),
+      }),
     )
   })
 
@@ -205,7 +206,7 @@ describe('harness-pi in a host', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost(hostsOf())
+        const host = yield* makeHost(hostsOf(), new Map([['oru/harness-pi', config]]))
         const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(tmpdir())
@@ -226,7 +227,7 @@ describe('harness-pi in a host', () => {
         // A reported outcome is a fact, so nothing is left pending for the
         // runtime to run (ADR-0007).
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
-      }).pipe(Effect.provideService(PiBridgeConfig, config)),
+      }),
     )
   })
 
@@ -235,7 +236,7 @@ describe('harness-pi in a host', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost(hostsOf())
+        const host = yield* makeHost(hostsOf(), new Map([['oru/harness-pi', config]]))
         const runtime = yield* host.service(Runtime)
         const log = yield* SessionLog
         const thread = yield* openThread(tmpdir())
@@ -251,7 +252,7 @@ describe('harness-pi in a host', () => {
         )
         // A failed turn leaves the thread idle, ready for the next prompt.
         expect(workOf(foldThread(yield* log.entries, thread))).toEqual(Idle.make({}))
-      }).pipe(Effect.provideService(PiBridgeConfig, config)),
+      }),
     )
   })
 
@@ -260,7 +261,7 @@ describe('harness-pi in a host', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost(hostsOf())
+        const host = yield* makeHost(hostsOf(), new Map([['oru/harness-pi', config]]))
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
         expect(entry.harness.health).toBeDefined()
@@ -268,7 +269,7 @@ describe('harness-pi in a host', () => {
         const health = yield* entry.harness.health()
         expect(health.status).toBe('ready')
         expect(health.installedVersion).toBe('0.85.1')
-      }).pipe(Effect.provideService(PiBridgeConfig, config)),
+      }),
     )
   })
 })

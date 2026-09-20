@@ -1,9 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import * as esbuild from 'esbuild'
 import { Schema } from 'effect'
-import { addressOf } from './address.ts'
+import { bundleWithTsdown, relativeExternalsPlugin } from './bundle.ts'
 
 export class FacetBuildError extends Schema.TaggedError<FacetBuildError>()('FacetBuildError', {
   message: Schema.String,
@@ -22,25 +21,11 @@ export const locateIn = (store: string): ((address: string) => string) => {
   return (address) => urlOf(store, address)
 }
 
-const relativeExternalsPlugin = (entryDir: string, specs: readonly string[]): esbuild.Plugin => {
-  const byPath = new Map<string, string>()
-  for (const spec of specs) {
-    if (!spec.startsWith('.')) continue
-    const abs = resolve(entryDir, spec)
-    byPath.set(abs, pathToFileURL(abs).href)
-  }
-  return {
-    name: 'relative-externals',
-    setup(build) {
-      build.onResolve({ filter: /^\.\.?\// }, (args) => {
-        const href = byPath.get(resolve(args.resolveDir, args.path))
-        if (href === undefined) return
-        return { path: href, external: true }
-      })
-    },
-  }
-}
-
+/**
+ * Bundle a server facet entry for Node: bare packages stay external, the
+ * way they did on the old esbuild path, and relative specs the caller
+ * names stay external as absolute file URLs so generations share them.
+ */
 export const buildFacet = async (
   entry: string,
   store: string,
@@ -48,28 +33,20 @@ export const buildFacet = async (
 ): Promise<BuiltFacet> => {
   const entryDir = dirname(resolve(entry))
   const packageExternals = externals.filter((spec) => !spec.startsWith('.'))
-  const result = await esbuild.build({
-    absWorkingDir: process.cwd(),
-    entryPoints: [entry],
-    bundle: true,
-    write: false,
-    format: 'esm',
-    platform: 'node',
-    target: 'es2022',
-    legalComments: 'none',
-    sourcemap: false,
-    logLevel: 'silent',
-    packages: 'external',
-    external: packageExternals,
-    plugins: [relativeExternalsPlugin(entryDir, externals)],
-  })
-  const file = result.outputFiles[0]
-  if (file === undefined) {
-    throw new FacetBuildError({ message: `esbuild emitted no file for ${entry}` })
+  try {
+    const built = await bundleWithTsdown(entry, {
+      platform: 'node',
+      external: packageExternals,
+      plugins: [relativeExternalsPlugin(entryDir, externals)],
+    })
+    const path = join(store, `${built.address}.js`)
+    await mkdir(store, { recursive: true })
+    await writeFile(path, built.js)
+    return { address: built.address, path, url: pathToFileURL(path).href }
+  } catch (error) {
+    if (error instanceof FacetBuildError) throw error
+    throw new FacetBuildError({
+      message: error instanceof Error ? error.message : String(error),
+    })
   }
-  const address = addressOf(file.contents)
-  const path = join(store, `${address}.js`)
-  await mkdir(store, { recursive: true })
-  await writeFile(path, file.contents)
-  return { address, path, url: pathToFileURL(path).href }
 }

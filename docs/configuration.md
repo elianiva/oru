@@ -66,7 +66,7 @@ Unknown keys are rejected.
 
 ## Environment the pi bridge sees
 
-The host copies the process environment and overwrites the product `ORU_*` / `ORU_PI_*` names with the resolved values, then provides that bag as the `PiBridgeConfig` service. The bridge reads it through its coeffects, never through a factory parameter. It does not read a second copy of `process.env` for those product keys when the host started it.
+The host copies the process environment and overwrites the product `ORU_*` / `ORU_PI_*` names with the resolved values, then hands that bag to the bridge as its plugin config. The bridge reads it from `apply`, never through a factory parameter. It does not read a second copy of `process.env` for those product keys when the host started it.
 
 Two names stay outside this layer:
 
@@ -77,4 +77,4 @@ The injected pi extension still reads `ORU_PI_TOOLS_FILE` from its own process e
 
 ## Environment the Claude Code bridge sees
 
-The host hands the Claude Code bridge the process environment unchanged, as the `ClaudeCodeConfig` service. The bridge reads three names out of it: `ORU_CLAUDE_COMMAND` (default `claude`), `ORU_CLAUDE_ARGS` (a JSON array of extra CLI args, unset by default), and `ORU_CLAUDE_SESSION_DIR` (default `~/.oru/claude-code/sessions`, holding one thread-to-session pointer file per thread). `ORU_CLAUDE_E2E_MODEL` is only for the live end-to-end test.
+The host hands the Claude Code bridge the process environment unchanged, as its plugin config. The bridge reads three names out of it: `ORU_CLAUDE_COMMAND` (default `claude`), `ORU_CLAUDE_ARGS` (a JSON array of extra CLI args, unset by default), and `ORU_CLAUDE_SESSION_DIR` (default `~/.oru/claude-code/sessions`, holding one thread-to-session pointer file per thread). `ORU_CLAUDE_E2E_MODEL` is only for the live end-to-end test.

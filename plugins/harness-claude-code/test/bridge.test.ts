@@ -7,8 +7,8 @@ import { EventJournal } from 'effect/unstable/eventlog'
 import { Harnesses } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
 import { makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
-import { PiBridgeConfig, harnessPiPlugin } from '@oru/harness-pi'
-import { ClaudeCodeConfig, harnessClaudeCodePlugin } from '../src/index.ts'
+import { harnessPiPlugin } from '@oru/harness-pi'
+import { harnessClaudeCodePlugin } from '../src/index.ts'
 
 /**
  * Both harnesses in one host, side by side.
@@ -41,11 +41,19 @@ describe('pi and Claude Code in one host', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([
-          harnessRegistryPlugin,
-          harnessPiPlugin,
-          harnessClaudeCodePlugin,
-        ])
+        const host = yield* makeHost(
+          [harnessRegistryPlugin, harnessPiPlugin, harnessClaudeCodePlugin],
+          new Map([
+            [
+              'oru/harness-pi',
+              { env: { ...process.env, ORU_PI_SESSION_DIR: join(dir, 'pi-sessions') } },
+            ],
+            [
+              'oru/harness-claude-code',
+              { env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'claude-sessions') } },
+            ],
+          ]),
+        )
         const graph = yield* host.graph
         expect(graph.active.has('oru/harness-pi')).toBe(true)
         expect(graph.active.has('oru/harness-claude-code')).toBe(true)
@@ -80,16 +88,7 @@ describe('pi and Claude Code in one host', () => {
         const pi = Option.getOrThrow(yield* registry.get('pi'))
         expect(pi.plugin).toBe('oru/harness-pi')
         expect(pi.harness.capabilities.tools).toBe(true)
-      }).pipe(
-        Effect.provideService(PiBridgeConfig, {
-          env: { ...process.env, ORU_PI_SESSION_DIR: join(dir, 'pi-sessions') },
-          log: () => undefined,
-        }),
-        Effect.provideService(ClaudeCodeConfig, {
-          env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'claude-sessions') },
-          log: () => undefined,
-        }),
-      ),
+      }),
     )
   })
 })

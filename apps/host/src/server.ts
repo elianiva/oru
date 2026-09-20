@@ -5,6 +5,7 @@ import { HttpRouter } from 'effect/unstable/http'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
 import * as NodeHttpServer from '@effect/platform-node/NodeHttpServer'
 import { makeHost, sessionLogLayer, type AnyPlugin, type BootError, type Host } from '@oru/kernel'
+import type { PluginId } from '@oru/kernel'
 import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
 import { rpcRoutes } from './routes.ts'
 import { buildUiBundles, type UiBundles, type UiOverrides } from './ui.ts'
@@ -15,6 +16,8 @@ class NotTcpAddress extends Schema.TaggedError<NotTcpAddress>()('NotTcpAddress',
 
 export interface HostOptions {
   readonly plugins: readonly AnyPlugin[]
+  /** Per-plugin config data, keyed by plugin id and decoded against each def's `Config`. */
+  readonly configs?: ReadonlyMap<PluginId, unknown> | undefined
   readonly hostname: string
   /** 0 asks the operating system for a free port, which is what a test wants. */
   readonly port: number
@@ -70,7 +73,9 @@ export const serveHost = (
       sessionLogLayer.pipe(Layer.provideMerge(record)),
       scope,
     )
-    const host = yield* makeHost(options.plugins).pipe(Effect.provideContext(provided))
+    const host = yield* makeHost(options.plugins, options.configs).pipe(
+      Effect.provideContext(provided),
+    )
     const built: UiBundles =
       options.ui === undefined
         ? new Map()

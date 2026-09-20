@@ -4,8 +4,6 @@
   "private": true,
   "type": "module",
   "oru": {
-    "facets": {
-      "server": "./server.ts"
-    }
+    "server": "./server.ts"
   }
 }

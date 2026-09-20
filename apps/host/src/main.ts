@@ -3,9 +3,7 @@ import { Effect, Match, Schema, type Scope } from 'effect'
 import { ServeError } from 'effect/unstable/http/HttpServerError'
 import type { BootError } from '@oru/kernel'
 import type { JournalOpenError } from '@oru/kernel/sqlite'
-import { HarnessDefaultsService } from '@oru/harness'
-import { ClaudeCodeConfig } from '@oru/harness-claude-code/config'
-import { PiBridgeConfig } from '@oru/harness-pi/config'
+import type { PluginId } from '@oru/kernel'
 import { packageVersion, parseArgs, usage } from './cli.ts'
 import {
   ConfigError,
@@ -18,9 +16,26 @@ import {
   setFileKey,
   unsetFileKey,
   writeFileConfig,
+  type Settings,
 } from './config.ts'
+
+/** Drop `undefined` so the value survives the trip across the host boundary. */
+const stringEnvOf = (env: NodeJS.ProcessEnv) => {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) out[key] = value
+  }
+  return out
+}
+
+const registryDefaultsOf = (settings: Settings) => {
+  const out: Record<string, string> = {}
+  if (settings.defaultHarness.value !== undefined) out.harness = settings.defaultHarness.value
+  if (settings.defaultModel.value !== undefined) out.model = settings.defaultModel.value
+  return out
+}
 import { corePlugins } from './plugins.ts'
-import { defaultPluginSources, loadExternalPlugins } from './plugin-sources.ts'
+import { loadExternalPlugins, readPluginList } from './plugin-sources.ts'
 import { serveHost } from './server.ts'
 
 const write = (line: string, stream: NodeJS.WriteStream) =>
@@ -38,7 +53,6 @@ const describeFailure = (error: BootError | ServeError | JournalOpenError): stri
       SchemaDiverged: (error) =>
         `journal ${error.path} has a migration history this build does not apply (${error.applied.join(', ')})`,
       DuplicateProvider: (error) => error.message,
-      GraphCycle: (error) => error.message,
     }),
   )
 
@@ -134,34 +148,31 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             ensureLayout(settings.home.value)
             return settings
           })
-          const external = yield* loadExternalPlugins(defaultPluginSources)
+          const sources = readPluginList()
+          const external = yield* loadExternalPlugins(sources)
+          // Configuration reaches plugins as data on their defs: the
+          // resolved settings are decoded against each plugin's `Config`
+          // when it activates, and every bridge reads the value it is
+          // handed instead of the process environment.
+          const configs = new Map<PluginId, unknown>([
+            ['oru/harness-registry', registryDefaultsOf(settings)],
+            ['oru/harness-pi', { env: stringEnvOf(piEnvOf(process.env, settings)) }],
+            ['oru/harness-claude-code', { env: stringEnvOf(process.env) }],
+          ])
           const running = yield* serveHost({
             plugins: [...corePlugins, ...external],
+            configs,
             hostname: settings.hostname.value,
             port: settings.port.value,
             journal: settings.journal.value,
             ui: {
-              sources: defaultPluginSources,
+              sources,
               overrides: {
                 composer: settings.uiSlotsComposer.value,
                 conversation: settings.uiSlotsConversation.value,
               },
             },
-          }).pipe(
-            // Configuration reaches plugins as services: the resolved settings
-            // provide the registry defaults and the bridge environment, and
-            // every plugin setup reads whichever value is ambient.
-            Effect.provideService(HarnessDefaultsService, {
-              harness: settings.defaultHarness.value,
-              model: settings.defaultModel.value,
-            }),
-            Effect.provideService(PiBridgeConfig, {
-              env: piEnvOf(process.env, settings),
-            }),
-            Effect.provideService(ClaudeCodeConfig, {
-              env: process.env,
-            }),
-          )
+          })
           yield* write(`oru host listening on ${running.url}\n`, process.stdout)
           yield* askedToStop
           return 0

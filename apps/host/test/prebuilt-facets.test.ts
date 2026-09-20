@@ -1,5 +1,5 @@
 import './block-plugin-sources.mjs'
-import { cpSync, existsSync, readFileSync } from 'node:fs'
+import { cpSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -16,9 +16,11 @@ const chatUiDist = join(chatUiDir, 'dist')
 const hostFacetsRoot = join(repoRoot, 'apps', 'host', 'dist', 'facets')
 
 const ensureHostFacets = async (): Promise<void> => {
-  if (!existsSync(join(chatUiDist, 'facets.json'))) await buildPluginFacets(chatUiDir)
+  // Always rebuild: a stale facets.json from an older bundler would serve
+  // bytes the current manifest never names.
+  await buildPluginFacets(chatUiDir)
   const destination = join(hostFacetsRoot, 'oru', 'chat-ui')
-  if (existsSync(join(destination, 'facets.json'))) return
+  rmSync(destination, { recursive: true, force: true })
   cpSync(join(chatUiDist, 'facets.json'), join(destination, 'facets.json'))
   cpSync(join(chatUiDist, 'facets'), join(destination, 'facets'), { recursive: true })
 }

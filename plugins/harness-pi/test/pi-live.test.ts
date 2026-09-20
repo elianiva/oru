@@ -12,7 +12,7 @@ import {
   resolvePiLaunch,
   type PiChannelMessage,
 } from '../src/pi/rpc-child.ts'
-import { PiBridgeConfig, openPiHarness, type PiHarness } from '../src/index.ts'
+import { openPiHarness, type PiHarness } from '../src/index.ts'
 
 /**
  * The bridge against the pi the user actually installed.
@@ -39,7 +39,7 @@ const scratch = (): string => {
 
 const bridge = (): PiHarness => {
   const pi = Effect.runSync(
-    Effect.provideService(openPiHarness, PiBridgeConfig, {
+    openPiHarness({
       env: process.env,
       log: () => undefined,
     }),

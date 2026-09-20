@@ -12,7 +12,6 @@ import type { AnyPlugin } from '@oru/kernel'
 
 const PrebuiltEnvelope = Schema.Struct({
   default: Schema.optional(Schema.Unknown),
-  plugin: Schema.optional(Schema.Unknown),
 })
 const decodeEnvelope = Schema.decodeUnknownOption(PrebuiltEnvelope)
 
@@ -94,10 +93,8 @@ export const loadPrebuiltRecord = async (
 ): Promise<AnyPlugin | undefined> => {
   const url = prebuiltServerUrl(specifier, facetsRoot)
   if (url === undefined) return undefined
-  const decoded = decodeEnvelope(await import(/* @vite-ignore */ url).catch(() => undefined))
-  if (Option.isNone(decoded)) return undefined
-  for (const record of [decoded.value.default, decoded.value.plugin]) {
-    if (isPluginRecord(record)) return record
-  }
-  return undefined
+  const pending: Promise<unknown> = import(url)
+  const decoded = decodeEnvelope(await pending.catch(() => undefined))
+  if (Option.isNone(decoded) || !isPluginRecord(decoded.value.default)) return undefined
+  return decoded.value.default
 }

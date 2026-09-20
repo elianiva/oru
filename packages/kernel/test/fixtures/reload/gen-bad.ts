@@ -1,13 +1,11 @@
-import { Context, Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import { definePlugin } from '../../../src/index.ts'
-import { Echo, type EchoService } from './tokens.ts'
+
+class BadGeneration extends Schema.TaggedError<BadGeneration>()('BadGeneration', {
+  message: Schema.String,
+}) {}
 
 export default definePlugin({
   id: 'facet-echo',
-  provides: [Echo],
-  server: {
-    setup: () =>
-      // SAFETY: this generation declares Echo but returns an empty context to fail cutover
-      Effect.succeed(Context.empty() as Context.Context<EchoService>),
-  },
+  apply: () => Effect.fail(new BadGeneration({ message: 'bad generation' })),
 })

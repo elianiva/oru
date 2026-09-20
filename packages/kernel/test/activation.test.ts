@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Result } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
-  DeclarationMismatch,
-  ServiceMissing,
-  ServiceUndeclared,
+  DuplicateProvider,
   SessionLog,
   sessionLogLayer,
   defineContributionKind,
@@ -29,51 +27,44 @@ const events: string[] = []
 
 const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [Logger],
-  server: {
-    setup: () =>
-      Effect.gen(function* () {
-        yield* Effect.acquireRelease(
+  apply: (ctx) =>
+    Effect.gen(function* () {
+      yield* ctx.provide(Logger, {
+        log: (message) =>
           Effect.sync(() => {
-            events.push('logger:open')
+            events.push(`log:${message}`)
           }),
-          () =>
-            Effect.sync(() => {
-              events.push('logger:close')
-            }),
-        )
-        return Context.make(Logger, {
-          log: (message) =>
-            Effect.sync(() => {
-              events.push(`log:${message}`)
-            }),
-        })
-      }),
-  },
+      })
+      yield* Effect.sync(() => {
+        events.push('logger:open')
+      })
+      yield* ctx.effect(
+        Effect.sync(() => {
+          events.push('logger:close')
+        }),
+      )
+    }),
 })
 
 const greeterPlugin = definePlugin({
   id: 'greeter',
-  needs: [Logger],
-  provides: [Greeter],
-  server: {
-    setup: () =>
-      Effect.gen(function* () {
-        const logger = yield* Logger
-        yield* logger.log('greeter:up')
-        yield* logger.log('greeter:ambient')
-        return Context.make(Greeter, {
-          greet: (name) => logger.log(`hello ${name}`).pipe(Effect.as(`hello ${name}`)),
-        })
-      }),
-  },
+  inject: [Logger],
+  apply: (ctx) =>
+    Effect.gen(function* () {
+      const logger = yield* Logger
+      yield* logger.log('greeter:up')
+      yield* logger.log('greeter:ambient')
+      yield* ctx.provide(Greeter, {
+        greet: (name) => logger.log(`hello ${name}`).pipe(Effect.as(`hello ${name}`)),
+      })
+    }),
 })
 
 const Missing = defineService<{ readonly ping: Effect.Effect<void> }>('oru/missing')
 
 const lonelyPlugin = definePlugin({
   id: 'lonely',
-  needs: [Missing],
+  inject: [Missing],
 })
 
 describe('kernel activation', () => {
@@ -106,7 +97,7 @@ describe('kernel activation', () => {
     )
   })
 
-  it('keeps a plugin with unmet coeffects inactive until its provider appears', async () => {
+  it('keeps a plugin with unmet inject inactive until its provider appears', async () => {
     events.length = 0
     await Effect.runPromise(
       Effect.scoped(
@@ -134,7 +125,7 @@ describe('kernel activation', () => {
 
     const toolsPlugin = definePlugin({
       id: 'tools',
-      provides: [ToolKind.of({ name: 'search' })],
+      apply: (ctx) => ctx.contribute(ToolKind.of({ name: 'search' })),
     })
 
     await Effect.runPromise(
@@ -152,83 +143,41 @@ describe('kernel activation', () => {
     )
   })
 
-  it('fails activation when setup omits a declared service', async () => {
-    const hollow = definePlugin({
-      id: 'hollow',
-      provides: [Logger],
-      server: {
-        setup: () =>
-          // SAFETY: this plugin declares Logger but returns an empty context to exercise DeclarationMismatch
-          Effect.succeed(Context.empty() as Context.Context<LoggerService>),
-      },
+  it('fails activation when two plugins provide the same service', async () => {
+    const otherLogger = definePlugin({
+      id: 'other-logger',
+      apply: (ctx) => ctx.provide(Logger, { log: () => Effect.void }),
     })
 
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const host = yield* makeHost([])
-          const result = yield* Effect.result(host.activate(hollow))
+          const host = yield* makeHost([loggingPlugin])
+          const result = yield* Effect.result(host.activate(otherLogger))
           expect(result).toEqual(
             Result.fail(
-              new DeclarationMismatch({
-                plugin: 'hollow',
-                problems: [ServiceMissing.make({ token: 'oru/logger' })],
+              new DuplicateProvider({
+                token: 'oru/logger',
+                existing: 'logging',
+                incoming: 'other-logger',
               }),
             ),
           )
+          expect((yield* host.graph).active.has('other-logger')).toBe(false)
         }),
       ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
 
-  it('fails activation when setup returns a service the declaration never claimed', async () => {
-    const sneaky = definePlugin({
-      id: 'sneaky',
-      provides: [Logger],
-      server: {
-        setup: () =>
-          // extra provisions type-check (a Context is only checked to *contain* the declarations),
-          // so this is the case the runtime check has to catch
-          Effect.succeed(
-            Context.merge(
-              Context.make(Logger, { log: () => Effect.void }),
-              Context.make(Greeter, { greet: () => Effect.succeed('hi') }),
-            ),
-          ),
-      },
-    })
-
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const host = yield* makeHost([])
-          const result = yield* Effect.result(host.activate(sneaky))
-          expect(result).toEqual(
-            Result.fail(
-              new DeclarationMismatch({
-                plugin: 'sneaky',
-                problems: [ServiceUndeclared.make({ token: 'oru/greeter' })],
-              }),
-            ),
-          )
-          expect((yield* host.graph).active.has('sneaky')).toBe(false)
-        }),
-      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
-    )
-  })
-
-  it('provides SessionLog to setup and resolves a provided service from the host', async () => {
+  it('provides SessionLog to apply and resolves a provided service from the host', async () => {
     const probe = definePlugin({
       id: 'probe',
-      provides: [Logger],
-      server: {
-        setup: () =>
-          Effect.gen(function* () {
-            const log = yield* SessionLog
-            yield* log.entries
-            return Context.make(Logger, { log: () => Effect.void })
-          }),
-      },
+      apply: (ctx) =>
+        Effect.gen(function* () {
+          const log = yield* SessionLog
+          yield* log.entries
+          yield* ctx.provide(Logger, { log: () => Effect.void })
+        }),
     })
 
     await Effect.runPromise(
@@ -241,6 +190,24 @@ describe('kernel activation', () => {
       ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
     )
   })
+
+  it('decodes Config on the def and hands it to apply', async () => {
+    const Seen = defineContributionKind<string>('oru/seen')
+    const configured = definePlugin({
+      id: 'configured',
+      Config: Schema.Struct({ greeting: Schema.String }),
+      apply: (ctx, config) => ctx.contribute(Seen.of(config.greeting)),
+    })
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const host = yield* makeHost([configured], new Map([['configured', { greeting: 'hi' }]]))
+          expect((yield* host.contributions(Seen)).map((entry) => entry.value)).toEqual(['hi'])
+        }),
+      ).pipe(Effect.provide(sessionLogLayer), Effect.provide(EventJournal.layerMemory)),
+    )
+  })
 })
 
 describe('kernel thread-scoped activation', () => {
@@ -248,30 +215,27 @@ describe('kernel thread-scoped activation', () => {
 
   const hostSearch = definePlugin({
     id: 'host-search',
-    provides: [ToolKind.of({ name: 'host-search' })],
+    apply: (ctx) => ctx.contribute(ToolKind.of({ name: 'host-search' })),
   })
 
   const threadPing = definePlugin({
     id: 'thread-ping',
     scope: 'thread',
-    provides: [ToolKind.of({ name: 'ping' }), Greeter],
-    server: {
-      setup: () =>
-        Effect.gen(function* () {
-          yield* Effect.acquireRelease(
-            Effect.sync(() => {
-              events.push('ping:open')
-            }),
-            () =>
-              Effect.sync(() => {
-                events.push('ping:close')
-              }),
-          )
-          return Context.make(Greeter, {
-            greet: (name) => Effect.succeed(`ping ${name}`),
-          })
-        }),
-    },
+    apply: (ctx) =>
+      Effect.gen(function* () {
+        yield* ctx.contribute(ToolKind.of({ name: 'ping' }))
+        yield* ctx.provide(Greeter, {
+          greet: (name) => Effect.succeed(`ping ${name}`),
+        })
+        yield* Effect.sync(() => {
+          events.push('ping:open')
+        })
+        yield* ctx.effect(
+          Effect.sync(() => {
+            events.push('ping:close')
+          }),
+        )
+      }),
   })
 
   it('activates a thread-scoped plugin per thread and hides it from the host graph and siblings', async () => {

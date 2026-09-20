@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Match, Option, Ref, Schema, Stream } from 'effect'
-import { defineContributionKind, defineService, type ContributionKind } from '@oru/kernel'
+import { defineContributionKind, type ContributionKind } from '@oru/kernel'
 
 export class HarnessError extends Data.TaggedError('HarnessError')<{
   readonly message: string
@@ -382,14 +382,6 @@ export interface HarnessDefaults {
   readonly harness?: string | undefined
   readonly model?: string | undefined
 }
-
-/**
- * The host's own default selection, read as ambient configuration rather than
- * passed to a factory. The composition root provides its resolved settings,
- * tests provide their own value with `Effect.provideService`, and the registry
- * reads whichever is ambient at setup.
- */
-export const HarnessDefaultsService = defineService<HarnessDefaults>('oru/harness-defaults')
 
 /**
  * The token for this contribution kind. Several harness plugins contribute

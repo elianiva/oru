@@ -25,7 +25,7 @@ import {
   unsignedTree,
   type SessionEvent,
 } from '@oru/kernel'
-import { PiBridgeConfig, harnessPiPlugin, openPiHarness } from '../src/index.ts'
+import { harnessPiPlugin, openPiHarness } from '../src/index.ts'
 import { PI_CLI } from './scripted-provider.ts'
 
 /**
@@ -52,17 +52,18 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
-  provides: [
-    ToolKind.of(
-      defineTool({
-        name: 'echo',
-        description: 'Return the text that was passed in.',
-        parameters: EchoArgs,
-        execute: (input: { readonly text: string }) =>
-          Effect.succeed(JSON.stringify({ echoed: input.text })),
-      }),
+  apply: (ctx) =>
+    ctx.contribute(
+      ToolKind.of(
+        defineTool({
+          name: 'echo',
+          description: 'Return the text that was passed in.',
+          parameters: EchoArgs,
+          execute: (input: { readonly text: string }) =>
+            Effect.succeed(JSON.stringify({ echoed: input.text })),
+        }),
+      ),
     ),
-  ],
 })
 
 /** The vendored pi, the user's own account, and a temporary session dir. */
@@ -81,9 +82,7 @@ interface E2EReadiness {
 const readiness = await Effect.runPromise(
   Effect.gen(function* () {
     const dir = mkdtempSync(join(tmpdir(), 'oru-pi-e2e-probe-'))
-    const probe = yield* openPiHarness.pipe(
-      Effect.provideService(PiBridgeConfig, { env: e2eEnv(dir), log: () => undefined }),
-    )
+    const probe = yield* openPiHarness({ env: e2eEnv(dir), log: () => undefined })
     try {
       const health = yield* probe.service.health!()
       if (health.status !== 'ready') {
@@ -119,7 +118,6 @@ const sessionsDir = (dir: string): string => join(dir, 'sessions')
 
 const bridge = (dir: string) => ({
   env: e2eEnv(dir),
-  log: (message: string) => process.stdout.write(`pi: ${message}\n`),
 })
 
 const run = <A, E>(
@@ -202,12 +200,10 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([
-          harnessRegistryPlugin,
-          echoToolPlugin,
-          harnessPiPlugin,
-          runtimePlugin,
-        ])
+        const host = yield* makeHost(
+          [harnessRegistryPlugin, echoToolPlugin, harnessPiPlugin, runtimePlugin],
+          new Map([['oru/harness-pi', config]]),
+        )
         const registry = yield* host.service(Harnesses)
         const entry = Option.getOrThrow(yield* registry.get('pi'))
         expect(entry.harness.health).toBeDefined()
@@ -264,7 +260,7 @@ describe.runIf(readiness.run)('oru driving pi, for real', () => {
         const sessionFile = join(sessionsDir(dir), `${thread}.jsonl`)
         expect(existsSync(sessionFile)).toBe(true)
         expect(readFileSync(sessionFile, 'utf8')).toContain('"type":"session"')
-      }).pipe(Effect.provideService(PiBridgeConfig, config)),
+      }),
     )
   })
 })

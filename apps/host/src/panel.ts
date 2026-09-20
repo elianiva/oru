@@ -1,7 +1,7 @@
 import { Schema } from 'effect'
 
 /**
- * The panel a plugin declares in its `ui`.
+ * The panel a plugin declares, naming the title the view shows.
  *
  * A plugin without one is live in the kernel and has nothing to show, so it
  * never reaches the view: the graph the presentation facet mirrors is a graph

@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Result } from 'effect'
+import { Effect, Schema } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { buildFacet, locateIn } from '@oru/plugin-build'
 import {
-  DeclarationMismatch,
-  ServiceMissing,
+  SetupFailed,
   definePlugin,
   defineService,
   loadFacet,
@@ -28,17 +27,14 @@ const Reader = defineService<ReaderService>('oru/facet-reader')
 
 const readerPlugin = definePlugin({
   id: 'facet-reader',
-  needs: [Echo],
-  provides: [Reader],
-  server: {
-    setup: () =>
-      Effect.gen(function* () {
-        const echo = yield* Echo
-        return Context.make(Reader, {
-          ping: echo.echo('live'),
-        })
-      }),
-  },
+  inject: [Echo],
+  apply: (ctx) =>
+    Effect.gen(function* () {
+      const echo = yield* Echo
+      yield* ctx.provide(Reader, {
+        ping: echo.echo('live'),
+      })
+    }),
 })
 
 const fixturePath = (file: string): string =>
@@ -92,15 +88,9 @@ describe('FacetLoader', () => {
           expect(yield* host.contributions(Banner)).toEqual([])
           expect(facetEvents).toEqual(['a:open', 'b:open', 'a:close'])
 
-          const failed = yield* Effect.result(loader.reload(genBad.address))
-          expect(failed).toEqual(
-            Result.fail(
-              new DeclarationMismatch({
-                plugin: 'facet-echo',
-                problems: [ServiceMissing.make({ token: 'oru/facet-echo' })],
-              }),
-            ),
-          )
+          const error = yield* Effect.flip(loader.reload(genBad.address))
+          expect(Schema.is(SetupFailed)(error)).toBe(true)
+          if (Schema.is(SetupFailed)(error)) expect(error.plugin).toBe('facet-echo')
           expect(yield* echo.echo('x')).toBe('b:x')
           expect((yield* host.graph).active.get('facet-echo')?.generation).toBe(genB.address)
           expect(facetEvents).toEqual(['a:open', 'b:open', 'a:close'])

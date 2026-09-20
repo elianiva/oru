@@ -4,7 +4,7 @@
 
 ## Goal
 
-Reach the initial slice: a running host where two plugins activate and deactivate as their coeffects appear and disappear, the view mirrors the live plugin graph, and the session journal records every transition — with no model involved. Everything after stacks on this.
+Reach the initial slice: a running host where two plugins activate and deactivate as their inject appears and disappears, the view mirrors the live plugin graph, and the session journal records every transition — with no model involved. Everything after stacks on this.
 
 ## Stack
 
@@ -26,7 +26,7 @@ Reach the initial slice: a running host where two plugins activate and deactivat
 
 Each unit ends in a verifiable state. Do not start the next until the current one is checked.
 
-1. **Workspace + kernel core.** pnpm workspace, tsconfig, lint. Service tokens, context, `definePlugin({ needs, provides, server?, ui? })`, contribution kinds. Static boot resolution: providers before consumers; a consumer with unmet coeffects stays inactive. Contributions reverse on `Scope`. Verify: a test activates and deactivates a plugin and asserts contributions appear and are reversed.
+1. **Workspace + kernel core.** pnpm workspace, tsconfig, lint. Service tokens, context, `definePlugin({ inject, Config?, apply? })`, contribution kinds. Boot retries the inject-blocked set until it stops progressing; a consumer with unmet inject stays inactive. Contributions reverse on `Scope`. Verify: a test activates and deactivates a plugin and asserts contributions appear and are reversed.
 2. **Session journal.** `SessionLog` over `EventJournal`'s memory layer: `write`, `entries`, `changes`. Activation and deactivation append events. Verify: a test appends events and reprojects.
 3. **Reactive activation.** Watch the service registry; adding or removing a provider activates or deactivates dependents. Verify: a provider/consumer pair flips live, and the journal records each transition.
 4. **Presentation facet.** `effect/unstable/rpc` boundary; a Foldkit root submodel holding a keyed collection of plugin submodels; activation adds, deactivation removes. Spike the dynamic keyed collection first — it is the least-proven Foldkit pattern. Verify: in a browser, toggling the provider makes the consumer's panel appear and disappear.

@@ -1,6 +1,6 @@
-import { Cause, Context, Effect, Option, Queue, Schema, Stream } from 'effect'
-import { definePlugin, type AnyPlugin } from '@oru/kernel'
-import { ClaudeCodeConfig } from './config.ts'
+import { Cause, Effect, Queue, Schema, Stream } from 'effect'
+import { definePlugin } from '@oru/kernel'
+import { ClaudeCodeConfig, envOf } from './config.ts'
 import {
   HarnessKind,
   HarnessError,
@@ -32,15 +32,6 @@ import {
  * Nothing in the host imports this module statically.
  */
 
-/**
- * The bridge's environment, as a service rather than a factory parameter.
- *
- * Configuration arrives as a service rather than a factory parameter, so
- * tests use the Effect idiom instead of injecting fakes through parameters:
- * the composition root provides the real environment with
- * `Effect.provideService`, tests provide the scripted one, and
- * the plugin reads whichever is active through its coeffects.
- */
 const toHarnessError = (cause: unknown): HarnessError => {
   if (Schema.is(ClaudeCodeBridgeError)(cause)) {
     return new HarnessError({
@@ -67,12 +58,14 @@ export interface ClaudeHarness {
  * so a test providing a scripted environment gets an isolated bridge without
  * touching another.
  */
-export const openClaudeCodeHarness: Effect.Effect<ClaudeHarness, never, ClaudeCodeConfig> =
-  Effect.gen(function* () {
-    const config = yield* ClaudeCodeConfig
-    const env = config.env ?? process.env
+export const openClaudeCodeHarness = (input?: {
+  readonly env?: NodeJS.ProcessEnv | undefined
+  readonly log?: ((message: string) => void) | undefined
+}): Effect.Effect<ClaudeHarness> =>
+  Effect.sync(() => {
+    const env = input?.env ?? process.env
     const log =
-      config.log ??
+      input?.log ??
       ((message: string) => process.stderr.write(`oru harness-claude-code: ${message}\n`))
     const sessions = new Map<string, ClaudeCodeSession>()
     const launch = resolveClaudeCodeLaunch(env)
@@ -176,43 +169,29 @@ export const openClaudeCodeHarness: Effect.Effect<ClaudeHarness, never, ClaudeCo
 /**
  * The Claude Code bridge, as a plugin.
  *
- * A constant rather than a factory because the bridge's environment is a
- * coeffect now: the plugin reads `ClaudeCodeConfig` and contributes the harness
- * the config builds. A test points the bridge at a scripted `claude` by
- * providing another config value, and the app provides the `claude` the user
- * installed. Both are the same plugin id, so a host has exactly one Claude Code
- * bridge. The harness is explicit: no ambient singleton reads `process.env`
- * at import time.
+ * The bridge's environment is the plugin's `Config`: plain data the host
+ * resolves and hands over, so a test aims the bridge at a scripted `claude`
+ * with a config value and the app hands it the user's own environment. Both
+ * are the same plugin id, so a host has exactly one Claude Code bridge. The
+ * harness is explicit: no ambient singleton reads `process.env` at import
+ * time.
  */
-export const harnessClaudeCodePlugin: AnyPlugin = definePlugin({
+export const harnessClaudeCodePlugin = definePlugin({
   id: 'oru/harness-claude-code',
-  provides: [],
-  server: {
-    setup: (ctx) =>
-      Effect.gen(function* () {
-        // Plain data, so ambient configuration rather than a coeffect: the
-        // kernel's facades only forward method bags. Absent configuration
-        // opens the bridge on the process environment, the way the old
-        // no-argument factory did; importing the module never reads it.
-        const config = yield* Effect.serviceOption(ClaudeCodeConfig).pipe(
-          Effect.map((option) => Option.getOrElse(option, () => ({}))),
-        )
-        const harness = yield* Effect.provideService(
-          openClaudeCodeHarness,
-          ClaudeCodeConfig,
-          config,
-        )
-        // The contributed value is built here, so setup registers the harness
-        // plus the teardown that kills every `claude` child this instance
-        // spawned (ADR-0007).
-        yield* ctx.contribute(HarnessKind.of(harness.service))
-        yield* Effect.addFinalizer(() => Effect.sync(() => harness.shutdown()))
-        return Context.empty()
-      }),
-  },
+  Config: ClaudeCodeConfig,
+  apply: (ctx, config) =>
+    Effect.gen(function* () {
+      // A configured env is used as-is, so a scripted test stays hermetic;
+      // absent configuration the bridge runs on the process environment,
+      // the way the old no-argument factory did.
+      const env = envOf(config.env)
+      const harness = yield* openClaudeCodeHarness({ env })
+      // The contributed value is built here, so apply registers the harness
+      // plus the teardown that kills every `claude` child this instance
+      // spawned (ADR-0007).
+      yield* ctx.contribute(HarnessKind.of(harness.service))
+      yield* ctx.effect(Effect.sync(() => harness.shutdown()))
+    }),
 })
-
-/** The record the generic plugin-source loader reads. */
-export const plugin: AnyPlugin = harnessClaudeCodePlugin
 
 export default harnessClaudeCodePlugin

@@ -30,9 +30,9 @@ export {
   loggingPlugin,
 } from './plugins.ts'
 export {
-  defaultPluginSources,
   loadExternalPlugins,
   loadPluginSource,
+  readPluginList,
   type PluginSource,
 } from './plugin-sources.ts'
 export {

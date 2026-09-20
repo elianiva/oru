@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "effect": "4.0.0-rc.115",
-    "esbuild": "^0.28.2",
     "tsdown": "^0.23.0"
   },
   "devDependencies": {

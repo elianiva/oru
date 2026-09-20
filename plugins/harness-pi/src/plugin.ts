@@ -1,8 +1,8 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { Cause, Context, Effect, Option, Queue, Schema, Stream } from 'effect'
-import { definePlugin, type AnyPlugin } from '@oru/kernel'
-import { PiBridgeConfig } from './config.ts'
+import { Cause, Effect, Queue, Schema, Stream } from 'effect'
+import { definePlugin } from '@oru/kernel'
+import { PiBridgeConfig, envOf } from './config.ts'
 import {
   HarnessKind,
   HarnessError,
@@ -34,15 +34,6 @@ import { PiCatalog } from './pi/catalog.ts'
  * Nothing in the host imports this module statically.
  */
 
-/**
- * The bridge's environment, as a service rather than a factory parameter.
- *
- * Configuration arrives as a service rather than a factory parameter, so
- * tests use the Effect idiom instead of injecting fakes through parameters:
- * the composition root provides the real environment with
- * `Effect.provideService`, tests provide the scripted one, and the plugin
- * reads whichever value is ambient.
- */
 const toHarnessError = (cause: unknown): HarnessError => {
   if (Schema.is(PiBridgeError)(cause)) {
     return new HarnessError({
@@ -76,16 +67,19 @@ export interface PiHarness {
 }
 
 /**
- * Open the bridge from the active config. Each instance owns its own sessions,
- * decisions and scratch space, so a test providing a scripted environment gets
- * an isolated bridge without touching another.
+ * Open the bridge in one environment. Each instance owns its own sessions,
+ * decisions and scratch space, so a test handing a scripted environment gets
+ * an isolated bridge without touching another. Absent input runs on the
+ * process environment, the way the old no-argument factory did.
  */
-export const openPiHarness: Effect.Effect<PiHarness, never, PiBridgeConfig> = Effect.gen(
-  function* () {
-    const config = yield* PiBridgeConfig
-    const env = config.env ?? process.env
+export const openPiHarness = (input?: {
+  readonly env?: NodeJS.ProcessEnv | undefined
+  readonly log?: ((message: string) => void) | undefined
+}): Effect.Effect<PiHarness> =>
+  Effect.sync(() => {
+    const env = input?.env ?? process.env
     const log =
-      config.log ?? ((message: string) => process.stderr.write(`oru harness-pi: ${message}\n`))
+      input?.log ?? ((message: string) => process.stderr.write(`oru harness-pi: ${message}\n`))
     const sessions = new Map<string, PiSession>()
     const launch = resolvePiLaunch(env)
     const catalog = new PiCatalog({ env, launch, log })
@@ -215,44 +209,33 @@ export const openPiHarness: Effect.Effect<PiHarness, never, PiBridgeConfig> = Ef
         catalog.invalidate()
       },
     }
-  },
-)
+  })
 
 /**
  * The pi bridge, as a plugin.
  *
- * A constant rather than a factory because the bridge's environment is a
- * coeffect now: the plugin reads `PiBridgeConfig` and contributes the harness
- * the config builds. A test points the bridge at a scripted pi by providing
- * another config value, and the app provides the pi the user installed. Both
- * are the same plugin id, so a host has exactly one pi bridge. The harness is
+ * The bridge's environment is the plugin's `Config`: plain data the host
+ * resolves and hands over, so a test aims the bridge at a scripted pi with
+ * a config value and the app hands it the user's own environment. Both are
+ * the same plugin id, so a host has exactly one pi bridge. The harness is
  * explicit: no ambient singleton reads `process.env` at import time.
  */
-export const harnessPiPlugin: AnyPlugin = definePlugin({
+export const harnessPiPlugin = definePlugin({
   id: 'oru/harness-pi',
-  provides: [],
-  server: {
-    setup: (ctx) =>
-      Effect.gen(function* () {
-        // Plain data, so ambient configuration rather than a coeffect: the
-        // kernel's facades only forward method bags. Absent configuration
-        // opens the bridge on the process environment, the way the old
-        // no-argument factory did; importing the module never reads it.
-        const config = yield* Effect.serviceOption(PiBridgeConfig).pipe(
-          Effect.map((option) => Option.getOrElse(option, () => ({}))),
-        )
-        const harness = yield* Effect.provideService(openPiHarness, PiBridgeConfig, config)
-        // The contributed value is built here, so setup registers the harness
-        // plus the teardown that stops every pi child this instance spawned
-        // (ADR-0007).
-        yield* ctx.contribute(HarnessKind.of(harness.service))
-        yield* Effect.addFinalizer(() => Effect.sync(() => harness.shutdown()))
-        return Context.empty()
-      }),
-  },
+  Config: PiBridgeConfig,
+  apply: (ctx, config) =>
+    Effect.gen(function* () {
+      // A configured env is used as-is, so a scripted test stays hermetic;
+      // absent configuration the bridge runs on the process environment,
+      // the way the old no-argument factory did.
+      const env = envOf(config.env)
+      const harness = yield* openPiHarness({ env })
+      // The contributed value is built here, so apply registers the harness
+      // plus the teardown that stops every pi child this instance spawned
+      // (ADR-0007).
+      yield* ctx.contribute(HarnessKind.of(harness.service))
+      yield* ctx.effect(Effect.sync(() => harness.shutdown()))
+    }),
 })
-
-/** The record the generic plugin-source loader reads. */
-export const plugin: AnyPlugin = harnessPiPlugin
 
 export default harnessPiPlugin

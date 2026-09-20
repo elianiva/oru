@@ -1,7 +1,6 @@
-import { Context, Effect, Option } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 import { definePlugin, type PluginContext } from '@oru/kernel'
 import {
-  HarnessDefaultsService,
   HarnessKind,
   Harnesses,
   type HarnessDefaults,
@@ -15,11 +14,10 @@ import {
  * A harness plugin contributes its service under `HarnessKind`, so several
  * bridges are active at once without colliding on a service token (ADR-0006).
  * Nothing is cached: the contributions are read per call, so activating or
- * deactivating a bridge changes the answer immediately.
+ * deactivating a bridge changes what the picker offers without a restart.
  *
- * The host's configured default is a coeffect, not a parameter: the composition
- * root provides `HarnessDefaultsService` (its resolved `config.json`), tests
- * provide their own value, and this plugin reads whichever is active.
+ * The host's configured default arrives as the plugin's `Config`: plain data
+ * from the composition root's resolved `config.json`, or a test literal.
  * Resolving settings stays the host process's job (ADR-0012), and a harness
  * plugin stays generic.
  */
@@ -66,21 +64,14 @@ export const openHarnesses = (
 }
 
 /**
- * The registry. Its defaults come from `HarnessDefaultsService`, read as
- * ambient configuration rather than a coeffect: defaults are plain data, and
- * the kernel's facades only forward method bags. Absent configuration means
- * no configured default, so the first registered harness wins.
+ * The registry. Its defaults are the plugin's `Config`: plain data, absent
+ * means no configured default, so the first registered harness wins.
  */
 export const harnessRegistryPlugin = definePlugin({
   id: 'oru/harness-registry',
-  provides: [Harnesses],
-  server: {
-    setup: (ctx) =>
-      Effect.gen(function* () {
-        const defaults = yield* Effect.serviceOption(HarnessDefaultsService).pipe(
-          Effect.map((option) => Option.getOrElse(option, () => ({}))),
-        )
-        return Context.make(Harnesses, openHarnesses(ctx, defaults))
-      }),
-  },
+  Config: Schema.Struct({
+    harness: Schema.optional(Schema.String),
+    model: Schema.optional(Schema.String),
+  }),
+  apply: (ctx, config) => ctx.provide(Harnesses, openHarnesses(ctx, config)),
 })

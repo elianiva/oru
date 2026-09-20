@@ -1,4 +1,4 @@
-import { Predicate, Schema } from 'effect'
+import { Schema } from 'effect'
 import type { PluginId } from './primitives.ts'
 import type { AnyServiceToken, IdentifierOf } from './service.ts'
 
@@ -29,23 +29,11 @@ export const defineContributionKind = <C>(id: string): ContributionKind<C> => ({
 })
 
 /**
- * What a plugin declares in `provides`: a service token whose value its setup returns,
- * or a data payload registered under a kind.
+ * What a plugin provides at runtime through `ctx.provide` (services) or
+ * `ctx.contribute` (data payloads under a kind). Services are discovered
+ * when `apply` runs, not pre-declared, so the graph is built from live
+ * registrations the way cordis holds plugins PENDING on `inject`.
  */
 export type Contribution = AnyServiceToken | DataContribution
 
 export type ServiceProvisions<P extends readonly Contribution[]> = IdentifierOf<P[number]>
-
-export const serviceTokensOf = (
-  contributions: readonly Contribution[],
-): readonly AnyServiceToken[] =>
-  contributions.flatMap((contribution) =>
-    Predicate.isTagged(contribution, 'Data') ? [] : [contribution],
-  )
-
-export const dataContributionsOf = (
-  contributions: readonly Contribution[],
-): readonly DataContribution[] =>
-  contributions.flatMap((contribution) =>
-    Predicate.isTagged(contribution, 'Data') ? [contribution] : [],
-  )

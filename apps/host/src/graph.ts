@@ -20,9 +20,9 @@ export const viewGraphOf = (
     const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
     const graph = yield* thread === undefined ? host.graph : host.graphFor(thread)
     const active = [...graph.active.keys()].flatMap((plugin) => {
-      const ui = decodePanelUi(byId.get(plugin)?.ui)
-      if (Option.isNone(ui)) return []
-      return [{ plugin, title: ui.value.title }]
+      const panel = decodePanelUi(byId.get(plugin)?.panel)
+      if (Option.isNone(panel)) return []
+      return [{ plugin, title: panel.value.title }]
     })
     return {
       active,

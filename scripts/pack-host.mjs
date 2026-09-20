@@ -17,7 +17,7 @@ export const publishManifest = (hostPkg) => ({
   exports: {
     '.': './dist/index.js',
   },
-  files: ['dist', 'LICENSE'],
+  files: ['dist', 'oru.plugins.json', 'LICENSE'],
   publishConfig: { access: 'public' },
   engines: { node: '>=26' },
 })
@@ -42,6 +42,7 @@ export const pack = () => {
       `${JSON.stringify(publishManifest(hostPkg), null, 2)}\n`,
     )
     cpSync(join(hostRoot, 'dist'), join(staging, 'dist'), { recursive: true })
+    cpSync(join(hostRoot, 'oru.plugins.json'), join(staging, 'oru.plugins.json'))
     cpSync(join(repoRoot, 'LICENSE'), join(staging, 'LICENSE'))
     const packed = spawnSync('pnpm', ['pack', '--pack-destination', hostRoot], {
       cwd: staging,

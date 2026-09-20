@@ -1,4 +1,4 @@
-import { Context, Effect, Scope } from 'effect'
+import { Effect, Scope } from 'effect'
 import { BootKind, definePlugin, SessionLog, type PluginContext } from '@oru/kernel'
 import { Harnesses } from './harness.ts'
 import { Runtime } from './runtime-token.ts'
@@ -17,7 +17,7 @@ const setup = (ctx: PluginContext) =>
     // A restarted host finishes what the journal left running, once the graph
     // the loop reads is assembled (ADR-0010).
     yield* ctx.contribute(BootKind.of(runtime.resume()))
-    return Context.make(Runtime, runtime)
+    yield* ctx.provide(Runtime, runtime)
   })
 
 /**
@@ -31,7 +31,6 @@ const setup = (ctx: PluginContext) =>
  */
 export const runtimePlugin = definePlugin({
   id: 'oru/runtime',
-  needs: [Harnesses],
-  provides: [Runtime],
-  server: { setup },
+  inject: [Harnesses],
+  apply: setup,
 })

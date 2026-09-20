@@ -1,5 +1,5 @@
-import { Schema } from 'effect'
-import { defineContributionKind, type PluginId } from '@oru/kernel'
+import { Effect, Schema } from 'effect'
+import { defineContributionKind, type PluginContext, type PluginId } from '@oru/kernel'
 
 /**
  * The UI SDK major the host and the app agree on. A bundle built against
@@ -40,6 +40,14 @@ export const UiDef = Schema.Struct({
 export type UiDef = typeof UiDef.Type
 
 export const UiKind = defineContributionKind<UiDef>('oru/ui-submodel')
+
+/**
+ * Claim a slot from inside `apply`: the effect-disposed successor to the old
+ * static `provides`. Deactivating the plugin reverses the claim, so the
+ * snapshot drops its defs the way services vanish from the graph.
+ */
+export const slot = (ctx: PluginContext, def: UiDef): Effect.Effect<void> =>
+  ctx.contribute(UiKind.of(def))
 
 export interface UiClaim {
   readonly plugin: PluginId

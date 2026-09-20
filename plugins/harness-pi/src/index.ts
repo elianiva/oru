@@ -1,5 +1,5 @@
-export { harnessPiPlugin, openPiHarness, plugin, type PiHarness } from './plugin.ts'
-export { PiBridgeConfig, type PiBridgeConfigValue } from './config.ts'
+export { harnessPiPlugin, openPiHarness, type PiHarness } from './plugin.ts'
+export { PiBridgeConfig, PiBridgeEnv, envOf, type PiBridgeConfigValue } from './config.ts'
 export { default } from './plugin.ts'
 export { PiSession, PiBridgeError } from './pi/session.ts'
 export { MINIMUM_PI_VERSION, parsePiVersion, probePiVersion } from './pi/maintenance.ts'

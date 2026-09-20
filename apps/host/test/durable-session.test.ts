@@ -12,16 +12,17 @@ const EchoArgs = Schema.Struct({ text: Schema.String })
 
 const echoToolPlugin = definePlugin({
   id: 'tools/echo',
-  provides: [
-    ToolKind.of(
-      defineTool({
-        name: 'echo',
-        description: 'Return the text that was passed in.',
-        parameters: EchoArgs,
-        execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
-      }),
+  apply: (ctx) =>
+    ctx.contribute(
+      ToolKind.of(
+        defineTool({
+          name: 'echo',
+          description: 'Return the text that was passed in.',
+          parameters: EchoArgs,
+          execute: (input) => Effect.succeed(JSON.stringify({ echoed: input.text })),
+        }),
+      ),
     ),
-  ],
 })
 
 /** One database file per case, so the second host opens what the first left. */

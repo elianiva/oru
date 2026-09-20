@@ -1,11 +1,9 @@
 import { Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
 import { corePlugins } from '../src/plugins.ts'
-import {
-  defaultPluginSources,
-  loadExternalPlugins,
-  loadPluginSource,
-} from '../src/plugin-sources.ts'
+import { loadExternalPlugins, loadPluginSource, readPluginList } from '../src/plugin-sources.ts'
+
+const stockSources = readPluginList()
 
 const run = <A>(effect: Effect.Effect<A>): Promise<A> => Effect.runPromise(effect)
 
@@ -36,7 +34,7 @@ describe('an external plugin source', () => {
 
   it('loads every source in order and skips the missing ones', async () => {
     const plugins = await run(
-      loadExternalPlugins([{ specifier: '@oru/no-such-plugin' }, ...defaultPluginSources], () => {
+      loadExternalPlugins([{ specifier: '@oru/no-such-plugin' }, ...stockSources], () => {
         // A test has no one to tell about the missing source.
       }),
     )
@@ -58,7 +56,7 @@ describe('the host plugin set', () => {
       'tools/echo',
     ])
 
-    const withBridges = await run(loadExternalPlugins(defaultPluginSources, () => undefined))
+    const withBridges = await run(loadExternalPlugins(stockSources, () => undefined))
     expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-pi')
     expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-claude-code')
   })

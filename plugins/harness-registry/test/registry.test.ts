@@ -3,7 +3,6 @@ import { Effect, Option, Stream, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import { definePlugin, makeHost, SessionLog, sessionLogLayer } from '@oru/kernel'
 import {
-  HarnessDefaultsService,
   HarnessKind,
   Harnesses,
   defaultCapabilities,
@@ -23,7 +22,7 @@ const harness = (id: string, label: string): HarnessService =>
 const fake = (pluginId: string, id: string) =>
   definePlugin({
     id: pluginId,
-    provides: [HarnessKind.of(harness(id, `${id} bridge`))],
+    apply: (ctx) => ctx.contribute(HarnessKind.of(harness(id, `${id} bridge`))),
   })
 
 const alpha = fake('oru/harness-alpha', 'alpha')
@@ -67,8 +66,9 @@ describe('harness registry', () => {
   it('prefers the host\u2019s configured default, and falls back when it is not registered', async () => {
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin, alpha, beta]).pipe(
-          Effect.provideService(HarnessDefaultsService, { harness: 'beta' }),
+        const host = yield* makeHost(
+          [harnessRegistryPlugin, alpha, beta],
+          new Map([['oru/harness-registry', { harness: 'beta' }]]),
         )
         const registry = yield* host.service(Harnesses)
 
@@ -81,8 +81,9 @@ describe('harness registry', () => {
 
     await run(
       Effect.gen(function* () {
-        const host = yield* makeHost([harnessRegistryPlugin, alpha, beta]).pipe(
-          Effect.provideService(HarnessDefaultsService, { harness: 'gamma' }),
+        const host = yield* makeHost(
+          [harnessRegistryPlugin, alpha, beta],
+          new Map([['oru/harness-registry', { harness: 'gamma' }]]),
         )
         const registry = yield* host.service(Harnesses)
 

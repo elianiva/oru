@@ -1,21 +1,28 @@
-import { Context } from 'effect'
+import { Schema } from 'effect'
 
 /**
- * The bridge's environment, as a service rather than a factory parameter.
+ * The bridge's environment, as plain data on the plugin's `Config`.
  *
- * Configuration arrives as a service rather than a factory parameter, so
- * tests use the Effect idiom instead of injecting fakes through parameters:
- * the composition root provides the real environment with
- * `Effect.provideService`, tests provide the scripted one, and
- * the plugin reads whichever is active through its coeffects. This module
- * stays dependency-free so the host can provide the value without statically
- * importing the bridge.
+ * A configured env is the child's whole environment, so a scripted test
+ * stays hermetic; absent, the bridge runs on the process environment.
+ * `undefined` values never survive the trip across the host boundary, so
+ * the schema admits them and `envOf` drops them before the spawn.
  */
-export interface ClaudeCodeConfigValue {
-  readonly env?: NodeJS.ProcessEnv | undefined
-  readonly log?: ((message: string) => void) | undefined
-}
+export const ClaudeCodeEnv = Schema.Record(Schema.String, Schema.UndefinedOr(Schema.String))
+export type ClaudeCodeEnv = typeof ClaudeCodeEnv.Type
 
-export class ClaudeCodeConfig extends Context.Service<ClaudeCodeConfig, ClaudeCodeConfigValue>()(
-  'oru/harness-claude-code/config',
-) {}
+export const ClaudeCodeConfig = Schema.Struct({
+  env: Schema.optional(ClaudeCodeEnv),
+})
+export type ClaudeCodeConfig = typeof ClaudeCodeConfig.Type
+export type ClaudeCodeConfigValue = ClaudeCodeConfig
+
+/** A config env is the child's whole environment; `undefined` reads as absent. */
+export const envOf = (env: ClaudeCodeEnv | undefined): NodeJS.ProcessEnv => {
+  if (env === undefined) return process.env
+  const out: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) out[key] = value
+  }
+  return out
+}

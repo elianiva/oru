@@ -14,7 +14,7 @@ import {
   type HarnessTurnRequest,
   type ToolContribution,
 } from '@oru/harness'
-import { PiBridgeConfig, openPiHarness, type PiHarness } from '../src/index.ts'
+import { openPiHarness, type PiHarness } from '../src/index.ts'
 import {
   SCRIPTED_MINI,
   SCRIPTED_MODEL,
@@ -72,11 +72,10 @@ const bridge = async (
   scriptedOptions: { readonly piVersion?: string | undefined } = {},
 ): Promise<Bridge> => {
   const scripted = await startScriptedProvider(scriptedOptions)
-  // The bridge talks to people through oru; a test has no one to tell. The
-  // config arrives as a service, so the bridge is opened with Effect idioms
-  // rather than a factory that takes the fake environment as a parameter.
+  // The bridge talks to people through oru; a test has no one to tell, so
+  // it opens the bridge on the scripted environment directly.
   const pi = await Effect.runPromise(
-    Effect.provideService(openPiHarness, PiBridgeConfig, {
+    openPiHarness({
       env: { ...scripted.env, ...overrides },
       log: () => undefined,
     }),

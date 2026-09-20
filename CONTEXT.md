@@ -9,15 +9,15 @@ The Effect-based composition runtime. It holds contexts, resolves coeffects, act
 _Avoid_: framework, core, engine
 
 **Context**:
-The per-plugin handle used to declare coeffects and register contributions. Activation and reversal are mediated through it.
+The per-plugin handle `apply` receives: it reads contributions, registers services and data, and runs disposers. Activation and reversal are mediated through it.
 _Avoid_: environment, container, service locator
 
 **Plugin**:
-An independently loadable unit with one identity that contributes runtime services, UI, or both. A plugin is composed of one or more facets.
+An independently loadable unit with one identity that reads services and contributes runtime services, UI, or both through `apply`. A plugin is composed of one or more facets.
 _Avoid_: extension, module, addon
 
 **Facet**:
-A part of a plugin bundled for one environment, such as a server facet or a presentation facet. Facets of one plugin share its identity and coeffects but load separately.
+A part of a plugin bundled for one environment, such as a server facet or a presentation facet. Facets of one plugin share its identity and inject but load separately.
 _Avoid_: entrypoint, bundle
 
 **Service**:
@@ -25,15 +25,15 @@ A typed capability registered on the kernel and addressed by a stable token. One
 _Avoid_: module, dependency, API
 
 **Provider** / **Consumer**:
-The two roles a plugin takes toward a service. The provider registers an implementation; consumers require it.
+The two roles a plugin takes toward a service. The provider registers an implementation through `ctx.provide`; consumers read it.
 _Avoid_: server/client (those name facet kinds)
 
-**Coeffect**:
-A dependency a plugin declares. The kernel activates the plugin only while every coeffect is satisfied, and deactivates it when one disappears.
-_Avoid_: requirement, dependency, injection
+**Inject**:
+A service a plugin reads. The kernel holds the plugin pending until every inject is satisfied, and unloads it when one disappears.
+_Avoid_: coeffect, requirement, dependency, needs
 
 **Contribution**:
-Everything a plugin adds to the context: services, tools, submodels, listeners. Every contribution is reversible on deactivation.
+Everything a plugin adds from `apply`: services, tools, submodels, listeners. Every contribution is reversible on deactivation.
 _Avoid_: effect, registration, side effect
 
 **Activation** / **Deactivation**:
@@ -52,8 +52,12 @@ _Avoid_: app, server, runtime
 The host's Effect Config stack and `config.json` under `--home` / `ORU_HOME` / `~/.oru`. Flags beat the file, the file beats the environment, the environment beats defaults. Every stored key is startup-only.
 _Avoid_: settings service, preferences
 
+**Plugin config**:
+The Schema a plugin declares as `Config` and the data the host decodes against it and hands to `apply`. Plain startup data, never services.
+_Avoid_: config service, factory parameter
+
 **Runtime**:
-The host's turn driver: it folds the session log, derives turn work, asks the active harness for deltas, and records the facts. Host code, not a plugin. Distinct from the Kernel, which composes plugins.
+The host's turn driver, composed as a plugin: it folds the session log, derives turn work, asks the active harness for deltas, and records the facts. Distinct from the Kernel, which composes plugins.
 _Avoid_: engine; calling the Runtime itself a harness
 
 **Harness**:

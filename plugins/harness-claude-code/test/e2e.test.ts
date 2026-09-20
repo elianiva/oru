@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Effect, Predicate, Stream } from 'effect'
 import { isAssistantMessage, userText } from '@oru/harness'
-import { ClaudeCodeConfig, openClaudeCodeHarness } from '../src/index.ts'
+import { openClaudeCodeHarness } from '../src/index.ts'
 
 /**
  * The bridge against the real `claude` CLI and a real model: one tiny turn,
@@ -41,12 +41,10 @@ const readiness: E2EReadiness = await Effect.runPromise(
     }
     const dir = mkdtempSync(join(tmpdir(), 'oru-claude-e2e-probe-'))
     cleanups.push(dir)
-    const probe = yield* openClaudeCodeHarness.pipe(
-      Effect.provideService(ClaudeCodeConfig, {
-        env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'sessions') },
-        log: () => undefined,
-      }),
-    )
+    const probe = yield* openClaudeCodeHarness({
+      env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'sessions') },
+      log: () => undefined,
+    })
     try {
       const health = yield* probe.service.health!()
       if (health.status !== 'ready') {
@@ -74,7 +72,7 @@ describe.runIf(readiness.run)('oru driving Claude Code, for real', () => {
     cleanups.push(dir, cwd)
     const model = MODEL ?? ''
     const harness = await Effect.runPromise(
-      Effect.provideService(openClaudeCodeHarness, ClaudeCodeConfig, {
+      openClaudeCodeHarness({
         env: { ...process.env, ORU_CLAUDE_SESSION_DIR: join(dir, 'sessions') },
         log: (message: string) => process.stdout.write(`Muse: ${message}\n`),
       }),

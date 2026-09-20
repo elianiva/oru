@@ -149,7 +149,7 @@ describe('the RPC transport', () => {
     })
     const sickPlugin = definePlugin({
       id: 'oru/harness-sick',
-      provides: [HarnessKind.of(sick)],
+      apply: (ctx) => ctx.contribute(HarnessKind.of(sick)),
     })
 
     await Effect.runPromise(

@@ -1,60 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { Result } from 'effect'
-import { DuplicateProvider, GraphCycle, definePlugin, defineService, resolve } from '../src/index'
+import { definePlugin, defineService, resolve } from '../src/index'
 
 const A = defineService<{ readonly a: () => void }>('oru/a')
-const B = defineService<{ readonly b: () => void }>('oru/b')
 
 const providerA = definePlugin({
   id: 'provider-a',
-  provides: [A],
 })
 
 const consumerB = definePlugin({
   id: 'consumer-b',
-  needs: [A],
-  provides: [B],
+  inject: [A],
 })
 
 describe('resolve', () => {
-  it('orders a provider before its consumer and leaves unmet plugins blocked', () => {
+  it('keeps registration order and leaves inject-unmet plugins blocked', () => {
     const Missing = defineService<{ readonly ping: () => void }>('oru/missing')
-    const lonely = definePlugin({ id: 'lonely', needs: [Missing] })
+    const lonely = definePlugin({ id: 'lonely', inject: [Missing] })
     const plan = resolve([consumerB, lonely, providerA], new Set())
 
-    expect(Result.isSuccess(plan)).toBe(true)
-    if (!Result.isSuccess(plan)) return
-    expect(plan.success.order.map((plugin) => plugin.id)).toEqual(['provider-a', 'consumer-b'])
-    expect(plan.success.blocked.get('lonely')?.missing).toEqual(['oru/missing'])
+    expect(plan.order.map((plugin) => plugin.id)).toEqual(['consumer-b', 'lonely', 'provider-a'])
+    expect(plan.blocked.get('lonely')?.missing).toEqual(['oru/missing'])
+    expect(plan.blocked.get('consumer-b')?.missing).toEqual(['oru/a'])
+    expect(plan.blocked.has('provider-a')).toBe(false)
   })
 
-  it('fails when two plugins provide the same token', () => {
-    const other = definePlugin({
-      id: 'other-a',
-      provides: [A],
-    })
-    const plan = resolve([providerA, other], new Set())
-
-    expect(plan).toEqual(
-      Result.fail(
-        new DuplicateProvider({ token: 'oru/a', existing: 'provider-a', incoming: 'other-a' }),
-      ),
-    )
+  it('treats baseline services as satisfied', () => {
+    const plan = resolve([consumerB], new Set(['oru/a']))
+    expect(plan.blocked.has('consumer-b')).toBe(false)
   })
 
-  it('fails when blocked plugins form a cycle', () => {
-    const ping = definePlugin({
-      id: 'ping',
-      needs: [B],
-      provides: [A],
-    })
-    const pong = definePlugin({
-      id: 'pong',
-      needs: [A],
-      provides: [B],
-    })
-    const plan = resolve([ping, pong], new Set())
-
-    expect(plan).toEqual(Result.fail(new GraphCycle({ plugins: ['ping', 'pong'] })))
+  it('dedupes plugins by id', () => {
+    const plan = resolve([providerA, providerA], new Set())
+    expect(plan.order.map((plugin) => plugin.id)).toEqual(['provider-a'])
   })
 })

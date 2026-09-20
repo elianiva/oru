@@ -18,27 +18,32 @@ Status: active development.
 
 ## Decisions
 
-| #                                                      | Decision                                                                      |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| [0001](./docs/adr/0001-kernel-composition.md)          | Effect-native kernel, data-shaped declarations, generation reload             |
-| [0002](./docs/adr/0002-plugin-facets-and-scope.md)     | A plugin is one identity with facets, activated host-wide or per thread       |
-| [0003](./docs/adr/0003-session-log.md)                 | The session is an immutable event log, projected as state, stored as a tree   |
-| [0004](./docs/adr/0004-presentation-seam.md)           | Typed RPC to the server; the view mirrors the active graph                    |
-| [0005](./docs/adr/0005-harness-runtime.md)             | The runtime drives turns; harnesses implement them: oru deltas, tools as JSON |
-| [0006](./docs/adr/0006-harness-layer.md)               | Many harnesses on one host: registry, session ownership, thread configuration |
-| [0007](./docs/adr/0007-pi-bridge.md)                   | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
-| [0008](./docs/adr/0008-monorepo-unpublished.md)        | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
-| [0009](./docs/adr/0009-node-host-and-transport.md)     | A node host process serves the kernel over HTTP, and the app is its client    |
-| [0010](./docs/adr/0010-durable-sessions.md)            | Durable sessions in the host: the log is opened, resumed, and reprojected     |
-| [0011](./docs/adr/0011-mit-license-and-agent-docs.md)  | MIT license; no AGENTS.md                                                     |
-| [0012](./docs/adr/0012-config-precedence.md)           | Effect Config, one file, flags then file then env then defaults               |
-| [0013](./docs/adr/0013-host-unreachable-is-a-state.md) | A host that does not answer is a rendered state, not a defect                 |
-| [0014](./docs/adr/0014-project-edits-are-facts.md)     | A project edit is a fact carrying the whole project                           |
-| [0015](./docs/adr/0015-composer-chip-panels.md)        | The composer's chip carries a panel owned by its contributor                  |
-| [0016](./docs/adr/0016-harness-is-a-fact.md)           | The harness is a host fact; the model picker is a list                        |
-| [0017](./docs/adr/0017-composer-slot-pickers.md)       | The composer is a box with slots; pickers are submodels                       |
-| [0018](./docs/adr/0018-provider-metadata-and-tabs.md)  | Harness plugins name providers; the picker tabs by them                       |
-| [0019](./docs/adr/0019-external-harness-plugin.md)     | The pi bridge is an external plugin, loaded like any third-party harness      |
+| #                                                         | Decision                                                                      |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [0001](./docs/adr/0001-kernel-composition.md)             | Effect-native kernel, data-shaped declarations, generation reload             |
+| [0002](./docs/adr/0002-plugin-facets-and-scope.md)        | A plugin is one identity with facets, activated host-wide or per thread       |
+| [0003](./docs/adr/0003-session-log.md)                    | The session is an immutable event log, projected as state, stored as a tree   |
+| [0004](./docs/adr/0004-presentation-seam.md)              | Typed RPC to the server; the view mirrors the active graph                    |
+| [0005](./docs/adr/0005-harness-runtime.md)                | The runtime drives turns; harnesses implement them: oru deltas, tools as JSON |
+| [0006](./docs/adr/0006-harness-layer.md)                  | Many harnesses on one host: registry, session ownership, thread configuration |
+| [0007](./docs/adr/0007-pi-bridge.md)                      | The pi harness is a subprocess bridge: protocol, tools, reported maintenance  |
+| [0008](./docs/adr/0008-monorepo-unpublished.md)           | pnpm monorepo: `@oru/kernel` + `oru`, unpublished                             |
+| [0009](./docs/adr/0009-node-host-and-transport.md)        | A node host process serves the kernel over HTTP, and the app is its client    |
+| [0010](./docs/adr/0010-durable-sessions.md)               | Durable sessions in the host: the log is opened, resumed, and reprojected     |
+| [0011](./docs/adr/0011-mit-license-and-agent-docs.md)     | MIT license; no AGENTS.md                                                     |
+| [0012](./docs/adr/0012-config-precedence.md)              | Effect Config, one file, flags then file then env then defaults               |
+| [0013](./docs/adr/0013-host-unreachable-is-a-state.md)    | A host that does not answer is a rendered state, not a defect                 |
+| [0014](./docs/adr/0014-project-edits-are-facts.md)        | A project edit is a fact carrying the whole project                           |
+| [0015](./docs/adr/0015-composer-chip-panels.md)           | The composer's chip carries a panel owned by its contributor                  |
+| [0016](./docs/adr/0016-harness-is-a-fact.md)              | The harness is a host fact; the model picker is a list                        |
+| [0017](./docs/adr/0017-composer-slot-pickers.md)          | The composer is a box with slots; pickers are submodels                       |
+| [0018](./docs/adr/0018-provider-metadata-and-tabs.md)     | Harness plugins name providers; the picker tabs by them                       |
+| [0019](./docs/adr/0019-external-harness-plugin.md)        | The pi bridge is an external plugin, loaded like any third-party harness      |
+| [0020](./docs/adr/0020-frontend-plugin-slots.md)          | Frontend plugins contribute submodels to host-owned slots over RPC bundles    |
+| [0021](./docs/adr/0021-inject-apply-plugins.md)           | Plugins declare inject and apply; providing is runtime-discovered             |
+| [0022](./docs/adr/0022-single-path-build-and-load.md)     | One bundler, one manifest shape, one load path                                |
+| [0023](./docs/adr/0023-plugin-config-as-data.md)          | Plugin config is data on the def, not a service                               |
+| [0024](./docs/adr/0024-panel-metadata-and-slot-claims.md) | Panels are plugin metadata; slots are claimed from apply                      |
 
 ## Development
 
@@ -62,7 +67,7 @@ apps/oru         # the browser client of a running host (Foldkit view)
 packages/kernel  # @oru/kernel: contexts, services, activation, contributions
 packages/rpc     # @oru/rpc: RPC groups, wire schemas, client facades, route paths
 packages/harness # shared harness seams
-packages/plugin-build # facet bundling via oru-build-facet (esbuild)
+packages/plugin-build # facet bundling via oru-build-plugin (tsdown)
 plugins/*        # harness-pi (standalone), harness-registry
 scripts/         # bump-version, version lockstep, pack-host, pack-smoke
 turbo.json       # typecheck / test / build / dev / e2e task graph

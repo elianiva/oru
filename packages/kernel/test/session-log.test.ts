@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Effect, Match, type Scope } from 'effect'
+import { Effect, Match, type Scope } from 'effect'
 import { EventJournal } from 'effect/unstable/eventlog'
 import {
   definePlugin,
@@ -25,24 +25,16 @@ const Greeter = defineService<GreeterService>('oru/greeter')
 
 const loggingPlugin = definePlugin({
   id: 'logging',
-  provides: [Logger],
-  server: {
-    setup: () => Effect.succeed(Context.make(Logger, { log: () => Effect.void })),
-  },
+  apply: (ctx) => ctx.provide(Logger, { log: () => Effect.void }),
 })
 
 const greeterPlugin = definePlugin({
   id: 'greeter',
-  needs: [Logger],
-  provides: [Greeter],
-  server: {
-    setup: () =>
-      Effect.succeed(
-        Context.make(Greeter, {
-          greet: (name) => Effect.succeed(`hello ${name}`),
-        }),
-      ),
-  },
+  inject: [Logger],
+  apply: (ctx) =>
+    ctx.provide(Greeter, {
+      greet: (name) => Effect.succeed(`hello ${name}`),
+    }),
 })
 
 const pluginField = (event: SessionEvent, field: 'plugin' | 'scope'): string =>

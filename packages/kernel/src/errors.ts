@@ -1,14 +1,6 @@
 import { Schema } from 'effect'
 import { PluginId, ProjectId, ThreadId, TokenId } from './primitives.ts'
 
-export const ServiceMissing = Schema.TaggedStruct('ServiceMissing', { token: TokenId })
-
-/** A plugin returned a service its declaration never claimed, so nothing can resolve it. */
-export const ServiceUndeclared = Schema.TaggedStruct('ServiceUndeclared', { token: TokenId })
-
-export const MismatchProblem = Schema.Union([ServiceMissing, ServiceUndeclared])
-export type MismatchProblem = typeof MismatchProblem.Type
-
 export class ProviderUnavailable extends Schema.TaggedError<ProviderUnavailable>()(
   'ProviderUnavailable',
   {
@@ -28,18 +20,14 @@ export class ProviderReturnKindChanged extends Schema.TaggedError<ProviderReturn
   },
 ) {}
 
-export class CoeffectsUnmet extends Schema.TaggedError<CoeffectsUnmet>()('CoeffectsUnmet', {
+export class InjectUnmet extends Schema.TaggedError<InjectUnmet>()('CoeffectsUnmet', {
   plugin: PluginId,
   missing: Schema.Array(TokenId),
 }) {}
 
-export class DeclarationMismatch extends Schema.TaggedError<DeclarationMismatch>()(
-  'DeclarationMismatch',
-  {
-    plugin: PluginId,
-    problems: Schema.Array(MismatchProblem),
-  },
-) {}
+export const CoeffectsUnmet = InjectUnmet
+
+export type CoeffectsUnmet = InjectUnmet
 
 export class SetupFailed extends Schema.TaggedError<SetupFailed>()('SetupFailed', {
   plugin: PluginId,
@@ -55,11 +43,7 @@ export class DuplicateProvider extends Schema.TaggedError<DuplicateProvider>()(
   },
 ) {}
 
-export class GraphCycle extends Schema.TaggedError<GraphCycle>()('GraphCycle', {
-  plugins: Schema.Array(PluginId),
-}) {}
-
-export const ActivationError = Schema.Union([CoeffectsUnmet, DeclarationMismatch, SetupFailed])
+export const ActivationError = Schema.Union([CoeffectsUnmet, SetupFailed, DuplicateProvider])
 export type ActivationError = typeof ActivationError.Type
 
 export class FacetImportFailed extends Schema.TaggedError<FacetImportFailed>()(
@@ -77,7 +61,7 @@ export class FacetInvalid extends Schema.TaggedError<FacetInvalid>()('FacetInval
 export const FacetLoadError = Schema.Union([FacetImportFailed, FacetInvalid])
 export type FacetLoadError = typeof FacetLoadError.Type
 
-export const BootError = Schema.Union([DuplicateProvider, GraphCycle])
+export const BootError = DuplicateProvider
 export type BootError = typeof BootError.Type
 
 export class UnknownProject extends Schema.TaggedError<UnknownProject>()('UnknownProject', {

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
-import { Effect, Option, Predicate, Schema } from 'effect'
-import { buildUiBundle } from '@oru/plugin-build'
+import { pathToFileURL } from 'node:url'
+import { Effect, Option, Schema } from 'effect'
+import { buildUiBundle, type FacetUiEntry } from '@oru/plugin-build'
 import {
   UiDef,
   UiKind,
@@ -39,11 +40,7 @@ export type UiBundles = ReadonlyMap<PluginId, BuiltUi>
 const PackageManifest = Schema.Struct({
   oru: Schema.optional(
     Schema.Struct({
-      facets: Schema.optional(
-        Schema.Struct({
-          ui: Schema.optional(Schema.Unknown),
-        }),
-      ),
+      ui: Schema.optional(Schema.Unknown),
     }),
   ),
 })
@@ -53,7 +50,6 @@ const decodeRecordId = Schema.decodeUnknownOption(PluginRecordId)
 
 const FacetEnvelope = Schema.Struct({
   default: Schema.optional(Schema.Unknown),
-  plugin: Schema.optional(Schema.Unknown),
 })
 const decodeEnvelope = Schema.decodeUnknownOption(FacetEnvelope)
 
@@ -89,7 +85,7 @@ const readManifest = (specifier: string): FacetManifest | undefined => {
         } else {
           const decoded = decodeManifest(raw)
           if (Option.isNone(decoded)) return undefined
-          const entry = decodeUiEntry(decoded.value.oru?.facets?.ui)
+          const entry = decodeUiEntry(decoded.value.oru?.ui)
           return { dir, ui: Option.isSome(entry) ? entry.value : undefined }
         }
       }
@@ -114,22 +110,55 @@ const isRecordWithName = (
 }
 
 const readRecord = async (specifier: string): Promise<AnyPlugin | undefined> => {
-  const decoded = decodeEnvelope(await import(/* @vite-ignore */ specifier).catch(() => undefined))
-  if (Option.isNone(decoded)) return undefined
-  for (const record of [decoded.value.default, decoded.value.plugin]) {
-    if (isPluginRecord(record)) return record
-  }
-  return undefined
+  const pending: Promise<unknown> = import(specifier)
+  const decoded = decodeEnvelope(await pending.catch(() => undefined))
+  if (Option.isNone(decoded) || !isPluginRecord(decoded.value.default)) return undefined
+  return decoded.value.default
 }
 
-const defsOf = (record: AnyPlugin): readonly UiDef[] => {
+const UiDefsExport = Schema.Struct({
+  defs: Schema.Array(Schema.Unknown),
+})
+const decodeUiDefsExport = Schema.decodeUnknownOption(UiDefsExport)
+
+const UiEntryEnvelope = Schema.Struct({
+  default: Schema.optional(Schema.Unknown),
+})
+const decodeUiEntryEnvelope = Schema.decodeUnknownOption(UiEntryEnvelope)
+
+/**
+ * The UI claims a plugin makes: always the `defs` export of its ui entry,
+ * the same single claim path the build reads. The server record never
+ * claims UI.
+ */
+const defsOfUiEntry = async (dir: string, entry: string): Promise<readonly UiDef[]> => {
+  const pending: Promise<unknown> = import(pathToFileURL(join(dir, entry)).href)
+  const loaded = await pending.catch(() => undefined)
+  if (loaded === undefined) return []
+  const envelope = decodeUiEntryEnvelope(loaded)
+  const exported =
+    Option.isSome(envelope) && envelope.value.default !== undefined
+      ? envelope.value.default
+      : loaded
+  const decoded = decodeUiDefsExport(exported)
+  if (Option.isNone(decoded)) return []
   const defs: UiDef[] = []
-  for (const provided of record.provides) {
-    if (!Predicate.isTagged(provided, 'Data')) continue
-    if (provided.kind !== UiKind.id) continue
-    const decoded = decodeUiDef(provided.value)
-    if (Option.isSome(decoded)) defs.push(decoded.value)
+  for (const def of decoded.value.defs) {
+    const pair = decodeUiDef(def)
+    if (Option.isSome(pair)) defs.push(pair.value)
   }
+  return defs
+}
+
+/** The defs a prebuilt manifest entry names, zipped back into claims. */
+const defsOfPrebuilt = (entry: FacetUiEntry): readonly UiDef[] => {
+  const defs: UiDef[] = []
+  entry.defIds.forEach((defId, index) => {
+    const slot = entry.slots[index]
+    if (slot === undefined) return
+    const decoded = decodeUiDef({ slot, defId })
+    if (Option.isSome(decoded)) defs.push(decoded.value)
+  })
   return defs
 }
 
@@ -161,13 +190,7 @@ export const buildUiBundles = (
           log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
           continue
         }
-        const wanted = new Set(
-          prebuilt.entry.defIds.flatMap((defId, index) => {
-            const slot = prebuilt.entry.slots[index]
-            return slot === undefined ? [] : [`${slot}/${defId}`]
-          }),
-        )
-        const defs = defsOf(record).filter((def) => wanted.has(`${def.slot}/${def.defId}`))
+        const defs = defsOfPrebuilt(prebuilt.entry)
         if (defs.length === 0) continue
         built.set(record.id, {
           plugin: record.id,
@@ -178,15 +201,16 @@ export const buildUiBundles = (
         continue
       }
       const manifest = readManifest(source.specifier)
-      if (manifest?.ui === undefined) continue
+      const uiEntry = manifest?.ui
+      if (manifest === undefined || uiEntry === undefined) continue
       const record = yield* Effect.promise(() => readRecord(source.specifier))
       if (record === undefined) {
         log(`plugin ${source.specifier} exported no plugin, skipping its ui facet`)
         continue
       }
-      const defs = defsOf(record)
+      const defs = yield* Effect.promise(() => defsOfUiEntry(manifest.dir, uiEntry))
       if (defs.length === 0) continue
-      const entry = join(manifest.dir, manifest.ui)
+      const entry = join(manifest.dir, uiEntry)
       const bundle = yield* Effect.promise(() => buildUiBundle(entry)).pipe(
         Effect.catchDefect((defect) =>
           Effect.as(

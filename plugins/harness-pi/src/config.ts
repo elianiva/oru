@@ -1,20 +1,28 @@
-import { Context } from 'effect'
+import { Schema } from 'effect'
 
 /**
- * The bridge's environment, as a service rather than a factory parameter.
+ * The bridge's environment, as plain data on the plugin's `Config`.
  *
- * Configuration arrives as a service rather than a factory parameter: the
- * composition root provides the real environment with
- * `Effect.provideService`, tests provide the scripted one, and the plugin
- * reads whichever value is ambient. This module
- * stays dependency-free so the host can provide the value without statically
- * importing the bridge.
+ * A configured env is the child's whole environment, so a scripted test
+ * stays hermetic; absent, the bridge runs on the process environment.
+ * `undefined` values never survive the trip across the host boundary, so
+ * the schema admits them and `envOf` drops them before the spawn.
  */
-export interface PiBridgeConfigValue {
-  readonly env?: NodeJS.ProcessEnv | undefined
-  readonly log?: ((message: string) => void) | undefined
-}
+export const PiBridgeEnv = Schema.Record(Schema.String, Schema.UndefinedOr(Schema.String))
+export type PiBridgeEnv = typeof PiBridgeEnv.Type
 
-export class PiBridgeConfig extends Context.Service<PiBridgeConfig, PiBridgeConfigValue>()(
-  'oru/harness-pi/config',
-) {}
+export const PiBridgeConfig = Schema.Struct({
+  env: Schema.optional(PiBridgeEnv),
+})
+export type PiBridgeConfig = typeof PiBridgeConfig.Type
+export type PiBridgeConfigValue = PiBridgeConfig
+
+/** A config env is the child's whole environment; `undefined` reads as absent. */
+export const envOf = (env: PiBridgeEnv | undefined): NodeJS.ProcessEnv => {
+  if (env === undefined) return process.env
+  const out: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined) out[key] = value
+  }
+  return out
+}
