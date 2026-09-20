@@ -126,6 +126,7 @@ describe('the app’s seam to a running host', () => {
     // catalogue the stored choice is named from.
     expect(init(homeUrl).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
+      'LoadThreads',
       'LoadThreadOptions',
     ])
   })

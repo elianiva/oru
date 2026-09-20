@@ -716,6 +716,16 @@ export const openRuntime = (
           const fromId = lastEventIdOf(events, request.sourceThreadId)
           // The fork runs as its source did until someone says otherwise.
           const config = foldThreadConfig(events, request.sourceThreadId)
+          const sourceHistory = historyOf(events, request.sourceThreadId)
+          let summary: string | undefined
+          for (let index = sourceHistory.length - 1; index >= 0; index--) {
+            const item = sourceHistory[index]
+            if (item !== undefined && isUserMessage(item) && item.text.trim() !== '') {
+              const line = item.text.trim().split('\n')[0] ?? ''
+              summary = line.length > 120 ? `${line.slice(0, 120)}…` : line
+              break
+            }
+          }
           yield* log.write(
             ThreadConfigured.make({
               ...unsignedTree,
@@ -729,15 +739,28 @@ export const openRuntime = (
           // The lane is oru's: the fork reaches back to the entry it continues
           // from whether or not the harness can copy a session of its own.
           if (fromId !== undefined) {
-            yield* log.write(
-              ThreadBranched.make({
-                ...unsignedTree,
-                id: yield* newId(),
-                thread: request.targetThreadId,
-                fromId,
-                summary: undefined,
-              }),
-            )
+            if (request.cwd === undefined) {
+              yield* log.write(
+                ThreadBranched.make({
+                  ...unsignedTree,
+                  id: yield* newId(),
+                  thread: request.targetThreadId,
+                  fromId,
+                  summary,
+                }),
+              )
+            } else {
+              yield* log.write(
+                ThreadBranched.make({
+                  ...unsignedTree,
+                  id: yield* newId(),
+                  thread: request.targetThreadId,
+                  fromId,
+                  summary,
+                  cwd: request.cwd,
+                }),
+              )
+            }
           }
           const harness = yield* resolveHarness(config)
           if (harness?.fork === undefined) return

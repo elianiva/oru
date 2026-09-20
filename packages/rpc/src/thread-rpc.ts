@@ -5,6 +5,20 @@ import { Project } from './project.ts'
 import { ThreadOptions } from './thread-options.ts'
 import { ThreadSignal } from './thread-signal.ts'
 
+export class CompactFailed extends Schema.TaggedError<CompactFailed>()('CompactFailed', {
+  thread: ThreadId,
+  reason: Schema.String,
+}) {}
+
+export const ThreadSummary = Schema.Struct({
+  thread: ThreadId,
+  project: ProjectId,
+  title: Schema.String,
+  updatedAt: Schema.Number,
+  cwd: Schema.UndefinedOr(Schema.String),
+})
+export type ThreadSummary = typeof ThreadSummary.Type
+
 export const ThreadRpc = RpcGroup.make(
   Rpc.make('CreateThread', {
     /**
@@ -16,6 +30,7 @@ export const ThreadRpc = RpcGroup.make(
       harness: Schema.UndefinedOr(Schema.NonEmptyString),
       model: Schema.UndefinedOr(Schema.NonEmptyString),
       reasoning: Schema.UndefinedOr(Schema.NonEmptyString),
+      cwd: Schema.optional(Schema.String),
     },
     success: Schema.Struct({ threadId: ThreadId, project: Project }),
     error: UnknownProject,
@@ -61,6 +76,15 @@ export const ThreadRpc = RpcGroup.make(
   Rpc.make('CompactThread', {
     payload: { threadId: ThreadId, instructions: Schema.UndefinedOr(Schema.String) },
     success: Schema.Void,
+    error: CompactFailed,
+  }),
+  Rpc.make('WaitThread', {
+    payload: { threadId: ThreadId },
+    success: Schema.Void,
+  }),
+  Rpc.make('ListThreads', {
+    payload: { project: Schema.optional(ProjectId) },
+    success: Schema.Array(ThreadSummary),
   }),
   Rpc.make('ForkThread', {
     payload: { sourceThreadId: ThreadId, cwd: Schema.UndefinedOr(Schema.String) },

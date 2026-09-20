@@ -12,6 +12,8 @@ import {
   DeleteProject,
   GetProjectDetail,
   ListDirectory,
+  LoadThreads,
+  LoadWorkspaces,
   Message,
   Model,
   NavigateInternal,
@@ -663,6 +665,8 @@ describe('composer', () => {
           }),
         }),
       ),
+      Scene.Command.resolve(LoadWorkspaces, Message.WorkspacesArrived({ workspaces: [] })),
+      Scene.Command.resolve(LoadThreads, Message.ThreadsArrived({ threads: [] })),
       Scene.expect(Scene.selector('[data-projects-create]')).not.toExist(),
       Scene.expect(Scene.selector('[data-project-picker-trigger]')).toContainText('second'),
     )
@@ -880,6 +884,7 @@ describe('model picker', () => {
   it('asks the host for the options of the route it loaded', () => {
     expect(init(urlForPath('/thread/thread-1')).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
+      'LoadThreads',
       'LoadThreadOptions',
     ])
     // Home renders the picker trigger, so a cold load fetches the catalogue
@@ -887,14 +892,16 @@ describe('model picker', () => {
     // until the picker is first opened.
     expect(init(homeUrl).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
+      'LoadThreads',
       'LoadThreadOptions',
     ])
-    expect(init(homeUrl).commands?.[1]).toMatchObject({
+    expect(init(homeUrl).commands?.[2]).toMatchObject({
       name: 'LoadThreadOptions',
       args: { threadId: undefined, refresh: false },
     })
     expect(init(urlForPath('/settings/general')).commands?.map((command) => command.name)).toEqual([
       'ListProjects',
+      'LoadThreads',
     ])
   })
 
@@ -1213,6 +1220,8 @@ describe('settings', () => {
           }),
         }),
       ),
+      Scene.Command.resolve(LoadWorkspaces, Message.WorkspacesArrived({ workspaces: [] })),
+      Scene.Command.resolve(LoadThreads, Message.ThreadsArrived({ threads: [] })),
       Scene.expect(Scene.selector('[data-projects-create]')).not.toExist(),
       Scene.expect(Scene.selector('[data-projects-row="p2"]')).toContainText('second'),
     )

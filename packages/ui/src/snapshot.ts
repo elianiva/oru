@@ -1,5 +1,5 @@
 import { Effect, Schema } from 'effect'
-import { BundleAddress, NamedProject, PluginId, ThreadConfig } from '@oru/kernel'
+import { BundleAddress, NamedProject, PluginId, SessionEvent, ThreadConfig } from '@oru/kernel'
 import { HarnessHealth, ModelInfo, ProviderInfo } from '@oru/harness'
 import type { SlotId } from './slots.ts'
 
@@ -75,11 +75,20 @@ export const emptyUiSnapshot: UiSnapshot = { bundles: [], assignments: [] }
  * picks travel with the text, so root executes the command without reading
  * picker submodels it no longer holds. Plain data across the boundary.
  */
+export const WorkspaceChoice = Schema.Struct({
+  path: Schema.NonEmptyString,
+  branch: Schema.UndefinedOr(Schema.String),
+  isCurrent: Schema.Boolean,
+  provider: Schema.NonEmptyString,
+})
+export type WorkspaceChoice = typeof WorkspaceChoice.Type
+
 export const SubmitIntent = Schema.Struct({
   project: Schema.optional(Schema.NonEmptyString),
   harness: Schema.UndefinedOr(Schema.String),
   model: Schema.UndefinedOr(Schema.String),
   reasoning: Schema.UndefinedOr(Schema.String),
+  cwd: Schema.optional(Schema.String),
   text: Schema.NonEmptyString,
 })
 export type SubmitIntent = typeof SubmitIntent.Type
@@ -110,11 +119,14 @@ export const ComposerProps = Schema.Struct({
   projects: Schema.Array(NamedProject),
   projectsLoading: Schema.Boolean,
   options: ComposerOptions,
+  workspaces: Schema.Array(WorkspaceChoice),
 })
 export type ComposerProps = typeof ComposerProps.Type
 
 export const ConversationProps = Schema.Struct({
   threadId: Schema.optional(Schema.String),
+  events: Schema.Array(SessionEvent),
+  pending: Schema.Boolean,
 })
 export type ConversationProps = typeof ConversationProps.Type
 

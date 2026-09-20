@@ -169,7 +169,7 @@ const relativeAge = (updatedAt: number, now: number): string => {
 }
 
 const locationGlyph = (row: ThreadRow): typeof FolderGit =>
-  row.location.kind === 'worktree'
+  row.location.kind === 'workspace'
     ? FolderGit
     : row.location.kind === 'branch'
       ? GitBranch

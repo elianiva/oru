@@ -1,5 +1,5 @@
 {
-  "name": "@oru/rpc",
+  "name": "@oru/workspace",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@oru/harness": "workspace:*",
     "@oru/kernel": "workspace:*",
-    "@oru/ui": "workspace:*",
-    "@oru/workspace": "workspace:*",
     "effect": "4.0.0-rc.115"
   },
   "devDependencies": {

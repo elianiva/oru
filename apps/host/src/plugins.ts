@@ -2,6 +2,8 @@ import { Effect, Schema } from 'effect'
 import { definePlugin, defineService, type AnyPlugin } from '@oru/kernel'
 import { defineTool, runtimePlugin, ToolKind } from '@oru/harness'
 import { harnessRegistryPlugin } from '@oru/harness-registry'
+import { workspaceGitPlugin } from '@oru/workspace-git'
+import { workspaceRegistryPlugin } from '@oru/workspace-registry'
 
 interface LoggerService {
   readonly log: (message: string) => Effect.Effect<void>
@@ -66,6 +68,8 @@ export const echoToolPlugin = definePlugin({
 export const corePlugins: readonly AnyPlugin[] = [
   ...fixturePlugins,
   harnessRegistryPlugin,
+  workspaceRegistryPlugin,
+  workspaceGitPlugin,
   echoToolPlugin,
   runtimePlugin,
 ]

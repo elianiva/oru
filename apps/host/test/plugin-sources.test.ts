@@ -53,6 +53,8 @@ describe('the host plugin set', () => {
       'logging',
       'oru/harness-registry',
       'oru/runtime',
+      'oru/workspace-git',
+      'oru/workspace-registry',
       'tools/echo',
     ])
 

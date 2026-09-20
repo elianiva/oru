@@ -173,6 +173,15 @@ importers:
       '@oru/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@oru/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
+      '@oru/workspace-git':
+        specifier: workspace:*
+        version: link:../../plugins/workspace-git
+      '@oru/workspace-registry':
+        specifier: workspace:*
+        version: link:../../plugins/workspace-registry
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -312,6 +321,9 @@ importers:
       '@oru/ui':
         specifier: workspace:*
         version: link:../ui
+      '@oru/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -328,6 +340,22 @@ importers:
       '@oru/harness':
         specifier: workspace:*
         version: link:../harness
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/workspace:
+    dependencies:
       '@oru/kernel':
         specifier: workspace:*
         version: link:../kernel
@@ -487,6 +515,47 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  plugins/workspace-git:
+    dependencies:
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  plugins/workspace-registry:
+    dependencies:
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+    devDependencies:
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
 packages:
 

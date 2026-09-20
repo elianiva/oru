@@ -5,6 +5,7 @@ import type { ThreadOptions } from '@oru/rpc'
 import * as Composer from './composer.ts'
 import * as ComposerArea from './composer-area.ts'
 import * as ProjectPicker from './project-picker.ts'
+import * as WorkspacePicker from './workspace-picker.ts'
 
 const project = { id: 'p1', name: 'P', cwd: '/tmp' }
 
@@ -13,6 +14,7 @@ const propsOf = (projects: ComposerProps['projects']): ComposerProps => ({
   projects,
   projectsLoading: false,
   options: ComposerOptionsLoading.make({}),
+  workspaces: [],
 })
 
 describe('composer-area', () => {
@@ -121,5 +123,60 @@ describe('composer-area', () => {
     const props = propsOf([project])
     const mounted = ComposerArea.absorbProps(ComposerArea.init(), props)
     expect(ComposerArea.absorbProps(mounted, props)).toBe(mounted)
+  })
+
+  it('carries the selected workspace path into the submit intent as cwd', () => {
+    const workspaces = [
+      {
+        path: '/tmp/oru/workspaces/one',
+        branch: undefined,
+        isCurrent: false,
+        provider: 'worktree',
+      },
+    ]
+    const mounted = ComposerArea.absorbProps(ComposerArea.init(), {
+      ...propsOf([project]),
+      workspaces,
+    })
+    const picked = ComposerArea.update(
+      mounted,
+      ComposerArea.Message.GotWorkspace({
+        message: WorkspacePicker.Message.SelectedOption({ option: '/tmp/oru/workspaces/one' }),
+      }),
+    )
+    const drafted = ComposerArea.update(
+      picked.model,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ChangedDraft({ value: 'hi' }) }),
+    )
+    const submitted = ComposerArea.update(
+      drafted.model,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    if (
+      submitted.outMessage === undefined ||
+      !Predicate.isTagged(submitted.outMessage, 'Submitted')
+    ) {
+      expect.fail('expected a Submitted out-message')
+    }
+    expect(submitted.outMessage.cwd).toBe('/tmp/oru/workspaces/one')
+  })
+
+  it('leaves cwd absent when the current workspace stays selected', () => {
+    const mounted = ComposerArea.absorbProps(ComposerArea.init(), propsOf([project]))
+    const drafted = ComposerArea.update(
+      mounted,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ChangedDraft({ value: 'hi' }) }),
+    )
+    const submitted = ComposerArea.update(
+      drafted.model,
+      ComposerArea.Message.GotComposer({ message: Composer.Message.ClickedSubmit() }),
+    )
+    if (
+      submitted.outMessage === undefined ||
+      !Predicate.isTagged(submitted.outMessage, 'Submitted')
+    ) {
+      expect.fail('expected a Submitted out-message')
+    }
+    expect(submitted.outMessage.cwd).toBeUndefined()
   })
 })

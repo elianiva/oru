@@ -18,7 +18,7 @@ export type ThreadStatus =
   | 'idle'
 
 export type ThreadLocation = Readonly<{
-  kind: 'branch' | 'worktree' | 'machine'
+  kind: 'branch' | 'workspace' | 'machine'
   name: string
 }>
 

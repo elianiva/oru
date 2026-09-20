@@ -10,6 +10,7 @@ import {
   ProjectCreated,
   ProjectDeleted,
   ProjectUpdated,
+  ThreadBranched,
   ThreadConfigured,
   ThreadContextWindow,
   ThreadCreated,
@@ -291,7 +292,8 @@ export const foldThreadContextWindow = (
 }
 
 /**
- * The working directory a thread runs in, read back from its project fact.
+ * The working directory a thread runs in: its own override when the creation
+ * or the branch carried one, otherwise its project fact.
  *
  * A harness that owns a real process (pi) is cwd-bound, so the directory is part
  * of what a turn needs, not a detail the bridge may invent.
@@ -301,9 +303,17 @@ export const foldThreadCwd = (
   thread: ThreadId,
 ): string | undefined => {
   let project: ProjectId | undefined
+  let override: string | undefined
   for (const event of events) {
-    if (Schema.is(ThreadCreated)(event) && event.thread === thread) project = event.project
+    if (Schema.is(ThreadCreated)(event) && event.thread === thread) {
+      project = event.project
+      if (event.cwd !== undefined) override = event.cwd
+    }
+    if (Schema.is(ThreadBranched)(event) && event.thread === thread && event.cwd !== undefined) {
+      override = event.cwd
+    }
   }
+  if (override !== undefined) return override
   if (project === undefined) return undefined
   return foldProject(events, project)?.cwd
 }

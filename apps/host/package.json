@@ -31,6 +31,9 @@
     "@oru/reload-fixture": "workspace:*",
     "@oru/rpc": "workspace:*",
     "@oru/ui": "workspace:*",
+    "@oru/workspace": "workspace:*",
+    "@oru/workspace-git": "workspace:*",
+    "@oru/workspace-registry": "workspace:*",
     "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
