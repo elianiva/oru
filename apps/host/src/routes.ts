@@ -19,13 +19,17 @@ import { threadRpcHandlers } from './handlers/thread.ts'
 import { uiRpcHandlers } from './handlers/ui.ts'
 import type { PluginStore } from './plugin-store.ts'
 
-export const rpcRoutes = (host: Host, store: PluginStore) =>
+export const rpcRoutes = (
+  host: Host,
+  store: PluginStore,
+  options?: { readonly personalCwd?: string | undefined },
+) =>
   Layer.mergeAll(
     RpcServer.layerHttp({ group: HostRpc, path: hostRpcPath, protocol: 'http' }).pipe(
       Layer.provide(HostRpc.toLayer(hostRpcHandlers(host, store))),
     ),
     RpcServer.layerHttp({ group: ProjectRpc, path: projectRpcPath, protocol: 'http' }).pipe(
-      Layer.provide(ProjectRpc.toLayer(projectRpcHandlers)),
+      Layer.provide(ProjectRpc.toLayer(projectRpcHandlers(options))),
     ),
     RpcServer.layerHttp({ group: ThreadRpc, path: threadRpcPath, protocol: 'http' }).pipe(
       Layer.provide(ThreadRpc.toLayer(threadRpcHandlers(host))),

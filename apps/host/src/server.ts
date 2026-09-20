@@ -30,6 +30,12 @@ export interface HostOptions {
    */
   readonly journal?: string
   /**
+   * The working directory the Personal project points at. The host seeds the
+   * singleton on the project paths that name it; absent seeds nothing, which
+   * is what a test that asserts an exact project list wants.
+   */
+  readonly personalCwd?: string | undefined
+  /**
    * The presentation facets to bundle and serve. Absent serves an empty UI
    * snapshot, which is what a test that never touches the view wants.
    */
@@ -86,9 +92,9 @@ export const serveHost = (
       facetsRoot: options.ui?.facetsDir,
       overrides: options.ui?.overrides ?? {},
     })
-    const httpEffect = yield* HttpRouter.toHttpEffect(rpcRoutes(host, store)).pipe(
-      Effect.provideContext(provided),
-    )
+    const httpEffect = yield* HttpRouter.toHttpEffect(
+      rpcRoutes(host, store, { personalCwd: options.personalCwd }),
+    ).pipe(Effect.provideContext(provided))
     const server = yield* NodeHttpServer.make(() => createServer(), {
       host: options.hostname,
       port: options.port,
