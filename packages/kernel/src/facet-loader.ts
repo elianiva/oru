@@ -32,7 +32,7 @@ export const loadFacet = (
   if (Option.isNone(parsed)) return Effect.fail(new FacetInvalid({ url: address }))
   const url = urlOf(parsed.value)
   return Effect.tryPromise({
-    try: () => import(url),
+    try: () => import(/* @vite-ignore */ url),
     catch: (cause) => new FacetImportFailed({ url, cause }),
   }).pipe(
     Effect.flatMap((loaded) => {
