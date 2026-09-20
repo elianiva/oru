@@ -1,5 +1,11 @@
 import { Match, Schema } from 'effect'
-import { ProjectId, type PluginId, type ThreadId } from './primitives.ts'
+import {
+  PERSONAL_PROJECT_ID,
+  PERSONAL_PROJECT_NAME,
+  ProjectId,
+  type PluginId,
+  type ThreadId,
+} from './primitives.ts'
 import {
   ProjectCreated,
   ProjectDeleted,
@@ -147,6 +153,22 @@ export const foldProject = (
   events: readonly SessionEvent[],
   project: ProjectId,
 ): NamedProject | undefined => foldProjects(events).find((entry) => entry.id === project)
+
+export const personalProject = (cwd: string): NamedProject => ({
+  id: PERSONAL_PROJECT_ID,
+  name: PERSONAL_PROJECT_NAME,
+  cwd,
+})
+
+/**
+ * The personal fact to write when the log names none. Undefined when the log
+ * already names it, so seeding the same journal twice writes once.
+ */
+export const ensurePersonalProject = (
+  events: readonly SessionEvent[],
+  cwd: string,
+): NamedProject | undefined =>
+  foldProject(events, PERSONAL_PROJECT_ID) === undefined ? personalProject(cwd) : undefined
 
 /** When the log first named the project, as a timestamp. Undefined when never created. */
 export const foldProjectCreatedAt = (
