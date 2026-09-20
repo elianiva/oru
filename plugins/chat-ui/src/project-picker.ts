@@ -15,7 +15,7 @@ import { defineView } from 'foldkit/submodel'
 import { evo } from 'foldkit/struct'
 import type * as Update from 'foldkit/update'
 import { FolderGit, Plus } from 'lucide'
-import { ProjectId } from '@oru/kernel'
+import { PERSONAL_PROJECT_ID, ProjectId, isPersonalProjectId } from '@oru/kernel'
 import { Project } from '@oru/rpc'
 import { pickerAnchor, pickerMenu, pickerPanel, pickerTrigger } from './picker-panel.ts'
 
@@ -119,15 +119,23 @@ const menuView = (model: Model, inputs: ViewInputs, h: HtmlBuilder<Message>): Ht
       hook: 'project-picker-option',
       note: inputs.isLoading ? 'Reading the host’s projects…' : undefined,
       options: [
-        ...inputs.projects.map((project) => ({
-          id: project.id,
-          label: project.name,
-          isSelected:
-            model.selected !== undefined &&
-            inputs.projects.some((entry) => entry.id === model.selected) &&
-            project.id === model.selected,
+        {
+          id: PERSONAL_PROJECT_ID,
+          label: "Don't work in a project",
+          isSelected: model.selected === PERSONAL_PROJECT_ID,
           toMessage: (id: string) => Message.SelectedOption({ option: id }),
-        })),
+        },
+        ...inputs.projects
+          .filter((project) => !isPersonalProjectId(project.id))
+          .map((project) => ({
+            id: project.id,
+            label: project.name,
+            isSelected:
+              model.selected !== undefined &&
+              inputs.projects.some((entry) => entry.id === model.selected) &&
+              project.id === model.selected,
+            toMessage: (id: string) => Message.SelectedOption({ option: id }),
+          })),
         {
           id: NEW_ROW,
           label: 'New project…',
