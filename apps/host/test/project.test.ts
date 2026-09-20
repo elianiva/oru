@@ -24,15 +24,24 @@ const sessionFile = (): string => join(mkdtempSync(join(tmpdir(), 'oru-project-'
 const withHost = <A, E>(
   file: string,
   effect: Effect.Effect<A, E, ProjectClient | ThreadClient | Scope.Scope>,
+  personalCwd?: string,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const running = yield* serveHost({
-        plugins: corePlugins,
-        hostname: '127.0.0.1',
-        port: 0,
-        journal: file,
-      })
+      const running = yield* personalCwd === undefined
+        ? serveHost({
+            plugins: corePlugins,
+            hostname: '127.0.0.1',
+            port: 0,
+            journal: file,
+          })
+        : serveHost({
+            plugins: corePlugins,
+            hostname: '127.0.0.1',
+            port: 0,
+            journal: file,
+            personalCwd,
+          })
       return yield* effect.pipe(Effect.provide(clientsFor(running.url)))
     }),
   )
@@ -110,6 +119,80 @@ describe('project cwd on a thread', () => {
 
     const entries = await readJournal(file, (log) => log.entries)
     expect(foldThreadCwd(entries, threadId)).toBe(after)
+  })
+})
+
+describe('Personal project seed', () => {
+  it('lists Personal on an empty journal, seeding the fact once', async () => {
+    const file = sessionFile()
+    const personalCwd = mkdtempSync(join(tmpdir(), 'oru-personal-'))
+
+    const listed = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const first = yield* projects.list()
+          const second = yield* projects.list()
+          return { first, second }
+        }),
+        personalCwd,
+      ),
+    )
+
+    const personal = { id: 'personal', name: 'Personal', cwd: personalCwd }
+    expect(listed.first).toEqual([personal])
+    expect(listed.second).toEqual([personal])
+
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(
+      entries.filter(
+        (event) => Predicate.isTagged(event, 'project/created') && event.project === 'personal',
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('runs threads against Personal alongside user projects', async () => {
+    const file = sessionFile()
+    const personalCwd = mkdtempSync(join(tmpdir(), 'oru-personal-'))
+    const cwd = mkdtempSync(join(tmpdir(), 'oru-project-cwd-'))
+
+    const seen = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          const threads = yield* ThreadClient
+          const project = yield* projects.create('demo', cwd)
+          const created = yield* threads.create('personal')
+          return { project, threadId: created.threadId, listed: yield* projects.list() }
+        }),
+        personalCwd,
+      ),
+    )
+
+    expect(seen.listed).toEqual([
+      { id: 'personal', name: 'Personal', cwd: personalCwd },
+      { id: seen.project.id, name: 'demo', cwd },
+    ])
+    const entries = await readJournal(file, (log) => log.entries)
+    expect(foldThreadCwd(entries, seen.threadId)).toBe(personalCwd)
+  })
+
+  it('seeds nothing without a personal cwd', async () => {
+    const file = sessionFile()
+
+    const listed = await Effect.runPromise(
+      withHost(
+        file,
+        Effect.gen(function* () {
+          const projects = yield* ProjectClient
+          return yield* projects.list()
+        }),
+      ),
+    )
+
+    expect(listed).toEqual([])
   })
 })
 
