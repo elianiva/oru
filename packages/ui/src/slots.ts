@@ -10,9 +10,10 @@ export const UI_SDK_MAJOR = 1
 
 /**
  * The v1 slot inventory (ADR-0020). `composer` and `conversation` are
- * exclusive: one submodel owns the surface. The `composer*` chip slots are
- * additive: every contribution renders in deterministic order. The thread
- * list and side panels stay host-owned until a later slice.
+ * exclusive: one submodel owns the surface. The `composer*` chip slots and
+ * `panel` are additive: every contribution renders in deterministic order.
+ * The thread list stays host-owned; the right panel tab strip is host-owned
+ * while panel tabs are plugin submodels (terminal-ghostty first).
  */
 export const SlotId = Schema.Literals([
   'composer',
@@ -20,6 +21,7 @@ export const SlotId = Schema.Literals([
   'composerLeading',
   'composerChipsLeft',
   'composerChipsRight',
+  'panel',
 ])
 export type SlotId = typeof SlotId.Type
 

@@ -23,6 +23,11 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/chat-ui'])
   })
 
+  it('loads terminal-ghostty through the generic loader, not a static import', async () => {
+    const plugins = await run(loadPluginSource({ specifier: '@oru/terminal-ghostty' }))
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/terminal-ghostty'])
+  })
+
   it('resolves a missing source to no plugins without throwing', async () => {
     const messages: string[] = []
     const plugins = await run(
@@ -42,6 +47,7 @@ describe('an external plugin source', () => {
       'oru/harness-pi',
       'oru/harness-claude-code',
       'oru/chat-ui',
+      'oru/terminal-ghostty',
     ])
   })
 })

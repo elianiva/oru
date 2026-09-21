@@ -103,3 +103,19 @@ _Avoid_: component, widget, view
 **Slot**:
 A named UI surface the host owns that plugin submodels mount into, such as the composer or the conversation. Exclusive slots hold one submodel, additive slots hold many in deterministic order.
 _Avoid_: outlet, mount point, placeholder
+
+**Panel**:
+The host-owned tab strip beside a thread: the launcher, the tab order, and which tab is active. Plugin submodels fill tabs through the additive `panel` slot; the host never renders tab content itself.
+_Avoid_: sidebar, drawer, right panel (as a bare noun — say what of it: strip, tab, launcher)
+
+**Panel tab**:
+One open instance of a panel-slot definition, such as a single terminal. The host owns its identity and lifetime; the plugin owns what it shows. Closing the tab ends the instance.
+_Avoid_: window, pane, view
+
+**Terminal**:
+A panel tab showing a live shell: restty renders it in the browser from PTY bytes, one pane per tab. Splits inside a tab duplicate the tab strip and do not exist.
+_Avoid_: console, shell (as a noun for the tab — the shell is the process it shows)
+
+**PTY**:
+The host-side shell process a terminal tab shows, spawned project-cwd-bound and killed when its tab closes. The browser never names a cwd; the host resolves it from the tab's project.
+_Avoid_: tty, pty session (as a user word — the user sees a terminal)

@@ -130,5 +130,27 @@ export const ConversationProps = Schema.Struct({
 })
 export type ConversationProps = typeof ConversationProps.Type
 
-export const propsOfSlot = (slot: SlotId): typeof ComposerProps | typeof ConversationProps =>
-  slot === 'composer' ? ComposerProps : ConversationProps
+/**
+ * Props for the additive `panel` slot (terminal-ghostty first).
+ * One def (`terminal`) renders N tab instances: root instantiates one
+ * outlet per open tab with distinct `sessionId`/`projectId` props.
+ * Flush layout: the tab owns the full content region (definite height,
+ * no host scroll), like bb's `threadPanelAction` flush tabs.
+ */
+export const PanelProps = Schema.Struct({
+  sessionId: Schema.String,
+  projectId: Schema.optional(Schema.String),
+  threadId: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+  /**
+   * The session's advertised WS path (`/pty/<id>`) or full URL. The tab
+   * prefers it over deriving one, so one construction site owns the URL.
+   */
+  wsUrl: Schema.optional(Schema.String),
+})
+export type PanelProps = typeof PanelProps.Type
+
+export const propsOfSlot = (
+  slot: SlotId,
+): typeof ComposerProps | typeof ConversationProps | typeof PanelProps =>
+  slot === 'composer' ? ComposerProps : slot === 'panel' ? PanelProps : ConversationProps

@@ -1,0 +1,33 @@
+{
+  "name": "@oru/terminal-ghostty",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/plugin.ts",
+    "./ui": "./src/ui.ts"
+  },
+  "scripts": {
+    "build": "oru-build-plugin",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@oru/kernel": "workspace:*",
+    "@oru/pty": "workspace:*",
+    "@oru/ui": "workspace:*",
+    "effect": "4.0.0-rc.115",
+    "foldkit": "0.161.0",
+    "restty": "0.3.0"
+  },
+  "devDependencies": {
+    "@oru/plugin-build": "workspace:*",
+    "@types/node": "^26.6.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "oru": {
+    "server": "./src/plugin.ts",
+    "ui": "./src/ui.ts"
+  }
+}

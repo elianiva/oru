@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { resolveUiAssignments, type UiClaim } from './slots.ts'
 
-const claim = (plugin: string, slot: 'composer' | 'composerChipsLeft', defId: string): UiClaim => ({
+const claim = (
+  plugin: string,
+  slot: 'composer' | 'composerChipsLeft' | 'panel',
+  defId: string,
+): UiClaim => ({
   plugin,
   def: { slot, defId },
 })
@@ -21,6 +25,17 @@ describe('resolveUiAssignments', () => {
     expect(resolveUiAssignments(claims, {})).toEqual([
       { slot: 'composerChipsLeft', plugin: 'oru/a', defId: 'a' },
       { slot: 'composerChipsLeft', plugin: 'oru/b', defId: 'b' },
+    ])
+  })
+
+  it('renders every panel claim in deterministic order', () => {
+    const claims = [
+      claim('oru/terminal-ghostty', 'panel', 'terminal'),
+      claim('oru/browser', 'panel', 'browser'),
+    ]
+    expect(resolveUiAssignments(claims, {})).toEqual([
+      { slot: 'panel', plugin: 'oru/browser', defId: 'browser' },
+      { slot: 'panel', plugin: 'oru/terminal-ghostty', defId: 'terminal' },
     ])
   })
 
