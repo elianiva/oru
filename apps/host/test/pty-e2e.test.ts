@@ -123,4 +123,69 @@ describe('the pty backend', () => {
       expect(missing.status).toBe(404)
     })
   })
+
+  it('rejects malformed session requests', async () => {
+    await withHost(async (url) => {
+      const wrongTypes = await fetch(`${url}/pty`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cols: 'wide' }),
+      })
+      expect(wrongTypes.status).toBe(400)
+
+      const notJson = await fetch(`${url}/pty`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'this is not json',
+      })
+      expect(notJson.status).toBe(400)
+    })
+  })
+
+  it('rejects a second socket while one is live, keeping the first', async () => {
+    await withHost(async (url) => {
+      const sessionId = await postSession(url)
+      const wsUrl = `${url.replace(/^http/, 'ws')}/pty/${sessionId}`
+
+      // Hold the first socket open; its status frame proves the attach.
+      const first = new WebSocket(wsUrl)
+      const firstStatus = await new Promise<string>((resolve) => {
+        first.addEventListener('message', (event) => resolve(String(event.data)), {
+          once: true,
+        })
+      })
+      expect(firstStatus).toContain('"status"')
+
+      const second = await new Promise<readonly string[]>((resolve) => {
+        const received: Array<string> = []
+        const socket = new WebSocket(wsUrl)
+        const done = (): void => {
+          try {
+            socket.close()
+          } catch {
+            void 0
+          }
+          resolve(received)
+        }
+        socket.addEventListener('message', (event) => {
+          received.push(String(event.data))
+        })
+        socket.addEventListener('error', () => done())
+        socket.addEventListener('close', () => done())
+      })
+      expect(second.join('')).toContain('terminal busy')
+
+      // The live session survives the rejected peer.
+      const echoed = await new Promise<string>((resolve) => {
+        first.addEventListener('message', (event) => {
+          const text = String(event.data)
+          if (text.includes('pty-ok')) resolve(text)
+        })
+        first.send(JSON.stringify({ type: 'input', data: 'echo pty-ok\n' }))
+      })
+      expect(echoed).toContain('pty-ok')
+      first.close()
+      expect(await waitForKill(url, sessionId)).toBe(true)
+    })
+  })
 })

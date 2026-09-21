@@ -24,3 +24,11 @@ Two stack calls come with it. The renderer is restty (`libghostty-vt` in WASM, W
 - The UI bundle carries ~5MB of restty+WASM today; a shared-runtime optimization (the recorded ADR-0020 follow-up) shrinks every UI bundle at once when it lands.
 - `POST /pty` without a `projectId` spawns in the host cwd — fine for v1, and the place per-thread scoping plus tokens will attach later.
 - The details view stays as the fallback while no panel bundle is claimed and no tabs are open, so the panel degrades instead of emptying when the plugin is off.
+
+## Review amendments (PR #64 follow-up)
+
+- The shell is always the host default (`$SHELL` when it names a real file, else the first of `zsh → bash → sh` that exists). The client never chooses the executable; neither `POST` nor the WS query takes one.
+- The slot inventory stays additive, but v1 renders the first panel claim only (snapshot order is deterministic). Per-def tab kinds ride with the second consumer.
+- Sessions are capped (16) with `429` past it, and sessions nobody connects to within 60s are reaped — a `POST` with no WS never leaks a child.
+- One live peer per session: a second socket gets `terminal busy` and closes without touching the session, and only the attached peer's close kills it.
+- Grid sizes are clamped at the bridge (`cols ≤ 500, rows ≤ 200`); the upgrade query carries no session parameters.

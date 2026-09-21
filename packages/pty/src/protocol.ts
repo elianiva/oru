@@ -52,7 +52,6 @@ export const ServerMessage = Schema.Union([StatusMessage, ErrorMessage, ExitMess
 export type ServerMessage = typeof ServerMessage.Type
 
 const decodeClient = Schema.decodeUnknownOption(ClientMessage)
-const decodeServer = Schema.decodeUnknownOption(ServerMessage)
 
 /** Parse one inbound text frame. Unknown JSON is output, never a crash. */
 export const parseClientMessage = (text: string): ClientMessage | { readonly raw: string } => {
@@ -66,45 +65,9 @@ export const parseClientMessage = (text: string): ClientMessage | { readonly raw
   return Option.isSome(decoded) ? decoded.value : { raw: text }
 }
 
-/** True when an outbound text frame is a protocol message, not PTY output. */
-export const isServerMessage = (text: string): boolean => {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return false
-  }
-  return Option.isSome(decodeServer(parsed))
-}
-
 export const encodeStatus = (shell?: string): string =>
   shell === undefined ? `{"type":"status"}` : JSON.stringify({ type: 'status', shell })
 
 export const encodeError = (message: string): string => JSON.stringify({ type: 'error', message })
 
 export const encodeExit = (code: number): string => JSON.stringify({ type: 'exit', code })
-
-/** `?projectId=&cols=&rows=&shell=` from the upgrade query. */
-export interface PtyQuery {
-  readonly projectId?: string | undefined
-  readonly cols?: number | undefined
-  readonly rows?: number | undefined
-  readonly shell?: string | undefined
-}
-
-export const parsePtyQuery = (search: string): PtyQuery => {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const num = (key: string): number | undefined => {
-    const raw = params.get(key)
-    if (raw === null) return undefined
-    const parsed = Number.parseInt(raw, 10)
-    if (!Number.isFinite(parsed) || parsed <= 0) return undefined
-    return parsed
-  }
-  const str = (key: string): string | undefined => {
-    const raw = params.get(key)
-    if (raw === null || raw.length === 0) return undefined
-    return raw
-  }
-  return { projectId: str('projectId'), cols: num('cols'), rows: num('rows'), shell: str('shell') }
-}

@@ -15,21 +15,15 @@ import {
 } from '@oru/kernel'
 import type { PluginId } from '@oru/kernel'
 import { sqliteJournalLayer, type JournalOpenError } from '@oru/kernel/sqlite'
-import { fromZigpty } from '@oru/pty'
+import { encodeError, fromZigpty, type SpawnFn } from '@oru/pty'
 import { spawn as zigptySpawn } from 'zigpty'
 import nodeAdapter from 'crossws/adapters/node'
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- SAFETY: makePluginStore is a plain Effect-returning factory like makeHost, not a Context.Tag service constructor; there is no Layer to yield instead.
 import { makePluginStore, type PluginStore } from './plugin-store.ts'
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- SAFETY: makePtyStore is a plain function returning the store record (like makePluginStore above), not a Context.Tag service constructor; there is no Layer to yield instead.
 import { makePtyStore } from './pty.ts'
-import {
-  closePtySession,
-  isPtyUpgrade,
-  openPtySession,
-  routePtyMessage,
-  type PtyStore,
-  type ZigptySpawn,
-} from './pty.ts'
+import { closePtySession, isPtyUpgrade, openPtySession, routePtyMessage } from './pty.ts'
+import type { PtyStore } from './pty.ts'
 import { rpcRoutes } from './routes.ts'
 import type { UiOverrides } from './ui.ts'
 
@@ -114,27 +108,38 @@ export const serveHost = (
       facetsRoot: options.ui?.facetsDir,
       overrides: options.ui?.overrides ?? {},
     })
-    const spawnFn: ZigptySpawn = (cmd, args, spawnOptions) => {
-      const grid = {
-        cols: spawnOptions.cols ?? 80,
-        rows: spawnOptions.rows ?? 24,
-        cwd: spawnOptions.cwd,
-      }
-      const options =
-        spawnOptions.env === undefined ? grid : { ...grid, env: { ...spawnOptions.env } }
-      return fromZigpty(zigptySpawn(cmd, [...args], options))
-    }
+    const rawSpawn: SpawnFn = (cmd, args, spawnOptions) =>
+      fromZigpty(
+        zigptySpawn(cmd, [...args], {
+          cols: spawnOptions.cols,
+          rows: spawnOptions.rows,
+          cwd: spawnOptions.cwd,
+          env: { ...spawnOptions.env },
+        }),
+      )
     const pty = yield* Effect.map(SessionLog, (log) =>
-      makePtyStore(spawnFn, () => log.entries),
+      makePtyStore(rawSpawn, () => log.entries),
     ).pipe(Effect.provideContext(provided))
+    const frameText = (read: () => string): string | undefined => {
+      try {
+        return read()
+      } catch {
+        return undefined
+      }
+    }
     const adapter = nodeAdapter({
       hooks: {
         open: (peer) => {
           openPtySession(
             pty,
             peer.request.url,
+            peer.id,
             (data) => {
-              peer.send(data)
+              try {
+                peer.send(data)
+              } catch {
+                void 0
+              }
             },
             () => {
               try {
@@ -146,24 +151,29 @@ export const serveHost = (
           )
         },
         message: (peer, message) => {
-          routePtyMessage(
-            pty,
-            peer.request.url,
-            message.text(),
-            (data) => {
+          const send = (data: string): void => {
+            try {
               peer.send(data)
-            },
-            () => {
-              try {
-                peer.close()
-              } catch {
-                void 0
-              }
-            },
-          )
+            } catch {
+              void 0
+            }
+          }
+          const close = (): void => {
+            try {
+              peer.close()
+            } catch {
+              void 0
+            }
+          }
+          const text = frameText(() => message.text())
+          if (text === undefined) {
+            send(encodeError('unreadable frame'))
+            return
+          }
+          routePtyMessage(pty, peer.request.url, text, send, close)
         },
         close: (peer) => {
-          closePtySession(pty, peer.request.url)
+          closePtySession(pty, peer.request.url, peer.id)
         },
       },
     })
@@ -179,7 +189,13 @@ export const serveHost = (
         // SAFETY: Node guarantees upgrade listeners receive (request, socket, head); this wrapper only re-routes them.
         const [req, socket, head] = args as [IncomingMessage, Duplex, Buffer]
         if (isPtyUpgrade(req.url)) {
-          void adapter.handleUpgrade(req, socket, head)
+          void adapter.handleUpgrade(req, socket, head).catch(() => {
+            try {
+              socket.destroy()
+            } catch {
+              void 0
+            }
+          })
           return true
         }
       }

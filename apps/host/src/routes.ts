@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Schema } from 'effect'
+import { Effect, Layer, Option, Predicate, Schema } from 'effect'
 import { HttpRouter, HttpServerResponse } from 'effect/unstable/http'
 import { RpcServer } from 'effect/unstable/rpc'
 import type { Host } from '@oru/kernel'
@@ -52,9 +52,11 @@ const PtyCreateInput = Schema.Struct({
   projectId: Schema.optional(Schema.String),
   cols: Schema.optional(Schema.Number),
   rows: Schema.optional(Schema.Number),
-  shell: Schema.optional(Schema.String),
 })
 const decodePtyCreateInput = Schema.decodeUnknownOption(PtyCreateInput)
+
+const PtyCreated = Schema.TaggedStruct('PtyCreated', { session: Schema.Any })
+const PtyFailed = Schema.TaggedStruct('PtyFailed', { error: Schema.Unknown })
 export const ptyRoutes = (pty: PtyStore | undefined) =>
   pty === undefined
     ? HttpRouter.addAll([])
@@ -68,19 +70,30 @@ export const ptyRoutes = (pty: PtyStore | undefined) =>
         ),
         HttpRouter.route('POST', '/pty', (req) =>
           Effect.gen(function* () {
-            const body = yield* Effect.orElseSucceed(req.json, () => ({}))
-            const fields = Option.getOrElse(decodePtyCreateInput(body), () => ({
-              projectId: undefined,
-              cols: undefined,
-              rows: undefined,
-              shell: undefined,
-            }))
-            const session = yield* pty.create({
-              projectId: fields.projectId,
-              cols: fields.cols,
-              rows: fields.rows,
-              shell: fields.shell,
-            })
+            // A body that is not JSON can never decode: `cols` must be a number.
+            const body = yield* Effect.orElseSucceed(req.json, () => ({ cols: 'INVALID' }))
+            const decoded = decodePtyCreateInput(body)
+            if (Option.isNone(decoded)) {
+              return HttpServerResponse.text('invalid pty request', { status: 400 })
+            }
+            const fields = decoded.value
+            const created = yield* pty
+              .create({
+                projectId: fields.projectId,
+                cols: fields.cols,
+                rows: fields.rows,
+              })
+              .pipe(
+                Effect.map((session) => PtyCreated.make({ session })),
+                Effect.catch((error) => Effect.succeed(PtyFailed.make({ error }))),
+              )
+            if (Predicate.isTagged(created, 'PtyFailed')) {
+              if (Predicate.isTagged(created.error, 'SessionsExhausted')) {
+                return HttpServerResponse.text('too many terminals', { status: 429 })
+              }
+              return HttpServerResponse.text('terminal unavailable', { status: 500 })
+            }
+            const session = created.session
             if (session === undefined) {
               return HttpServerResponse.text('unknown project', { status: 404 })
             }

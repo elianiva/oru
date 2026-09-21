@@ -1,5 +1,5 @@
 import { encodeError, encodeExit, encodeStatus, parseClientMessage } from './protocol.ts'
-import type { PtyHandle } from './pty.ts'
+import { clampGrid, type PtyHandle } from './pty.ts'
 
 /**
  * One WS peer ↔ one zigpty handle, speaking the restty dialect.
@@ -22,7 +22,13 @@ export const attachPtyPeer = (options: {
   readonly shell?: string
 }): void => {
   const { peer, pty, shell } = options
-  peer.send(encodeStatus(shell))
+  try {
+    peer.send(encodeStatus(shell))
+  } catch {
+    // A peer that died between upgrade and open has nothing to hear;
+    // its close kills the session below, never the PTY.
+    void 0
+  }
   pty.onData((data) => {
     try {
       peer.send(data)
@@ -58,8 +64,9 @@ export const handlePtyFrame = (pty: PtyHandle, peer: PtyPeer, frame: string): vo
     }
     return
   }
+  const grid = clampGrid(message.cols, message.rows)
   try {
-    pty.resize(message.cols, message.rows)
+    pty.resize(grid.cols, grid.rows)
   } catch {
     peer.send(encodeError('pty resize failed'))
   }

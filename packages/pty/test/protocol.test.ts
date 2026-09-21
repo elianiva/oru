@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  encodeError,
-  encodeExit,
-  encodeStatus,
-  isServerMessage,
-  parseClientMessage,
-  parsePtyQuery,
-} from '../src/protocol.ts'
+import { encodeError, encodeExit, encodeStatus, parseClientMessage } from '../src/protocol.ts'
 import { attachPtyPeer, handlePtyFrame, type PtyPeer } from '../src/bridge.ts'
 import { baseEnv, clampGrid, defaultShell } from '../src/pty.ts'
 import type { PtyHandle } from '../src/pty.ts'
@@ -54,31 +47,10 @@ describe('restty dialect', () => {
     expect(parseClientMessage(`{"type":"nope"}`)).toEqual({ raw: `{"type":"nope"}` })
   })
 
-  it('recognizes server messages only', () => {
-    expect(isServerMessage(`{"type":"exit","code":0}`)).toBe(true)
-    expect(isServerMessage('plain output')).toBe(false)
-    expect(isServerMessage(`{"type":"input","data":"x"}`)).toBe(false)
-  })
-
   it('encodes status/error/exit', () => {
     expect(encodeStatus('/bin/zsh')).toBe(`{"type":"status","shell":"/bin/zsh"}`)
     expect(encodeError('boom')).toBe(`{"type":"error","message":"boom"}`)
     expect(encodeExit(1)).toBe(`{"type":"exit","code":1}`)
-  })
-
-  it('parses upgrade query without trusting cwd', () => {
-    expect(parsePtyQuery('?projectId=abc&cols=120&rows=40&shell=/bin/zsh')).toEqual({
-      projectId: 'abc',
-      cols: 120,
-      rows: 40,
-      shell: '/bin/zsh',
-    })
-    expect(parsePtyQuery('?cols=0&rows=-1')).toEqual({
-      projectId: undefined,
-      cols: undefined,
-      rows: undefined,
-      shell: undefined,
-    })
   })
 })
 
@@ -99,30 +71,36 @@ describe('pty bridge', () => {
     expect(closed).toBe(true)
   })
 
-  it('routes frames to write/resize', () => {
+  it('routes frames to write/resize, clamping absurd grids', () => {
     const written: string[] = []
     const resized: Array<{ cols: number; rows: number }> = []
     const pty = stubPty({ written, resized })
     const peer: PtyPeer = { send: () => {}, close: () => {} }
     handlePtyFrame(pty, peer, `{"type":"input","data":"ls\\n"}`)
     handlePtyFrame(pty, peer, `{"type":"resize","cols":100,"rows":30}`)
+    handlePtyFrame(pty, peer, `{"type":"resize","cols":1000000,"rows":1000000}`)
     handlePtyFrame(pty, peer, 'raw keys')
     expect(written).toEqual(['ls\n', 'raw keys'])
-    expect(resized).toEqual([{ cols: 100, rows: 30 }])
+    expect(resized).toEqual([
+      { cols: 100, rows: 30 },
+      { cols: 500, rows: 200 },
+    ])
   })
 })
 
 describe('pty spawn helpers', () => {
-  it('clamps grid and picks shell', () => {
+  it('clamps grid and picks the first shell that exists', () => {
     expect(clampGrid(0, 1000)).toEqual({ cols: 2, rows: 200 })
-    expect(defaultShell({ SHELL: '/bin/fish' })).toBe('/bin/fish')
-    expect(defaultShell({})).toBe('/bin/zsh')
+    expect(defaultShell({ SHELL: '/bin/fish' }, () => true)).toBe('/bin/fish')
+    expect(defaultShell({ SHELL: '/missing' }, (path) => path !== '/missing')).toBe('/bin/zsh')
+    expect(defaultShell({}, () => false)).toBe('/bin/sh')
   })
 
-  it('filters env to allowlist plus TERM', () => {
-    const env = baseEnv({ PATH: '/bin', HOME: '/h', SECRET: 'x' })
+  it('filters env to the allowlist plus TERM', () => {
+    const env = baseEnv({ PATH: '/bin', HOME: '/h', SECRET: 'x', SSH_AUTH_SOCK: '/sock' })
     expect(env['TERM']).toBe('xterm-256color')
     expect(env['PATH']).toBe('/bin')
+    expect(env['SSH_AUTH_SOCK']).toBe('/sock')
     expect(env['SECRET']).toBeUndefined()
   })
 })

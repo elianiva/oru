@@ -7,6 +7,7 @@
  * The WS bridge (crossws + restty dialect) lives beside it; both are
  * imported by `terminal-ghostty` today and any panel-tab plugin tomorrow.
  */
+import { existsSync } from 'node:fs'
 
 export interface PtySpawnOptions {
   readonly cmd: string
@@ -29,7 +30,7 @@ export interface PtyHandle {
 export type SpawnFn = (
   cmd: string,
   args: readonly string[],
-  options: { cols?: number; rows?: number; cwd: string; env?: Readonly<Record<string, string>> },
+  options: { cols: number; rows: number; cwd: string; env?: Readonly<Record<string, string>> },
 ) => PtyHandle
 
 /**
@@ -68,11 +69,21 @@ export const fromZigpty = (pty: ZigptyPty): PtyHandle => ({
   },
 })
 
-/** Default shell: `$SHELL` fallback `zsh → bash → sh` (restty playground rule). */
-export const defaultShell = (env: NodeJS.ProcessEnv = process.env): string => {
-  const shell = env['SHELL']
-  if (shell !== undefined && shell.length > 0) return shell
-  return process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh'
+/** Default shell: `$SHELL` when it names a real file, else the first
+ * shell that exists (`zsh → bash → sh`, `powershell.exe` on Windows).
+ * Never trusts client input. */
+export const defaultShell = (
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+): string => {
+  const candidates =
+    process.platform === 'win32'
+      ? [env['SHELL'], 'powershell.exe']
+      : [env['SHELL'], '/bin/zsh', '/bin/bash', '/bin/sh']
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate.length > 0 && exists(candidate)) return candidate
+  }
+  return process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
 }
 
 /** Clamp grid sizes to what zigpty and restty both accept. */
@@ -88,7 +99,23 @@ export interface PtyEnv {
 
 /** Minimal env allowlist for PTY children. Callers add `TERM=xterm-256color`. */
 export const baseEnv = (env: NodeJS.ProcessEnv = process.env): PtyEnv => {
-  const keep = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'SHELL', 'EDITOR', 'VISUAL', 'PAGER']
+  const keep = [
+    'PATH',
+    'HOME',
+    'USER',
+    'LANG',
+    'LC_ALL',
+    'SHELL',
+    'EDITOR',
+    'VISUAL',
+    'PAGER',
+    'TMPDIR',
+    'XDG_CONFIG_HOME',
+    'XDG_DATA_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_RUNTIME_DIR',
+    'SSH_AUTH_SOCK',
+  ]
   const entries: Array<[string, string]> = []
   for (const key of keep) {
     const value = env[key]
