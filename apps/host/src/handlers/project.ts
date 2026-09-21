@@ -81,7 +81,7 @@ export const projectRpcHandlers = (
           const log = yield* SessionLog
           const missing = ensurePersonalProject(yield* log.entries, personalCwd)
           if (missing === undefined) return
-          mkdirSync(personalCwd, { recursive: true })
+          yield* Effect.sync(() => mkdirSync(personalCwd, { recursive: true }))
           yield* log.write(
             ProjectCreated.make({
               ...unsignedTree,

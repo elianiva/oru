@@ -58,7 +58,7 @@ import {
 } from './harness.ts'
 import { type RuntimeContract } from './runtime-token.ts'
 import type { ToolContribution } from './tools.ts'
-import { failureReason, historyOf, runTool, runToolByName } from './history.ts'
+import { failureReason, historyOf, runTool, runToolByNameEffect } from './history.ts'
 import {
   AwaitApproval,
   decisionOf,
@@ -514,9 +514,7 @@ export const openRuntime = (
           Effect.runPromise(
             Effect.gen(function* () {
               const all = yield* loadTools
-              return yield* Effect.promise(() =>
-                runToolByName(all, input.name, input.argumentsJson),
-              )
+              return yield* runToolByNameEffect(all, input.name, input.argumentsJson)
             }),
           )
         request.awaitToolApproval = (input) =>

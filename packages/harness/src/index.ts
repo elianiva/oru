@@ -70,4 +70,4 @@ export {
   type PendingCall,
   type ThreadState,
 } from './session-fold.ts'
-export { historyOf, failureReason, runTool, runToolByName } from './history.ts'
+export { historyOf, failureReason, runTool, runToolByName, runToolByNameEffect } from './history.ts'
