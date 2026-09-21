@@ -115,9 +115,11 @@ export const Message = defineMessageUnion({
   PtySessionCreated: {
     sessionId: Schema.String,
     projectId: Schema.UndefinedOr(Schema.String),
+    wsUrl: Schema.UndefinedOr(Schema.String),
   },
   PtySessionFailed: { reason: Schema.String },
   PtySessionClosed: {},
+  PtySessionCloseFailed: { reason: Schema.String },
   ClickedPanelTab: { sessionId: Schema.String },
   ClickedClosePanelTab: { sessionId: Schema.String },
   GotPanelUi: { sessionId: Schema.String, message: Schema.Any },
@@ -586,6 +588,7 @@ export const DecideApproval = Command.define('DecideApproval', {
 const PtySessionResponse = Schema.Struct({
   sessionId: Schema.NonEmptyString,
   projectId: Schema.optional(Schema.String),
+  wsUrl: Schema.optional(Schema.String),
 })
 const decodePtySessionResponse = Schema.decodeUnknownOption(PtySessionResponse)
 
@@ -614,17 +617,25 @@ export const CreatePtySession = Command.define('CreatePtySession', {
       return Message.PtySessionCreated({
         sessionId: decoded.value.sessionId,
         projectId: decoded.value.projectId,
+        wsUrl: decoded.value.wsUrl,
       })
     }),
 })
 
 export const DeletePtySession = Command.define('DeletePtySession', {
   args: { sessionId: Schema.String },
-  messages: [Message.PtySessionClosed],
+  messages: [Message.PtySessionClosed, Message.PtySessionCloseFailed],
   execute: ({ sessionId }) =>
-    Effect.promise(() =>
-      fetch(`/pty/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => undefined),
-    ).pipe(Effect.as(Message.PtySessionClosed())),
+    Effect.gen(function* () {
+      const response = yield* Effect.promise(() =>
+        fetch(`/pty/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => undefined),
+      )
+      // The WS close usually wins the race and the session is already
+      // gone (404); only a live failure is worth surfacing.
+      if (response === undefined) return Message.PtySessionClosed()
+      if (response.ok || response.status === 404) return Message.PtySessionClosed()
+      return Message.PtySessionCloseFailed({ reason: `close failed (${response.status})` })
+    }),
 })
 
 interface CreateThreadConfig {
@@ -1152,7 +1163,36 @@ const panelPropsOfTab = (model: Model, tab: Panel.PanelTab): PanelProps => ({
   projectId: tab.projectId,
   threadId: Option.getOrUndefined(selectedThread(model)),
   title: tab.title,
+  wsUrl: tab.wsUrl,
 })
+
+/**
+ * Re-absorb fresh props into every ready panel outlet: thread switches
+ * change what `PanelProps` carries, and outlets only absorb at mount.
+ */
+const resyncPanelProps = (model: Model): Model => {
+  const bundle = model.panelBundle
+  if (bundle === undefined) return model
+  const def = getDef(bundle.plugin, bundle.defId, bundle.address)
+  if (def?.absorb === undefined) return model
+  const absorb = def.absorb
+  const refreshed: Record<string, OutletState> = {}
+  for (const tab of model.panelTabs) {
+    const outlet = model.panelOutlets[tab.sessionId]
+    if (outlet === undefined || !Predicate.isTagged(outlet, 'Ready')) continue
+    Object.assign(refreshed, {
+      [tab.sessionId]: OutletReady.make({
+        plugin: outlet.plugin,
+        defId: outlet.defId,
+        slot: outlet.slot,
+        address: outlet.address,
+        childModel: absorb(outlet.childModel, panelPropsOfTab(model, tab)),
+      }),
+    })
+  }
+  if (Object.keys(refreshed).length === 0) return model
+  return evo(model, { panelOutlets: (current) => ({ ...current, ...refreshed }) })
+}
 
 /**
  * Mount the panel bundle into every tab outlet missing one. Tabs created
@@ -1304,8 +1344,13 @@ const reconcileSlot = (
 /**
  * Reconcile the shared `panel` bundle against the snapshot. Unlike
  * exclusive slots there is one bundle for N tab instances: tabs keep
- * their sessions across bundle generations, and outlets mount when the
- * def for the recorded generation registers. Idempotent per generation.
+ * their sessions across bundle generations. A generation change drops
+ * every outlet first, so tabs remount through `mountPanelBundle` with a
+ * fresh `init` + `absorb` against the new def instead of rendering new
+ * code with an old def's model. Idempotent per generation.
+ *
+ * v1 renders the first panel claim only (snapshot order is
+ * deterministic); per-def tab kinds are the recorded follow-up.
  */
 const reconcilePanel = (
   model: Model,
@@ -1314,7 +1359,10 @@ const reconcilePanel = (
 ): ReconciledSlot => {
   if (assignment === undefined || bundle === undefined) {
     if (model.panelBundle === undefined) return { model, commands: [] }
-    return { model: evo(model, { panelBundle: () => undefined }), commands: [] }
+    return {
+      model: evo(model, { panelBundle: () => undefined, panelOutlets: () => ({}) }),
+      commands: [],
+    }
   }
   const current = model.panelBundle
   if (
@@ -1332,7 +1380,8 @@ const reconcilePanel = (
     jsUrl: bundle.jsUrl,
     sdkMajor: bundle.sdkMajor,
   })
-  const withBundle = evo(model, { panelBundle: () => next })
+  // Generation change: stale outlets go before the new bundle lands.
+  const withBundle = evo(model, { panelBundle: () => next, panelOutlets: () => ({}) })
   if (getDef(assignment.plugin, assignment.defId, bundle.address) !== undefined) {
     return { model: mountPanelBundle(withBundle), commands: [] }
   }
@@ -1395,7 +1444,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               projects: () => projects,
             })
       return {
-        model: syncComposer(cleared),
+        model: syncComposer(resyncPanelProps(cleared)),
         commands: [...pickerLoad(route), ...detailLoad(route)],
       }
     },
@@ -1583,7 +1632,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         commands: [CreatePtySession({ projectId: selectedProjectIdOf(model) })],
       }
     },
-    PtySessionCreated: ({ sessionId, projectId }) => {
+    PtySessionCreated: ({ sessionId, projectId, wsUrl }) => {
       if (model.panelTabs.some((tab) => tab.sessionId === sessionId)) {
         return {
           model: evo(model, { panelCreating: () => false, panelActive: () => sessionId }),
@@ -1594,6 +1643,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         sessionId,
         projectId,
         title: `Terminal ${counter}`,
+        wsUrl,
       })
       const withTab = evo(model, {
         panelCreating: () => false,
@@ -1608,6 +1658,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: evo(model, { panelCreating: () => false, panelError: () => reason }),
     }),
     PtySessionClosed: () => ({ model }),
+    PtySessionCloseFailed: ({ reason }) => ({
+      model: evo(model, { panelError: () => reason }),
+    }),
     ClickedPanelTab: ({ sessionId }) => {
       if (!model.panelTabs.some((tab) => tab.sessionId === sessionId)) return { model }
       return { model: evo(model, { panelActive: () => sessionId }) }

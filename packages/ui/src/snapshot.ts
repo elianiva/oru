@@ -142,6 +142,11 @@ export const PanelProps = Schema.Struct({
   projectId: Schema.optional(Schema.String),
   threadId: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
+  /**
+   * The session's advertised WS path (`/pty/<id>`) or full URL. The tab
+   * prefers it over deriving one, so one construction site owns the URL.
+   */
+  wsUrl: Schema.optional(Schema.String),
 })
 export type PanelProps = typeof PanelProps.Type
 

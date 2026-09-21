@@ -18,6 +18,7 @@ export const PanelTab = Schema.Struct({
   sessionId: Schema.String,
   projectId: Schema.optional(Schema.String),
   title: Schema.String,
+  wsUrl: Schema.optional(Schema.String),
 })
 export type PanelTab = typeof PanelTab.Type
 
@@ -100,6 +101,7 @@ const terminalOutlet = <M>(inputs: PanelViewInputs<M>, tab: PanelTab, h: HtmlBui
     projectId: tab.projectId,
     threadId: inputs.threadId,
     title: tab.title,
+    wsUrl: tab.wsUrl,
   }
   // SAFETY: the brand is type-level-only per foldkit's docs, so a def view built by another foldkit copy stays structurally compatible (same rule as root's composer-outlet).
   return h.submodel({
@@ -112,9 +114,11 @@ const terminalOutlet = <M>(inputs: PanelViewInputs<M>, tab: PanelTab, h: HtmlBui
 }
 
 /**
- * Tab strip + launcher + active tab. Pure view over root state: every
- * button dispatches a root message the caller built, so this module never
- * imports root (no cycle) — same shape as `RightPanel.view`.
+ * Tab strip + launcher + all tabs (inactives hidden, never unmounted:
+ * unmounting would disconnect the terminal element and kill its PTY).
+ * Pure view over root state: every button dispatches a root message the
+ * caller built, so this module never imports root (no cycle) — same shape
+ * as `RightPanel.view`.
  */
 export const view = <M>(inputs: PanelViewInputs<M>, h: HtmlBuilder<M>): Html => {
   const active = inputs.tabs.find((tab) => tab.sessionId === inputs.activeId) ?? inputs.tabs[0]
@@ -152,6 +156,7 @@ export const view = <M>(inputs: PanelViewInputs<M>, h: HtmlBuilder<M>): Html => 
                     h.Type('button'),
                     h.OnClick(inputs.messages.closeTab(tab.sessionId)),
                     h.DataAttribute('panel-tab-close', tab.sessionId),
+                    h.AriaLabel(`Close ${tab.title}`),
                     h.Class('shrink-0 text-xs text-muted-foreground hover:text-foreground'),
                   ],
                   ['×'],
@@ -186,16 +191,30 @@ export const view = <M>(inputs: PanelViewInputs<M>, h: HtmlBuilder<M>): Html => 
       h.div(
         [h.DataAttribute('panel-content', ''), h.Class('min-h-0 flex-1')],
         [
-          active === undefined
-            ? h.div(
-                [
-                  h.Class(
-                    'flex h-full min-h-0 flex-col items-center justify-center gap-2 p-4 text-center',
-                  ),
-                ],
-                [h.p([h.Class('text-xs text-muted-foreground')], ['No terminal yet.'])],
-              )
-            : terminalOutlet(inputs, active, h),
+          ...(active === undefined
+            ? [
+                h.div(
+                  [
+                    h.Class(
+                      'flex h-full min-h-0 flex-col items-center justify-center gap-2 p-4 text-center',
+                    ),
+                  ],
+                  [h.p([h.Class('text-xs text-muted-foreground')], ['No terminal yet.'])],
+                ),
+              ]
+            : inputs.tabs.map((tab) =>
+                h.div(
+                  [
+                    h.DataAttribute('panel-tab-body', tab.sessionId),
+                    h.Class(
+                      tab.sessionId === active.sessionId
+                        ? 'h-full min-h-0'
+                        : 'hidden h-full min-h-0',
+                    ),
+                  ],
+                  [terminalOutlet(inputs, tab, h)],
+                ),
+              )),
         ],
       ),
     ],

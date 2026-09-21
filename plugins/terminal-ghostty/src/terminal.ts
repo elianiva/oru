@@ -10,10 +10,12 @@ import { defineTerminalElement, terminalElementSpec } from './element.ts'
  *
  * Root instantiates one outlet per open tab with distinct `sessionId`
  * props; the view renders `<oru-terminal ws-url session-id>` flush
- * (full tab area, definite height, no host scroll). The custom element
+ * (full tab area, definite height, no host scroll). The attributes are
+ * literal (`h.Attribute`, not `DataAttribute`, not JS properties): the
+ * element reads `ws-url` and observes both names. The custom element
  * owns the imperative restty lifecycle; the submodel stays pure.
- * The WS URL is same-origin `/pty/:sessionId`, so no host address travels
- * through props — `absorb` derives it from `sessionId`.
+ * The WS URL travels in props (the server advertises it at creation);
+ * deriving from `location` is only the fallback.
  */
 
 export const Model = Schema.Struct({
@@ -43,34 +45,42 @@ const wsUrlFor = (sessionId: string): string | undefined => {
   return `${protocol}://${location.host}/pty/${sessionId}`
 }
 
+const wsUrlOfProps = (props: PanelProps): string | undefined => {
+  if (props.wsUrl !== undefined && props.wsUrl.length > 0) {
+    if (props.wsUrl.startsWith('ws://') || props.wsUrl.startsWith('wss://')) return props.wsUrl
+    if (typeof location === 'undefined') return props.wsUrl
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
+    return `${protocol}://${location.host}${props.wsUrl}`
+  }
+  if (props.sessionId.length === 0) return undefined
+  return wsUrlFor(props.sessionId)
+}
+
 export const absorbProps = (model: Model, props: PanelProps): Model => {
   if (props.sessionId.length === 0) return model
   if (model.sessionId === props.sessionId && model.wsUrl !== undefined) return model
-  return { sessionId: props.sessionId, wsUrl: wsUrlFor(props.sessionId) }
+  return { sessionId: props.sessionId, wsUrl: wsUrlOfProps(props) }
 }
 
 export const view = defineView<Model, Message, PanelProps>((model, props, h) => {
   defineTerminalElement()
   const terminal = terminalElementSpec.withMessage(h)
   const sessionId = model.sessionId ?? props.sessionId
-  const wsUrl = model.wsUrl ?? (sessionId.length > 0 ? wsUrlFor(sessionId) : undefined)
+  const wsUrl = model.wsUrl ?? wsUrlOfProps({ ...props, sessionId })
   if (sessionId.length === 0 || wsUrl === undefined) {
     return h.div(
       [h.Class('flex h-full items-center justify-center text-xs text-muted-foreground')],
       ['no terminal session'],
     )
   }
-  void model
   return h.div(
     [h.DataAttribute('terminal-tab', sessionId), h.Class('flex h-full min-h-0 flex-col')],
     [
       terminal(
         [
-          terminal.SessionId(sessionId),
-          terminal.WsUrl(wsUrl),
+          h.Attribute('ws-url', wsUrl),
+          h.Attribute('session-id', sessionId),
           h.Class('min-h-0 flex-1'),
-          h.DataAttribute('ws-url', wsUrl),
-          h.DataAttribute('session-id', sessionId),
         ],
         [],
       ),
