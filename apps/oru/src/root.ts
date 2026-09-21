@@ -26,10 +26,12 @@ import {
   decodeUiOutMessage,
   type ComposerProps,
   type ConversationProps,
+  type PanelProps,
   type UiSignal,
 } from '@oru/ui'
 import { PluginId, SessionEvent, isPersonalProjectId } from '@oru/kernel'
 import * as LeftPanel from './left-panel.ts'
+import * as Panel from './panel.ts'
 import * as Projects from './projects.ts'
 import * as RightPanel from './right-panel.ts'
 import { getDef, registerDef } from './ui-defs.ts'
@@ -83,6 +85,13 @@ export const Model = Schema.Struct({
   projects: Projects.Model,
   composerUi: OutletState,
   conversationUi: OutletState,
+  panelTabs: Schema.Array(Panel.PanelTab),
+  panelActive: Schema.optional(Schema.String),
+  panelOutlets: Schema.Record(Schema.String, OutletState),
+  panelBundle: Schema.optional(Panel.PanelBundle),
+  panelCreating: Schema.Boolean,
+  panelError: Schema.optional(Schema.String),
+  panelCounter: Schema.Number,
   options: ComposerOptions,
   settings: General.Model,
   submit: Submit,
@@ -102,6 +111,16 @@ export const Message = defineMessageUnion({
   GotProjects: { message: Projects.Message },
   GotComposerUi: { message: Schema.Any },
   GotConversationUi: { message: Schema.Any },
+  ClickedNewTerminal: {},
+  PtySessionCreated: {
+    sessionId: Schema.String,
+    projectId: Schema.UndefinedOr(Schema.String),
+  },
+  PtySessionFailed: { reason: Schema.String },
+  PtySessionClosed: {},
+  ClickedPanelTab: { sessionId: Schema.String },
+  ClickedClosePanelTab: { sessionId: Schema.String },
+  GotPanelUi: { sessionId: Schema.String, message: Schema.Any },
   HostOptionsArrived: { options: ThreadOptions },
   HostOptionsFailed: { reason: Schema.String },
   UiSnapshotArrived: { snapshot: UiSnapshot },
@@ -558,6 +577,56 @@ export const DecideApproval = Command.define('DecideApproval', {
     ),
 })
 
+/**
+ * Open one PTY on the host (`POST /pty`, project-cwd-bound) and turn it
+ * into a panel tab. The tab's outlet mounts the `panel/terminal` def;
+ * closing the tab unmounts it (restty `destroy()` closes the WS) and the
+ * host kills the zigpty child on socket close, plus best-effort DELETE.
+ */
+const PtySessionResponse = Schema.Struct({
+  sessionId: Schema.NonEmptyString,
+  projectId: Schema.optional(Schema.String),
+})
+const decodePtySessionResponse = Schema.decodeUnknownOption(PtySessionResponse)
+
+export const CreatePtySession = Command.define('CreatePtySession', {
+  args: { projectId: Schema.UndefinedOr(Schema.String) },
+  messages: [Message.PtySessionCreated, Message.PtySessionFailed],
+  execute: ({ projectId }) =>
+    Effect.gen(function* () {
+      const response = yield* Effect.promise(() =>
+        fetch('/pty', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(projectId === undefined ? {} : { projectId }),
+        }),
+      ).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (response === undefined || !response.ok) {
+        return Message.PtySessionFailed({ reason: 'terminal unreachable' })
+      }
+      const body: unknown = yield* Effect.promise(() => response.json()).pipe(
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      const decoded = decodePtySessionResponse(body)
+      if (Option.isNone(decoded)) {
+        return Message.PtySessionFailed({ reason: 'terminal unreachable' })
+      }
+      return Message.PtySessionCreated({
+        sessionId: decoded.value.sessionId,
+        projectId: decoded.value.projectId,
+      })
+    }),
+})
+
+export const DeletePtySession = Command.define('DeletePtySession', {
+  args: { sessionId: Schema.String },
+  messages: [Message.PtySessionClosed],
+  execute: ({ sessionId }) =>
+    Effect.promise(() =>
+      fetch(`/pty/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => undefined),
+    ).pipe(Effect.as(Message.PtySessionClosed())),
+})
+
 interface CreateThreadConfig {
   harness?: string
   model?: string
@@ -695,6 +764,13 @@ export const init = (url: Url.Url) => {
       projects,
       composerUi: OutletEmpty.make({}),
       conversationUi: OutletEmpty.make({}),
+      panelTabs: [],
+      panelActive: undefined,
+      panelOutlets: {},
+      panelBundle: undefined,
+      panelCreating: false,
+      panelError: undefined,
+      panelCounter: 0,
       options: ComposerOptionsLoading.make({}),
       settings: General.init(),
       submit: Submit.make({ pending: false, error: undefined }),
@@ -1064,6 +1140,78 @@ const foldConversationUi = (
   return foldAreaOutMessage(advanced, result.outMessage)
 }
 
+/** The selected thread's project, so `+ Terminal` opens where the thread lives. */
+const selectedProjectIdOf = (model: Model): string | undefined => {
+  const selected = selectedThread(model)
+  if (Option.isNone(selected)) return undefined
+  return model.threadList.find((entry) => entry.thread === selected.value)?.project
+}
+
+const panelPropsOfTab = (model: Model, tab: Panel.PanelTab): PanelProps => ({
+  sessionId: tab.sessionId,
+  projectId: tab.projectId,
+  threadId: Option.getOrUndefined(selectedThread(model)),
+  title: tab.title,
+})
+
+/**
+ * Mount the panel bundle into every tab outlet missing one. Tabs created
+ * before the bundle arrived (or while the plugin reloaded) mount here;
+ * the view renders a placeholder until then. Idempotent per tab.
+ */
+const mountPanelBundle = (model: Model): Model => {
+  const bundle = model.panelBundle
+  if (bundle === undefined) return model
+  const def = getDef(bundle.plugin, bundle.defId, bundle.address)
+  if (def === undefined) return model
+  const outlets = model.panelOutlets
+  const added: Record<string, OutletState> = {}
+  for (const tab of model.panelTabs) {
+    if (outlets[tab.sessionId] !== undefined) continue
+    const init = def.init()
+    const childModel =
+      def.absorb === undefined ? init : def.absorb(init, panelPropsOfTab(model, tab))
+    Object.assign(added, {
+      [tab.sessionId]: OutletReady.make({
+        plugin: bundle.plugin,
+        defId: bundle.defId,
+        slot: 'panel',
+        address: bundle.address,
+        childModel,
+      }),
+    })
+  }
+  if (Object.keys(added).length === 0) return model
+  return evo(model, { panelOutlets: (current) => ({ ...current, ...added }) })
+}
+
+const foldPanelUi = (
+  model: Model,
+  sessionId: string,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: see foldComposerUi
+  childMessage: unknown,
+): UpdateReturn => {
+  const outlet = model.panelOutlets[sessionId]
+  if (outlet === undefined || !Predicate.isTagged(outlet, 'Ready')) return { model }
+  const def = getDef(outlet.plugin, outlet.defId, outlet.address)
+  if (def === undefined) return { model }
+  const result = def.update(outlet.childModel, childMessage)
+  return {
+    model: evo(model, {
+      panelOutlets: (outlets) => ({
+        ...outlets,
+        [sessionId]: OutletReady.make({
+          plugin: outlet.plugin,
+          defId: outlet.defId,
+          slot: outlet.slot,
+          address: outlet.address,
+          childModel: result.model,
+        }),
+      }),
+    }),
+  }
+}
+
 type UiSlot = 'composer' | 'conversation'
 
 interface UiAssignmentLike {
@@ -1145,6 +1293,56 @@ const reconcileSlot = (
         plugin: assignment.plugin,
         defId: assignment.defId,
         slot,
+        jsUrl: bundle.jsUrl,
+        address: bundle.address,
+        sdkMajor: bundle.sdkMajor,
+      }),
+    ],
+  }
+}
+
+/**
+ * Reconcile the shared `panel` bundle against the snapshot. Unlike
+ * exclusive slots there is one bundle for N tab instances: tabs keep
+ * their sessions across bundle generations, and outlets mount when the
+ * def for the recorded generation registers. Idempotent per generation.
+ */
+const reconcilePanel = (
+  model: Model,
+  assignment: UiAssignmentLike | undefined,
+  bundle: UiBundleLike | undefined,
+): ReconciledSlot => {
+  if (assignment === undefined || bundle === undefined) {
+    if (model.panelBundle === undefined) return { model, commands: [] }
+    return { model: evo(model, { panelBundle: () => undefined }), commands: [] }
+  }
+  const current = model.panelBundle
+  if (
+    current !== undefined &&
+    current.plugin === assignment.plugin &&
+    current.defId === assignment.defId &&
+    current.address === bundle.address
+  ) {
+    return { model, commands: [] }
+  }
+  const next = Panel.PanelBundle.make({
+    plugin: assignment.plugin,
+    defId: assignment.defId,
+    address: bundle.address,
+    jsUrl: bundle.jsUrl,
+    sdkMajor: bundle.sdkMajor,
+  })
+  const withBundle = evo(model, { panelBundle: () => next })
+  if (getDef(assignment.plugin, assignment.defId, bundle.address) !== undefined) {
+    return { model: mountPanelBundle(withBundle), commands: [] }
+  }
+  return {
+    model: withBundle,
+    commands: [
+      LoadBundle({
+        plugin: assignment.plugin,
+        defId: assignment.defId,
+        slot: 'panel',
         jsUrl: bundle.jsUrl,
         address: bundle.address,
         sdkMajor: bundle.sdkMajor,
@@ -1293,13 +1491,34 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               (entry) => entry.plugin === conversation.plugin && entry.defId === conversation.defId,
             )
       const second = reconcileSlot(first.model, 'conversation', conversation, conversationBundle)
+      const panel = snapshot.assignments.find((entry) => entry.slot === 'panel')
+      const panelBundle =
+        panel === undefined
+          ? undefined
+          : snapshot.bundles.find(
+              (entry) => entry.plugin === panel.plugin && entry.defId === panel.defId,
+            )
+      const third = reconcilePanel(second.model, panel, panelBundle)
       const commands: Update.Commands<Message, ProjectClient | ThreadClient> = [
         ...first.commands,
         ...second.commands,
+        ...third.commands,
       ]
-      return commands.length === 0 ? { model: second.model } : { model: second.model, commands }
+      return commands.length === 0 ? { model: third.model } : { model: third.model, commands }
     },
     BundleReady: ({ plugin, defId, slot, address }) => {
+      if (slot === 'panel') {
+        const bundle = model.panelBundle
+        if (
+          bundle === undefined ||
+          bundle.plugin !== plugin ||
+          bundle.defId !== defId ||
+          bundle.address !== address
+        ) {
+          return { model }
+        }
+        return { model: mountPanelBundle(model) }
+      }
       if (slot !== 'composer' && slot !== 'conversation') return { model }
       const outlet = slot === 'composer' ? model.composerUi : model.conversationUi
       if (
@@ -1320,6 +1539,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return { model: slot === 'composer' ? syncComposer(mounted) : mounted }
     },
     BundleFailed: ({ plugin, defId, slot, reason }) => {
+      if (slot === 'panel') {
+        const bundle = model.panelBundle
+        if (bundle === undefined || bundle.plugin !== plugin || bundle.defId !== defId) {
+          return { model }
+        }
+        return { model: evo(model, { panelError: () => `terminal failed: ${reason}` }) }
+      }
       if (slot !== 'composer' && slot !== 'conversation') return { model }
       const outlet = slot === 'composer' ? model.composerUi : model.conversationUi
       if (
@@ -1350,6 +1576,64 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     DismissedSubmitError: () => ({
       model: evo(model, { submit: () => ({ pending: model.submit.pending, error: undefined }) }),
     }),
+    ClickedNewTerminal: () => {
+      if (model.panelCreating) return { model }
+      return {
+        model: evo(model, { panelCreating: () => true, panelError: () => undefined }),
+        commands: [CreatePtySession({ projectId: selectedProjectIdOf(model) })],
+      }
+    },
+    PtySessionCreated: ({ sessionId, projectId }) => {
+      if (model.panelTabs.some((tab) => tab.sessionId === sessionId)) {
+        return {
+          model: evo(model, { panelCreating: () => false, panelActive: () => sessionId }),
+        }
+      }
+      const counter = model.panelCounter + 1
+      const tab = Panel.PanelTab.make({
+        sessionId,
+        projectId,
+        title: `Terminal ${counter}`,
+      })
+      const withTab = evo(model, {
+        panelCreating: () => false,
+        panelCounter: () => counter,
+        panelTabs: (tabs) => [...tabs, tab],
+        panelActive: () => sessionId,
+        panelError: () => undefined,
+      })
+      return { model: mountPanelBundle(withTab) }
+    },
+    PtySessionFailed: ({ reason }) => ({
+      model: evo(model, { panelCreating: () => false, panelError: () => reason }),
+    }),
+    PtySessionClosed: () => ({ model }),
+    ClickedPanelTab: ({ sessionId }) => {
+      if (!model.panelTabs.some((tab) => tab.sessionId === sessionId)) return { model }
+      return { model: evo(model, { panelActive: () => sessionId }) }
+    },
+    ClickedClosePanelTab: ({ sessionId }) => {
+      if (!model.panelTabs.some((tab) => tab.sessionId === sessionId)) return { model }
+      const tabs = model.panelTabs.filter((tab) => tab.sessionId !== sessionId)
+      const { [sessionId]: _removed, ...outlets } = model.panelOutlets
+      void _removed
+      const active =
+        model.panelActive === sessionId
+          ? tabs.length === 0
+            ? undefined
+            : tabs[tabs.length - 1]?.sessionId
+          : model.panelActive
+      return {
+        model: evo(model, {
+          panelTabs: () => tabs,
+          panelActive: () => active,
+          panelOutlets: () => outlets,
+        }),
+        commands: [DeletePtySession({ sessionId })],
+      }
+    },
+    GotPanelUi: ({ sessionId, message: childMessage }) =>
+      foldPanelUi(model, sessionId, childMessage),
   })
 
 const shellSubs = Subscription.lift(Shell.subscriptions)({
@@ -1532,8 +1816,39 @@ const leftPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
     toParentMessage: (childMessage) => Message.GotThreads({ message: childMessage }),
   })
 
-const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html =>
-  RightPanel.view(selectedThread(model), { sections: sectionsOf(model) }, h)
+/**
+ * The right panel: terminal tabs while the `panel` slot is claimed (or
+ * tabs are open), the old thread details while the plugin is off. The
+ * fallback keeps the panel useful with no terminal plugin installed.
+ */
+const rightPanel = (model: Model, h: HtmlBuilder<Message>): Html => {
+  if (model.panelBundle === undefined && model.panelTabs.length === 0) {
+    return RightPanel.view(selectedThread(model), { sections: sectionsOf(model) }, h)
+  }
+  const selected = selectedThread(model)
+  return Panel.view(
+    {
+      tabs: [...model.panelTabs],
+      activeId: model.panelActive,
+      outlets: { ...model.panelOutlets },
+      bundle:
+        model.panelBundle === undefined
+          ? undefined
+          : Panel.PanelBundle.make({ ...model.panelBundle }),
+      creating: model.panelCreating,
+      error: model.panelError,
+      threadId: Option.getOrUndefined(selected),
+      messages: {
+        newTerminal: Message.ClickedNewTerminal(),
+        selectTab: (sessionId: string) => Message.ClickedPanelTab({ sessionId }),
+        closeTab: (sessionId: string) => Message.ClickedClosePanelTab({ sessionId }),
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- SAFETY: child messages are the def's own dispatches, forwarded into its update untouched (same rule as foldComposerUi).
+        child: (sessionId: string, message: unknown) => Message.GotPanelUi({ sessionId, message }),
+      },
+    },
+    h,
+  )
+}
 
 const shellView = (model: Model, main: Html, h: HtmlBuilder<Message>): Html =>
   h.submodel({

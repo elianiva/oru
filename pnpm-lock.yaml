@@ -164,12 +164,18 @@ importers:
       '@oru/plugin-build':
         specifier: workspace:*
         version: link:../../packages/plugin-build
+      '@oru/pty':
+        specifier: workspace:*
+        version: link:../../packages/pty
       '@oru/reload-fixture':
         specifier: workspace:*
         version: link:../../plugins/reload-fixture
       '@oru/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
+      '@oru/terminal-ghostty':
+        specifier: workspace:*
+        version: link:../../plugins/terminal-ghostty
       '@oru/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -182,9 +188,15 @@ importers:
       '@oru/workspace-registry':
         specifier: workspace:*
         version: link:../../plugins/workspace-registry
+      crossws:
+        specifier: 0.4.12
+        version: 0.4.12
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
+      zigpty:
+        specifier: 0.2.1
+        version: 0.2.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.1
@@ -299,6 +311,28 @@ importers:
       tsdown:
         specifier: ^0.23.0
         version: 0.23.0(typescript@7.0.2)
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+
+  packages/pty:
+    dependencies:
+      crossws:
+        specifier: '*'
+        version: 0.4.12
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+      zigpty:
+        specifier: '*'
+        version: 0.2.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.1
@@ -515,6 +549,40 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  plugins/terminal-ghostty:
+    dependencies:
+      '@oru/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@oru/pty':
+        specifier: workspace:*
+        version: link:../../packages/pty
+      '@oru/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+      foldkit:
+        specifier: 0.161.0
+        version: 0.161.0(@effect/platform-browser@4.0.0-rc.115(effect@4.0.0-rc.115))(effect@4.0.0-rc.115)
+      restty:
+        specifier: 0.3.0
+        version: 0.3.0
+    devDependencies:
+      '@oru/plugin-build':
+        specifier: workspace:*
+        version: link:../../packages/plugin-build
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
   plugins/workspace-git:
     dependencies:
@@ -2124,6 +2192,14 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
+  crossws@0.4.12:
+    resolution: {integrity: sha512-aypfsr6t0uNvkqaZc6zvBfXzC6pLI0/sIulpkV6RwCVtZqG5ebBzv4weImKK0VNCj91Wl9F5j7p5WU4MNrybng==}
+    peerDependencies:
+      srvx: '>=0.11.5'
+    peerDependenciesMeta:
+      srvx:
+        optional: true
+
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
     engines: {node: '>= 12'}
@@ -2648,6 +2724,10 @@ packages:
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
+  restty@0.3.0:
+    resolution: {integrity: sha512-ppNLeZRnJHmGMCJKHYkYzphi1DUSLWqiZbPHOOv0KT1j5wp2yfLDMXjQQmNgqb4evYhItab0D72HpYhdbNY6Fw==}
+    engines: {bun: '>=1.2.0'}
+
   retry@0.12.0:
     resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
     engines: {node: '>= 4'}
@@ -2721,6 +2801,9 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
+
+  text-shaper@0.1.28:
+    resolution: {integrity: sha512-uwm6+tkgYJ4hsTV0wZVHkZeoXR1/mthLxDiJvfU9o/FiibNinpFRC8PAMTNx8SaOjaK/5ZjDG1XAkPbKlIe2Jg==}
 
   tinybench@6.1.4:
     resolution: {integrity: sha512-9APumHG7r4yOk4X4WlkmE71aZcv1gvin1czO3OQ1U9iJcFA5Ja/ygyb0vPOVHTthFozUYs8CLoLUlM8grb2lTQ==}
@@ -2948,6 +3031,9 @@ packages:
 
   yuku-parser@0.9.5:
     resolution: {integrity: sha512-IBnAdNVMswWbJcM7woPluOudectJzFjJ1N8jVRxP9Uq4CIv5hZdBIcdmtRbFDYF/Ph2j2gVup4YJ4N9mh0jYFA==}
+
+  zigpty@0.2.1:
+    resolution: {integrity: sha512-MR9JqJx2wf5f4wz8zpx050AlqrmWeIW+1h0SO5iEyhG3HFRjY5luC3szS2ux2EGuPjE5OU9ZAuiCBeMWBTrqZw==}
 
 snapshots:
 
@@ -4131,6 +4217,8 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
+  crossws@0.4.12: {}
+
   data-uri-to-buffer@4.0.1: {}
 
   debug@4.4.3:
@@ -4641,6 +4729,10 @@ snapshots:
 
   resolve-pkg-maps@1.0.0: {}
 
+  restty@0.3.0:
+    dependencies:
+      text-shaper: 0.1.28
+
   retry@0.12.0: {}
 
   retry@0.13.1: {}
@@ -4708,6 +4800,8 @@ snapshots:
   tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
+
+  text-shaper@0.1.28: {}
 
   tinybench@6.1.4: {}
 
@@ -4928,3 +5022,5 @@ snapshots:
       '@yuku-parser/binding-linux-x64-musl': 0.9.5
       '@yuku-parser/binding-win32-arm64': 0.9.5
       '@yuku-parser/binding-win32-x64': 0.9.5
+
+  zigpty@0.2.1: {}

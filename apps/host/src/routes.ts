@@ -1,4 +1,4 @@
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Option, Schema } from 'effect'
 import { HttpRouter, HttpServerResponse } from 'effect/unstable/http'
 import { RpcServer } from 'effect/unstable/rpc'
 import type { Host } from '@oru/kernel'
@@ -18,11 +18,12 @@ import { projectRpcHandlers } from './handlers/project.ts'
 import { threadRpcHandlers } from './handlers/thread.ts'
 import { uiRpcHandlers } from './handlers/ui.ts'
 import type { PluginStore } from './plugin-store.ts'
+import type { PtyStore } from './pty.ts'
 
 export const rpcRoutes = (
   host: Host,
   store: PluginStore,
-  options?: { readonly personalCwd?: string | undefined },
+  options?: { readonly personalCwd?: string | undefined; readonly pty?: PtyStore | undefined },
 ) =>
   Layer.mergeAll(
     RpcServer.layerHttp({ group: HostRpc, path: hostRpcPath, protocol: 'http' }).pipe(
@@ -38,7 +39,71 @@ export const rpcRoutes = (
       Layer.provide(UiRpc.toLayer(uiRpcHandlers(host, store))),
     ),
     uiBundleRoutes(store),
+    ptyRoutes(options?.pty),
   ).pipe(Layer.provide(rpcSerializationLayer))
+
+/**
+ * Reusable PTY sessions (`POST /pty`, `GET /pty`, `DELETE /pty/:id`).
+ * `POST` resolves the cwd from `projectId` via the session log and
+ * rejects unknown projects; the client never supplies `cwd`. WS lives on
+ * the same origin at `/pty/:sessionId` (upgrade, attached in `server.ts`).
+ */
+const PtyCreateInput = Schema.Struct({
+  projectId: Schema.optional(Schema.String),
+  cols: Schema.optional(Schema.Number),
+  rows: Schema.optional(Schema.Number),
+  shell: Schema.optional(Schema.String),
+})
+const decodePtyCreateInput = Schema.decodeUnknownOption(PtyCreateInput)
+export const ptyRoutes = (pty: PtyStore | undefined) =>
+  pty === undefined
+    ? HttpRouter.addAll([])
+    : HttpRouter.addAll([
+        HttpRouter.route(
+          'GET',
+          '/pty',
+          Effect.gen(function* () {
+            return yield* HttpServerResponse.json({ sessions: pty.list() })
+          }),
+        ),
+        HttpRouter.route('POST', '/pty', (req) =>
+          Effect.gen(function* () {
+            const body = yield* Effect.orElseSucceed(req.json, () => ({}))
+            const fields = Option.getOrElse(decodePtyCreateInput(body), () => ({
+              projectId: undefined,
+              cols: undefined,
+              rows: undefined,
+              shell: undefined,
+            }))
+            const session = yield* pty.create({
+              projectId: fields.projectId,
+              cols: fields.cols,
+              rows: fields.rows,
+              shell: fields.shell,
+            })
+            if (session === undefined) {
+              return HttpServerResponse.text('unknown project', { status: 404 })
+            }
+            return yield* HttpServerResponse.json({
+              sessionId: session.id,
+              wsUrl: `/pty/${session.id}`,
+              projectId: session.projectId ?? null,
+            })
+          }),
+        ),
+        HttpRouter.route(
+          'DELETE',
+          '/pty/:id',
+          Effect.gen(function* () {
+            const params = yield* HttpRouter.params
+            const killed = pty.kill(params['id'] ?? '')
+            if (!killed) {
+              return HttpServerResponse.text('unknown pty session', { status: 404 })
+            }
+            return yield* HttpServerResponse.json({ killed: true })
+          }),
+        ),
+      ])
 
 /**
  * One parameterized route over the store's address index: the lookup key

@@ -28,13 +28,17 @@
     "@oru/harness-registry": "workspace:*",
     "@oru/kernel": "workspace:*",
     "@oru/plugin-build": "workspace:*",
+    "@oru/pty": "workspace:*",
     "@oru/reload-fixture": "workspace:*",
     "@oru/rpc": "workspace:*",
+    "@oru/terminal-ghostty": "workspace:*",
     "@oru/ui": "workspace:*",
     "@oru/workspace": "workspace:*",
     "@oru/workspace-git": "workspace:*",
     "@oru/workspace-registry": "workspace:*",
-    "effect": "4.0.0-rc.115"
+    "crossws": "0.4.12",
+    "effect": "4.0.0-rc.115",
+    "zigpty": "0.2.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

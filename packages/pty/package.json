@@ -1,0 +1,33 @@
+{
+  "name": "@oru/pty",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.115"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "peerDependencies": {
+    "crossws": "*",
+    "zigpty": "*"
+  },
+  "peerDependenciesMeta": {
+    "crossws": {
+      "optional": true
+    },
+    "zigpty": {
+      "optional": true
+    }
+  }
+}
