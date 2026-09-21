@@ -73,14 +73,21 @@ export const runTool = (
   return tool.runJson(pending.arguments)
 }
 
+export const runToolByNameEffect = (
+  tools: readonly ToolContribution[],
+  name: string,
+  argumentsJson: string,
+): Effect.Effect<ToolOutcome> => {
+  const tool = tools.find((candidate) => candidate.name === name)
+  if (tool === undefined) {
+    return Effect.succeed({ ok: false, result: `unknown tool ${name}` })
+  }
+  return tool.runJson(argumentsJson)
+}
+
 export const runToolByName = (
   tools: readonly ToolContribution[],
   name: string,
   argumentsJson: string,
-): Promise<{ readonly ok: boolean; readonly result: string }> => {
-  const tool = tools.find((candidate) => candidate.name === name)
-  if (tool === undefined) {
-    return Promise.resolve({ ok: false, result: `unknown tool ${name}` })
-  }
-  return Effect.runPromise(tool.runJson(argumentsJson))
-}
+): Promise<{ readonly ok: boolean; readonly result: string }> =>
+  Effect.runPromise(runToolByNameEffect(tools, name, argumentsJson))
