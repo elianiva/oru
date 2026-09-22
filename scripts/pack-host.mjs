@@ -17,6 +17,12 @@ export const publishManifest = (hostPkg) => ({
   exports: {
     '.': './dist/index.js',
   },
+  // tsdown stays external to the bundle and installs from here: bundling
+  // it would drag rolldown's native binding behind a dynamic require no
+  // bundler can see, so npm resolves the platform binding instead.
+  dependencies: {
+    tsdown: hostPkg.dependencies.tsdown,
+  },
   files: ['dist', 'oru.plugins.json', 'LICENSE'],
   publishConfig: { access: 'public' },
   engines: { node: '>=26' },

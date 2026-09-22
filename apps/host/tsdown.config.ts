@@ -11,7 +11,11 @@ const shared = {
   fixedExtension: false,
   hash: false,
   deps: {
-    alwaysBundle: () => true,
+    // Everything bundles in except tsdown itself: it builds plugin facets
+    // at runtime, and bundling it drags rolldown's native binding behind a
+    // dynamic require no bundler can see. The packed host installs tsdown
+    // from its manifest instead, so npm resolves the platform binding.
+    alwaysBundle: (id) => id !== 'tsdown',
     onlyBundle: false,
   },
   outExtensions: () => ({ js: '.js' }),

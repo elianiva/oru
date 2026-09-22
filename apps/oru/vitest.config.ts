@@ -12,5 +12,10 @@ export default defineConfig({
   },
   test: {
     include: ['test/**/*.test.ts'],
+    // The seam suite spawns a real host process per case, the way the
+    // browser suite starts it. Host startup under a loaded runner exceeds
+    // the 5s default, so this matches the host package timeouts.
+    testTimeout: 120_000,
+    hookTimeout: 30_000,
   },
 })

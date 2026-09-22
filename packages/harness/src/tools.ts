@@ -1,5 +1,5 @@
 import { Effect, Schema, SchemaTransformation } from 'effect'
-import type { Document, JsonSchema } from 'effect/JSONSchema'
+import type { Document, JsonSchema } from 'effect/JsonSchema'
 import { defineContributionKind } from '@oru/kernel'
 
 export interface ToolOutcome {
