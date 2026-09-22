@@ -4,13 +4,19 @@ packages:
   - 'apps/*'
 allowBuilds:
   '@google/genai': false
+  '@parcel/watcher': true
   esbuild: true
   lefthook: true
   msgpackr-extract: false
   protobufjs: false
+  tree-sitter-bash: true
+  tree-sitter-powershell: true
 overrides:
   # The platform packages track effect's own version. `platform-node` accepts
   # any 4.0.0-rc of its shared half, and the newer ones import modules this
   # pinned effect does not ship.
   '@effect/platform-node-shared': 4.0.0-rc.115
+  # The OpenCode SDKs declare rc.112 as their peer. One effect per workspace, or
+  # the embedded host and oru disagree on Context and Fiber types at the seam.
+  effect: 4.0.0-rc.115
   vite: 8.3.0

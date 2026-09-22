@@ -10,6 +10,7 @@
         "^build",
         "@oru/chat-ui#build",
         "@oru/harness-claude-code#build",
+        "@oru/harness-opencode#build",
         "@oru/harness-pi#build"
       ],
       "outputs": ["dist/**"]

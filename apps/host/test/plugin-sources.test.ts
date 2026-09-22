@@ -18,6 +18,11 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-claude-code'])
   })
 
+  it('loads the OpenCode bridge through the generic loader, not a static import', async () => {
+    const plugins = await run(loadPluginSource({ specifier: '@oru/harness-opencode' }))
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/harness-opencode'])
+  })
+
   it('loads chat-ui through the generic loader, not a static import', async () => {
     const plugins = await run(loadPluginSource({ specifier: '@oru/chat-ui' }))
     expect(plugins.map((plugin) => plugin.id)).toEqual(['oru/chat-ui'])
@@ -46,6 +51,7 @@ describe('an external plugin source', () => {
     expect(plugins.map((plugin) => plugin.id)).toEqual([
       'oru/harness-pi',
       'oru/harness-claude-code',
+      'oru/harness-opencode',
       'oru/chat-ui',
       'oru/terminal-ghostty',
     ])
@@ -67,5 +73,6 @@ describe('the host plugin set', () => {
     const withBridges = await run(loadExternalPlugins(stockSources, () => undefined))
     expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-pi')
     expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-claude-code')
+    expect(withBridges.map((plugin) => plugin.id)).toContain('oru/harness-opencode')
   })
 })

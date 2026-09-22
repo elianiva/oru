@@ -24,6 +24,7 @@
     "@oru/chat-ui": "workspace:*",
     "@oru/harness": "workspace:*",
     "@oru/harness-claude-code": "workspace:*",
+    "@oru/harness-opencode": "workspace:*",
     "@oru/harness-pi": "workspace:*",
     "@oru/harness-registry": "workspace:*",
     "@oru/kernel": "workspace:*",

@@ -75,7 +75,12 @@ if (!entries.some((entry) => entry.endsWith('/dist/oru-pi-extension.mjs')))
 // carry each facet manifest plus every artifact the manifest names. A
 // manifest without its bytes is the stale-dist failure this graph exists
 // to prevent.
-for (const id of ['oru/chat-ui', 'oru/harness-pi', 'oru/harness-claude-code']) {
+for (const id of [
+  'oru/chat-ui',
+  'oru/harness-pi',
+  'oru/harness-claude-code',
+  'oru/harness-opencode',
+]) {
   const facetManifestEntry = entries.find((entry) =>
     entry.endsWith(`/dist/facets/${id}/facets.json`),
   )

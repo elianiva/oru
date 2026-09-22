@@ -235,6 +235,7 @@ const run = (argv: readonly string[]): Effect.Effect<number, never, Scope.Scope>
             ['oru/workspace-registry', workspaceDefaultsOf(settings)],
             ['oru/harness-pi', { env: stringEnvOf(piEnvOf(process.env, settings)) }],
             ['oru/harness-claude-code', { env: stringEnvOf(process.env) }],
+            ['oru/harness-opencode', { env: stringEnvOf(process.env) }],
           ])
           const running = yield* serveHost({
             plugins: [...corePlugins, ...external],
