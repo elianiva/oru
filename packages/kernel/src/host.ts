@@ -20,6 +20,7 @@ import { BootKind } from './boot.ts'
 import {
   CoeffectsUnmet,
   DuplicateProvider,
+  ProviderUnavailable,
   SetupFailed,
   type ActivationError,
   type BootError,
@@ -67,7 +68,10 @@ export interface Host {
     kind: ContributionKind<C>,
     thread?: ThreadId,
   ) => Effect.Effect<readonly ContributionEntry<C>[]>
-  readonly service: <S>(token: ServiceToken<S>, thread?: ThreadId) => Effect.Effect<S>
+  readonly service: <S>(
+    token: ServiceToken<S>,
+    thread?: ThreadId,
+  ) => Effect.Effect<S, ProviderUnavailable>
   readonly facade: <S>(token: ServiceToken<S>, thread?: ThreadId) => S
 }
 

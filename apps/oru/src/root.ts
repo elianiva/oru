@@ -29,7 +29,7 @@ import {
   type PanelProps,
   type UiSignal,
 } from '@oru/ui'
-import { PluginId, SessionEvent, isPersonalProjectId } from '@oru/kernel'
+import { PluginId, SessionEvent, isPersonalProjectId, type ProviderUnavailable } from '@oru/kernel'
 import * as LeftPanel from './left-panel.ts'
 import * as Panel from './panel.ts'
 import * as Projects from './projects.ts'
@@ -185,6 +185,15 @@ const didNotAnswer = (error: HostUnreachable) =>
       reason: `${error.operation}: ${error.reason}`,
     }),
   })
+
+/**
+ * The host's own words for a failed call: it did not answer (naming the call
+ * it dropped), or it answered with no provider behind that call.
+ */
+const failedReason = (error: HostUnreachable | ProviderUnavailable): string =>
+  Predicate.isTagged(error, 'HostUnreachable')
+    ? `${error.operation}: ${error.reason}`
+    : `no provider: ${error.token}`
 
 /**
  * The app's first call, and the one the host-unreachable state answers to. A
@@ -406,7 +415,7 @@ export const LoadThreadOptions = Command.define('LoadThreadOptions', {
       Effect.catch((error) =>
         Effect.succeed(
           Message.HostOptionsFailed({
-            reason: `${error.operation}: ${error.reason}`,
+            reason: failedReason(error),
           }),
         ),
       ),
@@ -428,7 +437,7 @@ export const ConfigureThread = Command.define('ConfigureThread', {
       Effect.catch((error) =>
         Effect.succeed(
           Message.HostOptionsFailed({
-            reason: `${error.operation}: ${error.reason}`,
+            reason: failedReason(error),
           }),
         ),
       ),
@@ -574,7 +583,7 @@ export const DecideApproval = Command.define('DecideApproval', {
       Effect.flatMap((client) => client.decide(threadId, request, decision)),
       Effect.map(() => Message.ApprovalSent()),
       Effect.catch((error) =>
-        Effect.succeed(Message.ApprovalFailed({ reason: `${error.operation}: ${error.reason}` })),
+        Effect.succeed(Message.ApprovalFailed({ reason: failedReason(error) })),
       ),
     ),
 })
@@ -684,6 +693,8 @@ export const CreateThreadAndSend = Command.define('CreateThreadAndSend', {
               text,
             }),
           ),
+        ProviderUnavailable: (error) =>
+          Effect.succeed(Message.ThreadCreateFailed({ reason: failedReason(error), text })),
       }),
     ),
 })
@@ -698,7 +709,7 @@ export const SendThreadMessage = Command.define('SendThreadMessage', {
       Effect.catch((error) =>
         Effect.succeed(
           Message.ThreadMessageFailed({
-            reason: `${error.operation}: ${error.reason}`,
+            reason: failedReason(error),
             text,
           }),
         ),

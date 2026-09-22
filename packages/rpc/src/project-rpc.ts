@@ -5,6 +5,7 @@ import {
   NotDirectory,
   PersonalProjectLocked,
   ProjectId,
+  ProviderUnavailable,
   RelativeCwd,
   UnknownProject,
 } from '@oru/kernel'
@@ -96,7 +97,7 @@ export const ProjectRpc = RpcGroup.make(
   Rpc.make('ListWorkspaces', {
     payload: { project: ProjectId },
     success: Schema.Array(WorkspaceInfo),
-    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed]),
+    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed, ProviderUnavailable]),
   }),
   Rpc.make('CreateWorkspace', {
     payload: {
@@ -106,7 +107,13 @@ export const ProjectRpc = RpcGroup.make(
       provider: Schema.optional(Schema.String),
     },
     success: WorkspaceInfo,
-    error: Schema.Union([UnknownProject, RelativeCwd, UnknownProvider, WorkspaceFailed]),
+    error: Schema.Union([
+      UnknownProject,
+      RelativeCwd,
+      UnknownProvider,
+      WorkspaceFailed,
+      ProviderUnavailable,
+    ]),
   }),
   Rpc.make('RemoveWorkspace', {
     payload: {
@@ -115,6 +122,6 @@ export const ProjectRpc = RpcGroup.make(
       provider: Schema.optional(Schema.String),
     },
     success: Schema.Struct({ path: Schema.String }),
-    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed]),
+    error: Schema.Union([UnknownProject, UnknownProvider, WorkspaceFailed, ProviderUnavailable]),
   }),
 )

@@ -58,7 +58,8 @@ const keepProjectError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Predicate.isTagged(error, 'DirectoryMissing') ||
       Predicate.isTagged(error, 'NotDirectory') ||
       Predicate.isTagged(error, 'UnknownProvider') ||
-      Predicate.isTagged(error, 'WorkspaceFailed')
+      Predicate.isTagged(error, 'WorkspaceFailed') ||
+      Predicate.isTagged(error, 'ProviderUnavailable')
         ? Effect.fail(error)
         : Effect.die(error),
     ),

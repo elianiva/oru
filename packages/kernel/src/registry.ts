@@ -22,7 +22,12 @@ type ServiceMethod = (...args: ReadonlyArray<unknown>) => ServiceAnswer
 
 export interface Registry {
   readonly events: Stream.Stream<HostEvent>
-  readonly get: <S>(token: ServiceToken<S>) => Effect.Effect<S>
+  /**
+   * No provider is a state of the host, not a broken invariant: activation is
+   * replayed from the journal, a provider can be toggled offline, and a blocked
+   * plugin never registers. It fails typed so the boundary above can render it.
+   */
+  readonly get: <S>(token: ServiceToken<S>) => Effect.Effect<S, ProviderUnavailable>
   /**
    * The provider in the cell right now, for callers that cannot wait for an
    * `Effect`: a facade has to hand back the kind of value the contract promises.
@@ -46,6 +51,13 @@ export interface Registry {
  * The kind is preserved because `Effect.flatMap` would otherwise swallow a
  * `Stream` (and a harness that streams through a facade is
  * the normal case, not an exotic one).
+ *
+ * A miss here still dies rather than failing typed: the facade is handed to a
+ * consumer whose `inject` the kernel satisfied before `apply` ran, and it is
+ * cast to `S`, whose method signatures cannot carry a registry failure. A live
+ * consumer finding no provider is that invariant breaking, and a plugin call
+ * has no client to render a state to. The typed path is `Registry.get`, which
+ * handlers reach through `host.service`.
  */
 export const serviceFacade = <S>(peek: () => S | undefined, token: TokenId): S => {
   const live = (): Effect.Effect<S> =>
@@ -95,7 +107,7 @@ export const openRegistry = Effect.fnUntraced(function* (events: PubSub.PubSub<H
     const map = yield* Ref.get(cells)
     const cell = Option.fromNullishOr(map.get(serviceId(token)))
     if (Option.isNone(cell))
-      return yield* Effect.die(new ProviderUnavailable({ token: serviceId(token) }))
+      return yield* Effect.fail(new ProviderUnavailable({ token: serviceId(token) }))
     const value = yield* Ref.get(cell.value.impl)
     // SAFETY: provide stores the value under the same token key get reads
     return value as ServiceOf<typeof token>

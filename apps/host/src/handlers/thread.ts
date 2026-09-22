@@ -24,6 +24,7 @@ import {
   type Host,
   type NamedProject,
   type ProjectId,
+  type ProviderUnavailable,
   type SessionLogError,
   type ThreadId,
 } from '@oru/kernel'
@@ -37,12 +38,31 @@ import {
   type ThreadSignal,
 } from '@oru/rpc'
 
+/**
+ * What a thread call keeps on its failure channel: the refusals the pane
+ * renders, and a host that is not providing the service the call needs.
+ * Everything else stays a defect (ADR-0013).
+ */
 const keepThreadError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.catch((error) =>
-      Predicate.isTagged(error, 'UnknownProject') || Predicate.isTagged(error, 'UnknownThread')
+      Predicate.isTagged(error, 'UnknownProject') ||
+      Predicate.isTagged(error, 'UnknownThread') ||
+      Predicate.isTagged(error, 'ProviderUnavailable')
         ? Effect.fail(error)
         : Effect.die(error),
+    ),
+  )
+
+/**
+ * The same rule for a call whose contract declares only the missing-provider
+ * state: `host.service` fails typed, and `orDie` here would put the defect
+ * back on the wire where the client renders a crash instead of a state.
+ */
+const keepUnavailable = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.catch((error) =>
+      Predicate.isTagged(error, 'ProviderUnavailable') ? Effect.fail(error) : Effect.die(error),
     ),
   )
 
@@ -57,7 +77,7 @@ const healthOf = (harness: HarnessService): Effect.Effect<HarnessChoice['health'
           ),
         )
 
-const invalidateHealthOf = (host: Host): Effect.Effect<void> =>
+const invalidateHealthOf = (host: Host): Effect.Effect<void, ProviderUnavailable> =>
   Effect.gen(function* () {
     const registry = yield* host.service(Harnesses)
     for (const entry of yield* registry.list()) {
@@ -67,7 +87,9 @@ const invalidateHealthOf = (host: Host): Effect.Effect<void> =>
     }
   })
 
-const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =>
+const harnessChoicesOf = (
+  host: Host,
+): Effect.Effect<readonly HarnessChoice[], ProviderUnavailable> =>
   Effect.gen(function* () {
     const registry = yield* host.service(Harnesses)
     const entries = yield* registry.list()
@@ -90,7 +112,7 @@ const harnessChoicesOf = (host: Host): Effect.Effect<readonly HarnessChoice[]> =
 const optionsOf = (
   host: Host,
   threadId: ThreadId | undefined,
-): Effect.Effect<ThreadOptions, SessionLogError, SessionLog> =>
+): Effect.Effect<ThreadOptions, ProviderUnavailable | SessionLogError, SessionLog> =>
   Effect.gen(function* () {
     const log = yield* SessionLog
     const registry = yield* host.service(Harnesses)
@@ -139,7 +161,7 @@ const createThread = (
   cwd?: string,
 ): Effect.Effect<
   { readonly threadId: ThreadId; readonly project: NamedProject },
-  SessionLogError | UnknownProject,
+  ProviderUnavailable | SessionLogError | UnknownProject,
   SessionLog
 > =>
   Effect.gen(function* () {
@@ -233,12 +255,12 @@ export const threadRpcHandlers = (host: Host) => ({
   WaitThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.whenIdle(payload.threadId)),
-      Effect.orDie,
+      keepUnavailable,
     ),
   SendMessage: (payload: { readonly threadId: ThreadId; readonly text: string }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.send(payload.threadId, payload.text)),
-      Effect.orDie,
+      keepUnavailable,
     ),
   WatchThread: (payload: { readonly threadId: ThreadId }) =>
     Stream.unwrap(
@@ -264,7 +286,7 @@ export const threadRpcHandlers = (host: Host) => ({
     Effect.gen(function* () {
       if (payload.refresh === true) yield* invalidateHealthOf(host)
       return yield* optionsOf(host, payload.threadId)
-    }).pipe(Effect.orDie),
+    }).pipe(keepUnavailable),
   ConfigureThread: (payload: {
     readonly threadId: ThreadId
     readonly harness: string | undefined
@@ -279,7 +301,7 @@ export const threadRpcHandlers = (host: Host) => ({
         reasoning: payload.reasoning,
       })
       return yield* optionsOf(host, payload.threadId)
-    }).pipe(Effect.orDie),
+    }).pipe(keepUnavailable),
   WatchSignals: (payload: { readonly threadId: ThreadId }) =>
     Stream.unwrap(
       Effect.gen(function* () {
@@ -293,18 +315,18 @@ export const threadRpcHandlers = (host: Host) => ({
           }),
         )
         return signals
-      }).pipe(Effect.orDie),
+      }).pipe(keepUnavailable),
     ),
   StopThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.stop(payload.threadId)),
-      Effect.orDie,
+      keepUnavailable,
     ),
   DiscardThread: (payload: { readonly threadId: ThreadId }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.discard(payload.threadId)),
       Effect.andThen(host.closeThread(payload.threadId)),
-      Effect.orDie,
+      keepUnavailable,
     ),
   CompactThread: (payload: {
     readonly threadId: ThreadId
@@ -312,10 +334,13 @@ export const threadRpcHandlers = (host: Host) => ({
   }) =>
     host.service(Runtime).pipe(
       Effect.flatMap((runtime) => runtime.compact(payload.threadId, payload.instructions)),
-      Effect.catch((error) =>
-        Predicate.isTagged(error, 'HarnessError')
-          ? Effect.fail(new CompactFailed({ thread: payload.threadId, reason: error.message }))
-          : Effect.die(error),
+      Effect.catchTags(
+        {
+          HarnessError: (error) =>
+            Effect.fail(new CompactFailed({ thread: payload.threadId, reason: error.message })),
+          ProviderUnavailable: (error) => Effect.fail(error),
+        },
+        (error) => Effect.die(error),
       ),
     ),
   ForkThread: (payload: { readonly sourceThreadId: ThreadId; readonly cwd: string | undefined }) =>
@@ -355,6 +380,6 @@ export const threadRpcHandlers = (host: Host) => ({
       Effect.flatMap((runtime) =>
         runtime.decide(payload.threadId, payload.request, payload.decision),
       ),
-      Effect.orDie,
+      keepUnavailable,
     ),
 })
