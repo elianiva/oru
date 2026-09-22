@@ -7,7 +7,8 @@ export const resolve = async (specifier, context, next) => {
   if (
     specifier === '@oru/chat-ui' ||
     specifier === '@oru/harness-pi' ||
-    specifier === '@oru/harness-claude-code'
+    specifier === '@oru/harness-claude-code' ||
+    specifier === '@oru/harness-opencode'
   ) {
     // oxlint-disable-next-line anti-slop-effect/no-error-constructor -- SAFETY: ESM resolve hooks report failure by throwing; there is no Effect channel here.
     throw new Error(`blocked workspace source resolution: ${specifier}`)

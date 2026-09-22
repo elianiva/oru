@@ -1,0 +1,35 @@
+{
+  "name": "@oru/harness-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config": "./src/config.ts"
+  },
+  "scripts": {
+    "build": "oru-build-plugin",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "e2e": "vitest run test/e2e.test.ts"
+  },
+  "dependencies": {
+    "@opencode/client": "2.0.12",
+    "@opencode/plugin": "2.0.12",
+    "@opencode/schema": "2.0.12",
+    "@opencode/sdk": "2.0.12",
+    "@oru/harness": "workspace:*",
+    "@oru/kernel": "workspace:*",
+    "effect": "4.0.0-rc.115"
+  },
+  "devDependencies": {
+    "@oru/harness-registry": "workspace:*",
+    "@oru/plugin-build": "workspace:*",
+    "@types/node": "^26.6.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "oru": {
+    "server": "./src/plugin.ts"
+  }
+}

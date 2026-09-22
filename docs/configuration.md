@@ -78,3 +78,7 @@ The injected pi extension still reads `ORU_PI_TOOLS_FILE` from its own process e
 ## Environment the Claude Code bridge sees
 
 The host hands the Claude Code bridge the process environment unchanged, as its plugin config. The bridge reads three names out of it: `ORU_CLAUDE_COMMAND` (default `claude`), `ORU_CLAUDE_ARGS` (a JSON array of extra CLI args, unset by default), and `ORU_CLAUDE_SESSION_DIR` (default `~/.oru/claude-code/sessions`, holding one thread-to-session pointer file per thread). `ORU_CLAUDE_E2E_MODEL` is only for the live end-to-end test.
+
+## Environment the OpenCode bridge sees
+
+The host hands the OpenCode bridge the process environment unchanged, as its plugin config; the bridge reads it from `apply`. There is no CLI to configure or install: OpenCode is embedded in the host process. The bridge reads `ORU_OPENCODE_HOME` (default `~/.oru/opencode`), `ORU_OPENCODE_CONFIG` (unset by default), and `ORU_OPENCODE_E2E_MODEL` (only for the live end-to-end test).

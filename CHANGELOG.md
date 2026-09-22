@@ -17,6 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `defaultHarness` and `defaultModel` host settings, shipped as `pi`, so an unconfigured thread runs the host's choice instead of the first registered harness.
 - A searchable model picker in the composer: search by id and label, groups by provider, marks the harness default, and offers reasoning levels only where a model reports them. The harness renders as a fact, and a harness that is not ready shows its status, its message, and a copyable install command that oru never runs.
 - Provider metadata as a harness contribution: a harness names its providers (`ProviderInfo`: label plus a Lucide icon key over RPC), and the model picker tabs by them with icon tabs above the search, glyphs on the group headers, the harness fact, and the composer trigger ([ADR-0018](./docs/adr/0018-provider-metadata-and-tabs.md)).
+- The OpenCode bridge `@oru/harness-opencode`, embedded in-process instead of spawned ([ADR-0027](./docs/adr/0027-opencode-in-process-embed.md)).
 
 ### Changed
 

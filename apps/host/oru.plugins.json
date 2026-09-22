@@ -1,1 +1,7 @@
-["@oru/harness-pi", "@oru/harness-claude-code", "@oru/chat-ui", "@oru/terminal-ghostty"]
+[
+  "@oru/harness-pi",
+  "@oru/harness-claude-code",
+  "@oru/harness-opencode",
+  "@oru/chat-ui",
+  "@oru/terminal-ghostty"
+]
