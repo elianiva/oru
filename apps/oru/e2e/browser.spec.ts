@@ -65,7 +65,10 @@ test('the shell renders three columns and a separator between each pair', async 
   await expect(page.locator('[data-shell-toggle="right"]')).toBeVisible()
   await expect(page.locator('[data-thread-list]')).toBeVisible()
   await expect(page.locator('[data-main]')).toBeVisible()
-  await expect(page.locator('[data-detail]')).toBeVisible()
+  // The terminal plugin claims the right column, so its launcher is the
+  // stable right-column affordance, not the plugin-off thread details.
+  await expect(page.locator('[data-panel-tabs]')).toBeVisible()
+  await expect(page.locator('[data-panel-new-terminal]')).toContainText('+ Terminal')
   await expect(page.locator('[data-slot="resizable-panel"]')).toHaveCount(3)
   await expect(separators(page)).toHaveCount(2)
 })
@@ -149,10 +152,13 @@ test('the separator collapses its sidebar from the keyboard', async ({ page }) =
   await expect(page.locator('[data-shell-toggle="left"]')).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('an empty thread list selects nothing and the right column says so', async ({ page }) => {
+test('an empty thread list selects nothing and the right column idles the terminal', async ({
+  page,
+}) => {
   await page.goto('/')
-  await expect(page.locator('[data-detail]')).toContainText('No thread selected')
   await expect(page.locator('[data-thread-row]')).toHaveCount(0)
+  await expect(page.locator('[data-panel-new-terminal]')).toContainText('+ Terminal')
+  await expect(page.locator('[data-panel-content]')).toContainText('No terminal yet.')
 })
 
 test('a thread URL is the conversation, and a reload keeps you in it', async ({ page }) => {
@@ -160,7 +166,7 @@ test('a thread URL is the conversation, and a reload keeps you in it', async ({ 
 
   await expect(page.locator('[data-conversation]')).toContainText('thread-1')
   await expect(page.locator('[data-main]')).toHaveCount(0)
-  await expect(page.locator('[data-detail]')).toContainText('No thread selected')
+  await expect(page.locator('[data-panel-new-terminal]')).toBeVisible()
 
   await page.reload()
 
@@ -206,15 +212,18 @@ test('a host that is down renders a named state, and the retry recovers', async 
   await expect(page.locator('[data-projects-list]')).toHaveCount(0)
 })
 
-test('a submit with no project keeps the draft and names the reason', async ({ page }) => {
+test('a submit with Personal picked creates the thread and navigates to it', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-composer-headline]')).toContainText(
     'What should we build in oru?',
   )
+  // The host seeds Personal, so the composer already has a project: the
+  // submit creates a thread instead of naming a missing project.
+  await expect(page.locator('[data-project-picker-trigger]')).toContainText('Personal')
   await page.locator('[data-composer-input]').fill('hello composer')
   await page.locator('[data-composer-submit]').click()
-  await expect(page.locator('[data-submit-error-text]')).toContainText('Select a project first.')
-  await expect(page.locator('[data-composer-input]')).toHaveValue('hello composer')
+  await expect(page).toHaveURL(/\/thread\/.+$/u)
+  await expect(page.locator('[data-conversation]')).toBeVisible()
 })
 
 /**
@@ -223,7 +232,7 @@ test('a submit with no project keeps the draft and names the reason', async ({ p
  * is the one the host recorded rather than the text that was typed.
  *
  * It runs last because the suite shares one journal: earlier cases assert a host
- * with no projects renders no list.
+ * with only its Personal seed renders no projects list.
  */
 test('the project picker creates a project, and its name survives a reload', async ({ page }) => {
   const cwd = dirname(fileURLToPath(import.meta.url))
@@ -243,18 +252,19 @@ test('the project picker creates a project, and its name survives a reload', asy
   await page.locator('#settings-project-create-cwd').fill('relative/place')
   await page.locator('[data-projects-create-save]').click()
 
-  // The host refused the cwd, so its own words are inline and nothing was made.
+  // The host refused the cwd, so its own words are inline and the pick is unchanged.
   await expect(page.locator('[data-projects-create-error]')).toContainText('absolute')
-  await expect(page.locator('[data-project]')).toHaveCount(0)
+  await expect(page.locator('[data-project-picker-trigger]')).toContainText('Personal')
 
   await page.locator('#settings-project-create-cwd').fill(cwd)
   await page.locator('[data-projects-create-save]').click()
 
   await expect(page.locator('[data-project-picker-trigger]')).toContainText('oru-app')
-  await expect(page.locator('[data-project]')).toContainText(cwd)
 
   await page.reload()
 
-  await expect(page.locator('[data-project-picker-trigger]')).toContainText('oru-app')
-  await expect(page.locator('[data-project]')).toContainText(cwd)
+  // The pick itself is session state and falls back, but the host-recorded
+  // project survives the reload: the menu lists it by the name the host kept.
+  await page.locator('[data-project-picker-trigger]').click()
+  await expect(page.locator('[data-project-picker-panel]')).toContainText('oru-app')
 })

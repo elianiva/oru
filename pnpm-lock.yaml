@@ -194,6 +194,9 @@ importers:
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
+      tsdown:
+        specifier: ^0.23.0
+        version: 0.23.0(typescript@7.0.2)
       zigpty:
         specifier: 0.2.1
         version: 0.2.1
@@ -201,9 +204,6 @@ importers:
       '@types/node':
         specifier: ^26.6.1
         version: 26.6.1
-      tsdown:
-        specifier: ^0.23.0
-        version: 0.23.0(typescript@7.0.2)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

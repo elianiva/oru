@@ -38,11 +38,11 @@
     "@oru/workspace-registry": "workspace:*",
     "crossws": "0.4.12",
     "effect": "4.0.0-rc.115",
+    "tsdown": "^0.23.0",
     "zigpty": "0.2.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
-    "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   }
